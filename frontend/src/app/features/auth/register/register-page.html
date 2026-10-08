@@ -1,0 +1,69 @@
+<main class="auth-page">
+  <section class="auth-card" aria-labelledby="register-title">
+    <h1 id="register-title">Create account</h1>
+
+    @if (banner(); as message) {
+      <p class="notice notice--error" role="alert">{{ message }}</p>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <div class="field">
+        <label for="register-display-name">Display name</label>
+        <input
+          id="register-display-name"
+          type="text"
+          formControlName="displayName"
+          autocomplete="nickname"
+          [attr.aria-invalid]="error('displayName') ? true : null"
+          [attr.aria-describedby]="error('displayName') ? 'register-display-name-error' : null"
+        />
+        @if (error('displayName'); as message) {
+          <p class="field-error" id="register-display-name-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="register-email">Email</label>
+        <input
+          id="register-email"
+          type="email"
+          formControlName="email"
+          autocomplete="email"
+          [attr.aria-invalid]="error('email') ? true : null"
+          [attr.aria-describedby]="error('email') ? 'register-email-error' : null"
+        />
+        @if (error('email'); as message) {
+          <p class="field-error" id="register-email-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="register-password">Password</label>
+        <input
+          id="register-password"
+          type="password"
+          formControlName="password"
+          autocomplete="new-password"
+          [attr.aria-invalid]="error('password') ? true : null"
+          [attr.aria-describedby]="
+            error('password') ? 'register-password-error' : 'register-password-hint'
+          "
+        />
+        @if (error('password'); as message) {
+          <p class="field-error" id="register-password-error">{{ message }}</p>
+        } @else {
+          <p class="field-hint" id="register-password-hint">8 to 72 characters</p>
+        }
+      </div>
+
+      <button type="submit" class="btn btn--primary" [disabled]="pending()" [attr.aria-busy]="pending()">
+        @if (pending()) {
+          <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+        }
+        Create account
+      </button>
+    </form>
+
+    <p class="auth-switch">Already have an account? <a routerLink="/login">Sign in</a></p>
+  </section>
+</main>

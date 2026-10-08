@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "ask": [
+      "Edit(/backend/src/main/resources/db/migration/**)",
+      "Edit(/backend/pom.xml)",
+      "Edit(/frontend/package.json)",
+      "Edit(/backend/src/main/java/**/security/**)",
+      "Edit(/backend/src/main/java/**/auth/**)",
+      "Edit(/backend/src/main/java/**/payment/**)",
+      "Edit(/frontend/src/app/**/auth/**)",
+      "Edit(/frontend/src/app/**/payment/**)",
+      "Bash(npm install:*)",
+      "Bash(npm i:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(./mvnw flyway:clean:*)",
+      "Bash(mvn flyway:clean:*)",
+      "Bash(docker compose down -v:*)",
+      "Bash(rm -rf:*)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  }
+}

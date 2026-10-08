@@ -1,6 +1,9 @@
 spring:
   application:
     name: backend
+  autoconfigure:
+    # No in-memory user store; users live in the database (see com.taskapp.auth).
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     # Matches the "db" service in ../docker-compose.yml
     url: ${DB_URL:jdbc:postgresql://localhost:5432/taskapp}
@@ -15,3 +18,20 @@ spring:
 
 server:
   port: 8080
+  servlet:
+    session:
+      timeout: 30m
+      tracking-modes: cookie
+      cookie:
+        http-only: true
+        same-site: lax
+
+app:
+  # Swagger UI + /v3/api-docs are public when enabled (local dev). Set API_DOCS_ENABLED=false to turn them off.
+  api-docs-enabled: ${API_DOCS_ENABLED:true}
+
+springdoc:
+  api-docs:
+    enabled: ${app.api-docs-enabled}
+  swagger-ui:
+    enabled: ${app.api-docs-enabled}

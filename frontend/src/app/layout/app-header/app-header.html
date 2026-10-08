@@ -1,0 +1,17 @@
+<header class="app-header">
+  <span class="app-header__name">Task App</span>
+  <div class="app-header__user">
+    @if (user(); as u) {
+      <span class="app-header__greeting">Hi, {{ u.displayName }}</span>
+    }
+    <button
+      type="button"
+      class="btn btn--secondary"
+      (click)="logout()"
+      [disabled]="loggingOut()"
+      [attr.aria-busy]="loggingOut()"
+    >
+      Log out
+    </button>
+  </div>
+</header>

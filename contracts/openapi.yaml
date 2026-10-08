@@ -1,15 +1,47 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.0.1
+  version: 0.1.0
+  description: |
+    ## Authentication
+    Session-cookie auth (Spring Security). A successful `register` or `login` creates a server-side
+    session and sets the `JSESSIONID` cookie (HttpOnly, Path=/, SameSite=Lax). Sessions expire after
+    30 minutes of inactivity. All `/api/**` endpoints require a session except
+    `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login` and `GET /api/auth/me`
+    (which answers 401 when not signed in rather than being blocked).
+    Unauthenticated calls to protected endpoints return **401** `application/problem+json`.
+    There are never redirects to an HTML login page.
+
+    ## CSRF
+    Every state-changing request (POST/PUT/PATCH/DELETE), **including register, login and logout**,
+    must send header `X-XSRF-TOKEN` with the value of the `XSRF-TOKEN` cookie.
+    - `XSRF-TOKEN` cookie: NOT HttpOnly (JS-readable), Path=/, SameSite=Lax.
+    - The server sets this cookie on any `/api/**` response (including 401 and 4xx) whenever the
+      request did not carry one, and always on register/login/logout (rotation). An existing valid
+      cookie is not re-sent on every response. The app should call `GET /api/auth/me` on startup to
+      obtain it.
+    - The token **rotates** on login, register and logout; the new cookie is set on that same
+      response, so the next request just reads the cookie again (Angular HttpClient does this
+      automatically).
+    - The header value is the raw cookie value (no masking/encoding needed on the client).
+    - Missing/invalid token: **403** problem with `code: CSRF_INVALID`.
+
+    ## Errors
+    All errors are RFC 7807 `application/problem+json` (see `Problem` schema), with a stable
+    machine-readable `code`. Field-level errors (400 validation, 409 duplicate email) also carry an
+    `errors` array of `{field, code, message}`.
 servers:
   - url: http://localhost:8080
+tags:
+  - name: health
+  - name: auth
 paths:
   /api/health:
     get:
       summary: Health check
       operationId: getHealth
       tags: [health]
+      security: []
       responses:
         '200':
           description: Service is up
@@ -17,7 +49,243 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Health'
+
+  /api/auth/me:
+    get:
+      summary: Current signed-in user
+      description: |
+        Returns the user for the current session. Also sets the `XSRF-TOKEN` cookie
+        (on both 200 and 401), so call this first on app startup.
+      operationId: getCurrentUser
+      tags: [auth]
+      security: []
+      responses:
+        '200':
+          description: Signed in
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetXsrfCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                email: bob@example.com
+                displayName: Bob
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/auth/register:
+    post:
+      summary: Create an account and sign in
+      description: |
+        Creates the account and starts a session (auto sign-in). The email is trimmed and
+        lowercased before validation and uniqueness checks; displayName is trimmed.
+        If a session already exists it is replaced by the new user's session.
+      operationId: register
+      tags: [auth]
+      security:
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              displayName: Bob
+              email: Bob@Example.com
+              password: correct-horse
+      responses:
+        '201':
+          description: Account created and signed in. Sets `JSESSIONID` and a rotated `XSRF-TOKEN`.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetSessionAndXsrfCookies'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                email: bob@example.com
+                displayName: Bob
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '409':
+          description: An account with this email already exists
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: An account with this email already exists
+                instance: /api/auth/register
+                code: EMAIL_TAKEN
+                errors:
+                  - field: email
+                    code: EMAIL_TAKEN
+                    message: An account with this email already exists
+
+  /api/auth/login:
+    post:
+      summary: Sign in
+      description: |
+        Email is trimmed and lowercased before lookup (any letter case works). Wrong password and
+        unknown email return the identical 401 response. On success the session ID changes
+        (session-fixation protection) and the `XSRF-TOKEN` rotates.
+      operationId: login
+      tags: [auth]
+      security:
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: BOB@example.com
+              password: correct-horse
+      responses:
+        '200':
+          description: Signed in. Sets `JSESSIONID` and a rotated `XSRF-TOKEN`.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetSessionAndXsrfCookies'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                email: bob@example.com
+                displayName: Bob
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          description: Wrong email or password (same body in both cases)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Unauthorized
+                status: 401
+                detail: Invalid email or password
+                instance: /api/auth/login
+                code: INVALID_CREDENTIALS
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+
+  /api/auth/logout:
+    post:
+      summary: Sign out
+      description: |
+        Invalidates the session, expires the `JSESSIONID` cookie and sets a fresh `XSRF-TOKEN`.
+        Idempotent: returns 204 even if there was no active session (still requires a valid
+        CSRF token).
+      operationId: logout
+      tags: [auth]
+      security:
+        - csrfHeader: []
+      responses:
+        '204':
+          description: Signed out
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetSessionAndXsrfCookies'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: JSESSIONID
+      description: HttpOnly session cookie set by register/login. 30-minute idle timeout.
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-XSRF-TOKEN
+      description: |
+        Must equal the current value of the `XSRF-TOKEN` cookie. Required on every
+        POST/PUT/PATCH/DELETE.
+
+  headers:
+    SetXsrfCookie:
+      description: '`XSRF-TOKEN=<token>; Path=/; SameSite=Lax` (not HttpOnly)'
+      schema:
+        type: string
+    SetSessionAndXsrfCookies:
+      description: |
+        `JSESSIONID=<id>; Path=/; HttpOnly; SameSite=Lax` (expired with Max-Age=0 on logout) and
+        `XSRF-TOKEN=<new token>; Path=/; SameSite=Lax`
+      schema:
+        type: string
+
+  responses:
+    Unauthenticated:
+      description: No session or session expired
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Unauthorized
+            status: 401
+            detail: Authentication required
+            instance: /api/auth/me
+            code: UNAUTHENTICATED
+    CsrfInvalid:
+      description: Missing or invalid CSRF token
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Forbidden
+            status: 403
+            detail: Invalid or missing CSRF token
+            instance: /api/auth/logout
+            code: CSRF_INVALID
+    ValidationFailed:
+      description: |
+        Request validation failed. `errors` lists every invalid field (several at once).
+        A malformed/unparseable JSON body also returns 400 with `code: MALFORMED_REQUEST`
+        and no `errors` array.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Bad Request
+            status: 400
+            detail: Validation failed
+            instance: /api/auth/register
+            code: VALIDATION_FAILED
+            errors:
+              - field: displayName
+                code: REQUIRED
+                message: Display name is required
+              - field: email
+                code: INVALID_EMAIL
+                message: Enter a valid email address
+              - field: password
+                code: PASSWORD_LENGTH
+                message: Password must be 8 to 72 characters
+
   schemas:
     Health:
       type: object
@@ -26,3 +294,126 @@ components:
         status:
           type: string
           example: UP
+
+    User:
+      type: object
+      description: Never contains the password or its hash.
+      required: [id, email, displayName]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        email:
+          type: string
+          format: email
+          description: Normalized (trimmed, lowercase)
+          example: bob@example.com
+        displayName:
+          type: string
+          example: Bob
+
+    RegisterRequest:
+      type: object
+      required: [displayName, email, password]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Trimmed; must be 1-50 characters after trimming.
+          example: Bob
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Trimmed and lowercased; must be a valid email, max 254 characters.
+          example: bob@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: |
+            8-72 characters AND at most 72 bytes when UTF-8 encoded (BCrypt's limit; only matters
+            for non-ASCII input). Not trimmed. Either violation returns `PASSWORD_LENGTH`.
+          example: correct-horse
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Trimmed and lowercased; must be non-blank and a valid email.
+          example: bob@example.com
+        password:
+          type: string
+          format: password
+          description: Must be non-blank. Length policy is NOT checked at login.
+          example: correct-horse
+
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+          enum: [displayName, email, password]
+          description: Name of the request field (exactly as in the request body).
+        code:
+          type: string
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN]
+          description: |
+            Stable machine-readable reason.
+            - REQUIRED: missing, empty or blank
+            - INVALID_EMAIL: not a valid email address
+            - TOO_LONG: displayName > 50 or email > 254 characters
+            - PASSWORD_LENGTH: password not 8-72 characters, or over 72 UTF-8 bytes
+            - EMAIL_TAKEN: (409 only) email already registered
+        message:
+          type: string
+          description: Human-readable English message, safe to display.
+
+    Problem:
+      type: object
+      description: RFC 7807 problem detail with app extensions `code` and `errors`.
+      required: [type, title, status, detail, code]
+      properties:
+        type:
+          type: string
+          example: about:blank
+        title:
+          type: string
+          example: Bad Request
+        status:
+          type: integer
+          example: 400
+        detail:
+          type: string
+          example: Validation failed
+        instance:
+          type: string
+          example: /api/auth/register
+        code:
+          type: string
+          enum:
+            - VALIDATION_FAILED
+            - MALFORMED_REQUEST
+            - EMAIL_TAKEN
+            - INVALID_CREDENTIALS
+            - UNAUTHENTICATED
+            - CSRF_INVALID
+            - FORBIDDEN
+            - NOT_FOUND
+            - INTERNAL_ERROR
+          description: Stable machine-readable error code.
+        errors:
+          type: array
+          description: Present for VALIDATION_FAILED (400) and EMAIL_TAKEN (409) only.
+          items:
+            $ref: '#/components/schemas/FieldError'
+
+security:
+  - sessionCookie: []
