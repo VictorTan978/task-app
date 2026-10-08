@@ -1,0 +1,73 @@
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+
+  &__check {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex: none;
+    cursor: pointer;
+  }
+
+  &__main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__title {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-muted);
+  }
+
+  &__overdue {
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    color: #fff;
+    background: var(--color-error);
+    font-weight: 600;
+    font-size: 0.75rem;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex: none;
+  }
+
+  &--done &__title {
+    text-decoration: line-through;
+    color: var(--color-muted);
+  }
+}
+
+.btn--small {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+}

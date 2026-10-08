@@ -1,0 +1,13 @@
+.add-form {
+  margin-bottom: 1.25rem;
+
+  &__row {
+    display: flex;
+    gap: 0.5rem;
+
+    input {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+}

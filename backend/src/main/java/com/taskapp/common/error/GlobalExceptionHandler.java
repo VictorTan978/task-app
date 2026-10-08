@@ -7,6 +7,7 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -23,6 +24,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import com.taskapp.auth.EmailTakenException;
 import com.taskapp.auth.InvalidCredentialsException;
 import com.taskapp.auth.UnauthenticatedException;
+import com.taskapp.task.TaskNotFoundException;
 
 /**
  * Turns every error raised in the MVC layer into an {@code application/problem+json} body with a {@code code}.
@@ -59,6 +61,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 Problems.of(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHENTICATED, "Authentication required"));
     }
 
+    @ExceptionHandler(TaskNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleTaskNotFound(TaskNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                Problems.of(HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "Task not found"));
+    }
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<ProblemDetail> handleUnexpected(Exception ex) {
         log.error("Unhandled exception", ex);
@@ -87,6 +95,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         return ResponseEntity.badRequest().body(
                 Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.MALFORMED_REQUEST, "Malformed request body"));
+    }
+
+    /** Path/query parameter of the wrong type, e.g. {@code /api/tasks/abc}. */
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex, HttpHeaders headers,
+            HttpStatusCode status, WebRequest request) {
+        String detail = "Failed to convert '" + ex.getPropertyName() + "' with value '" + ex.getValue() + "'";
+        return ResponseEntity.badRequest().body(
+                Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.MALFORMED_REQUEST, detail));
     }
 
     /** Adds a {@code code} to the ProblemDetails Spring MVC builds for its own exceptions (404, 405, 415, ...). */

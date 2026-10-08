@@ -1,0 +1,31 @@
+<form class="add-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  <div class="field add-form__field">
+    <label for="task-add-title">New task</label>
+    <div class="add-form__row">
+      <input
+        id="task-add-title"
+        type="text"
+        formControlName="title"
+        placeholder="What do you need to do?"
+        autocomplete="off"
+        [readOnly]="pending()"
+        [attr.aria-invalid]="titleError() ? true : null"
+        [attr.aria-describedby]="titleError() ? 'task-add-title-error' : null"
+      />
+      <button
+        type="submit"
+        class="btn btn--primary"
+        [disabled]="blank() || pending()"
+        [attr.aria-busy]="pending()"
+      >
+        @if (pending()) {
+          <span class="spinner" aria-hidden="true"></span>
+        }
+        Add
+      </button>
+    </div>
+    @if (titleError(); as message) {
+      <p class="field-error" id="task-add-title-error">{{ message }}</p>
+    }
+  </div>
+</form>

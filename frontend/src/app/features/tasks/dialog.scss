@@ -1,0 +1,83 @@
+.dialog {
+  width: min(560px, calc(100vw - 2rem));
+  padding: 1.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+
+  &::backdrop {
+    background: rgb(0 0 0 / 35%);
+  }
+
+  &--narrow {
+    width: min(420px, calc(100vw - 2rem));
+  }
+
+  &__title {
+    margin: 0 0 1rem;
+    font-size: 1.25rem;
+    overflow-wrap: anywhere;
+  }
+
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  &__inline {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+}
+
+.field textarea {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font: inherit;
+  resize: vertical;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+  }
+
+  &[aria-invalid='true'] {
+    border-color: var(--color-error);
+  }
+}
+
+.field--checkbox {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 0.5rem;
+
+  .field-error {
+    flex-basis: 100%;
+  }
+}
+
+.notice--action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.btn--danger {
+  color: #fff;
+  background: var(--color-error);
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.9);
+  }
+}

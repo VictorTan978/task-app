@@ -1,0 +1,86 @@
+<dialog #dialog class="dialog" aria-labelledby="task-edit-heading" (cancel)="onCancel($event)">
+  <h2 id="task-edit-heading" class="dialog__title">Edit task</h2>
+
+  @if (error(); as message) {
+    <div class="notice notice--error notice--action" role="alert">
+      <span>{{ message }}</span>
+      <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="retry()">
+        Retry
+      </button>
+    </div>
+  }
+
+  <form class="dialog__form" [formGroup]="form" (ngSubmit)="save()" novalidate>
+    <div class="field">
+      <label for="task-edit-title">Title</label>
+      <input
+        id="task-edit-title"
+        type="text"
+        formControlName="title"
+        autocomplete="off"
+        [attr.aria-invalid]="fieldError('title') ? true : null"
+        [attr.aria-describedby]="fieldError('title') ? 'task-edit-title-error' : null"
+      />
+      @if (fieldError('title'); as message) {
+        <p class="field-error" id="task-edit-title-error">{{ message }}</p>
+      }
+    </div>
+
+    <div class="field">
+      <label for="task-edit-description">Description</label>
+      <textarea
+        id="task-edit-description"
+        formControlName="description"
+        rows="4"
+        [attr.aria-invalid]="fieldError('description') ? true : null"
+        [attr.aria-describedby]="fieldError('description') ? 'task-edit-description-error' : null"
+      ></textarea>
+      @if (fieldError('description'); as message) {
+        <p class="field-error" id="task-edit-description-error">{{ message }}</p>
+      }
+    </div>
+
+    <div class="field">
+      <label for="task-edit-due">Due date</label>
+      <div class="dialog__inline">
+        <input id="task-edit-due" type="date" formControlName="dueDate" />
+        @if (form.controls.dueDate.value) {
+          <button type="button" class="btn btn--secondary" (click)="clearDueDate()">
+            Clear date
+          </button>
+        }
+      </div>
+    </div>
+
+    <div class="field field--checkbox">
+      <input
+        id="task-edit-done"
+        type="checkbox"
+        formControlName="done"
+        [attr.aria-invalid]="fieldError('done') ? true : null"
+        [attr.aria-describedby]="fieldError('done') ? 'task-edit-done-error' : null"
+      />
+      <label for="task-edit-done">Done</label>
+      @if (fieldError('done'); as message) {
+        <p class="field-error" id="task-edit-done-error">{{ message }}</p>
+      }
+    </div>
+
+    <div class="dialog__actions">
+      <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
+        Cancel
+      </button>
+      <button
+        type="submit"
+        class="btn btn--primary"
+        [disabled]="pending()"
+        [attr.aria-busy]="pending()"
+      >
+        @if (pending()) {
+          <span class="spinner" aria-hidden="true"></span>
+        }
+        Save
+      </button>
+    </div>
+  </form>
+</dialog>

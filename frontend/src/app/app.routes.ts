@@ -2,7 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard, guestGuard } from './core/auth/auth.guards';
 import { LoginPage } from './features/auth/login/login-page';
 import { RegisterPage } from './features/auth/register/register-page';
-import { TasksPlaceholderPage } from './features/tasks/tasks-placeholder-page';
+import { TasksPage } from './features/tasks/tasks-page/tasks-page';
 import { ShellLayout } from './layout/shell/shell-layout';
 
 export const routes: Routes = [
@@ -18,7 +18,7 @@ export const routes: Routes = [
     path: '',
     component: ShellLayout,
     canActivate: [authGuard],
-    children: [{ path: 'tasks', title: 'Tasks · Task App', component: TasksPlaceholderPage }],
+    children: [{ path: 'tasks', title: 'Tasks · Task App', component: TasksPage }],
   },
   { path: '**', redirectTo: 'tasks' },
 ];

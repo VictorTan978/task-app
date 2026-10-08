@@ -1,0 +1,35 @@
+<dialog
+  #dialog
+  class="dialog dialog--narrow"
+  aria-labelledby="task-delete-heading"
+  (cancel)="onCancel($event)"
+>
+  <h2 id="task-delete-heading" class="dialog__title">Delete '{{ task().title }}'?</h2>
+
+  @if (error(); as message) {
+    <div class="notice notice--error notice--action" role="alert">
+      <span>{{ message }}</span>
+      <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="confirm()">
+        Retry
+      </button>
+    </div>
+  }
+
+  <div class="dialog__actions">
+    <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
+      Cancel
+    </button>
+    <button
+      type="button"
+      class="btn btn--danger"
+      [disabled]="pending()"
+      [attr.aria-busy]="pending()"
+      (click)="confirm()"
+    >
+      @if (pending()) {
+        <span class="spinner" aria-hidden="true"></span>
+      }
+      Delete
+    </button>
+  </div>
+</dialog>

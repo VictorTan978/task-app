@@ -1,0 +1,47 @@
+<div class="task-row" [class.task-row--done]="task().done" [attr.aria-busy]="busy()">
+  <input
+    #checkbox
+    type="checkbox"
+    class="task-row__check"
+    [checked]="task().done"
+    [disabled]="busy()"
+    [attr.aria-label]="'Done: ' + task().title"
+    (change)="onToggle($event)"
+  />
+  <div class="task-row__main">
+    <button type="button" class="task-row__title" [disabled]="busy()" (click)="edit.emit()">
+      {{ task().title }}
+    </button>
+    @if (task().dueDate; as due) {
+      <span class="task-row__meta">
+        <span class="task-row__due"
+          >Due <time [attr.datetime]="due">{{ due }}</time></span
+        >
+        @if (overdue()) {
+          <span class="task-row__overdue">Overdue</span>
+        }
+      </span>
+    }
+  </div>
+  @if (busy()) {
+    <span class="spinner task-row__spinner" aria-hidden="true"></span>
+  }
+  <div class="task-row__actions">
+    <button
+      type="button"
+      class="btn btn--secondary btn--small"
+      [disabled]="busy()"
+      (click)="edit.emit()"
+    >
+      Edit
+    </button>
+    <button
+      type="button"
+      class="btn btn--secondary btn--small"
+      [disabled]="busy()"
+      (click)="remove.emit()"
+    >
+      Delete
+    </button>
+  </div>
+</div>

@@ -1,0 +1,75 @@
+<section class="tasks-page" aria-labelledby="tasks-heading">
+  <h1 id="tasks-heading">Your tasks</h1>
+
+  <app-task-add-form
+    (started)="onAddStarted()"
+    (created)="onCreated($event)"
+    (failed)="onAddFailed($event)"
+  />
+
+  <nav class="tasks-tabs" aria-label="Filter tasks">
+    @for (tab of tabs; track tab.filter) {
+      <a
+        class="tasks-tabs__tab"
+        routerLink="."
+        [queryParams]="{ filter: tab.param }"
+        [class.tasks-tabs__tab--active]="filter() === tab.filter"
+        [attr.aria-current]="filter() === tab.filter ? 'page' : null"
+        >{{ tab.label }}</a
+      >
+    }
+  </nav>
+
+  @if (banner(); as b) {
+    <div class="notice notice--error notice--action" role="alert">
+      <span>{{ b.message }}</span>
+      @if (b.retry; as retry) {
+        <button type="button" class="btn btn--secondary" (click)="retry()">Retry</button>
+      }
+    </div>
+  }
+
+  @if (loading()) {
+    <p class="tasks-status" role="status">
+      <span class="spinner" aria-hidden="true"></span>
+      Loading tasks…
+    </p>
+  } @else if (loaded()) {
+    @if (tasks().length === 0) {
+      <p class="tasks-status tasks-empty">{{ emptyText() }}</p>
+    } @else {
+      <ul class="task-list" aria-label="Tasks">
+        @for (task of tasks(); track task.id) {
+          <li class="task-list__item">
+            <app-task-row
+              [task]="task"
+              [today]="today()"
+              [busy]="isBusy(task.id)"
+              (doneChange)="toggle(task, $event)"
+              (edit)="openEdit(task)"
+              (remove)="openDelete(task)"
+            />
+          </li>
+        }
+      </ul>
+    }
+  }
+</section>
+
+@if (editing(); as task) {
+  <app-task-edit-dialog
+    [task]="task"
+    (saved)="onSaved($event)"
+    (closed)="editing.set(null)"
+    (notFound)="taskGone()"
+  />
+}
+
+@if (deleting(); as task) {
+  <app-confirm-delete-dialog
+    [task]="task"
+    (deleted)="onDeleted($event)"
+    (closed)="deleting.set(null)"
+    (notFound)="taskGone()"
+  />
+}
