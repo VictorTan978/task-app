@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: backend
+  datasource:
+    # Matches the "db" service in ../docker-compose.yml
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/taskapp}
+    username: ${DB_USERNAME:taskapp}
+    password: ${DB_PASSWORD:taskapp}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    locations: classpath:db/migration
+
+server:
+  port: 8080
