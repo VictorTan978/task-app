@@ -12,6 +12,7 @@ Full-stack task app: Angular frontend + Spring Boot backend + MySQL.
 | Database | MySQL 8.4 in Docker | `docker compose up -d db` | — |
 | Migrations | `backend/src/main/resources/db/migration/` (Flyway) | **Flyway applies new migrations automatically when the backend starts.** | — |
 | API contract | `contracts/openapi.yaml` | Single source of truth for the API. **Backend owns it.** | — |
+| Dependency scan | — | Frontend: `cd frontend && npm audit`. Backend (known CVEs, report in `backend/target/`): `cd backend && ./mvnw org.owasp:dependency-check-maven:12.1.0:check -DnvdApiKey=$NVD_API_KEY` (free key: https://nvd.nist.gov/developers/request-an-api-key; the first run without a key takes hours). Dependabot (`.github/dependabot.yml`) opens weekly update PRs once the repo is on GitHub. | — |
 
 ## Your team (subagents)
 
