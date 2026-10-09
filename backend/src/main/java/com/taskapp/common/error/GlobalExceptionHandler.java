@@ -25,6 +25,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import com.taskapp.auth.InvalidCredentialsException;
 import com.taskapp.auth.RegistrationConflictException;
 import com.taskapp.auth.UnauthenticatedException;
+import com.taskapp.security.ratelimit.RateLimitedException;
 import com.taskapp.task.TaskNotFoundException;
 
 /**
@@ -68,6 +69,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<ProblemDetail> handleInvalidCredentials(InvalidCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                 Problems.of(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_CREDENTIALS, "Invalid email or password"));
+    }
+
+    /** Every rate-limit refusal (per-IP and per-email) ends up here. */
+    @ExceptionHandler(RateLimitedException.class)
+    ResponseEntity<ProblemDetail> handleRateLimited(RateLimitedException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(ex.retryAfterSeconds()))
+                .body(Problems.of(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.RATE_LIMITED,
+                        "Too many attempts. Please try again later."));
     }
 
     @ExceptionHandler(UnauthenticatedException.class)

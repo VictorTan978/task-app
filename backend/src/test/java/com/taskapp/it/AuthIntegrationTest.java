@@ -30,7 +30,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * Uses a small cookie jar so the tests behave like a browser + Angular HttpClient.
  */
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        // Many registrations/logins from 127.0.0.1; the per-email failure limit keeps its default.
+        "app.rate-limit.login-per-ip-per-minute=10000",
+        "app.rate-limit.register-per-ip-per-hour=10000"})
 class AuthIntegrationTest {
 
     @Container
@@ -375,6 +378,64 @@ class AuthIntegrationTest {
         assertThat(unknownEmail.status()).isEqualTo(401);
         assertThat(wrongPassword.json().get("code").asText()).isEqualTo("INVALID_CREDENTIALS");
         assertThat(wrongPassword.body()).isEqualTo(unknownEmail.body());
+    }
+
+    private static String loginBody(String email, String password) {
+        return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}";
+    }
+
+    @Test
+    void fiveFailedLoginsBlockThatEmailEvenWithCorrectPassword() throws Exception {
+        new Browser().start().post("/api/auth/register", registerBody("Rita", "rita@example.com", "correct-horse"));
+        new Browser().start().post("/api/auth/register", registerBody("Sam", "sam@example.com", "correct-horse"));
+        Browser b = new Browser().start();
+        for (int i = 0; i < 5; i++) {
+            assertThat(b.post("/api/auth/login", loginBody("rita@example.com", "wrong-horse")).status()).isEqualTo(401);
+        }
+
+        Resp blocked = b.post("/api/auth/login", loginBody(" RITA@example.com", "correct-horse"));
+
+        assertThat(blocked.status()).isEqualTo(429);
+        assertThat(blocked.contentType()).startsWith("application/problem+json");
+        assertThat(blocked.json().get("code").asText()).isEqualTo("RATE_LIMITED");
+        assertThat(blocked.json().get("detail").asText()).isEqualTo("Too many attempts. Please try again later.");
+        assertThat(blocked.json().has("errors")).isFalse();
+        assertThat(blocked.setCookie("JSESSIONID")).isNull();
+        HttpResponse<String> raw = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login"))
+                .header("Content-Type", "application/json")
+                .header("Cookie", "XSRF-TOKEN=" + b.cookies.get("XSRF-TOKEN"))
+                .header("X-XSRF-TOKEN", b.cookies.get("XSRF-TOKEN"))
+                .POST(HttpRequest.BodyPublishers.ofString(loginBody("rita@example.com", "correct-horse"))).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(raw.statusCode()).isEqualTo(429);
+        assertThat(Long.parseLong(raw.headers().firstValue("Retry-After").orElseThrow())).isBetween(1L, 900L);
+
+        // Other emails are not affected.
+        assertThat(b.post("/api/auth/login", loginBody("sam@example.com", "correct-horse")).status()).isEqualTo(200);
+    }
+
+    @Test
+    void unknownEmailsAreLimitedLikeKnownOnes() throws Exception {
+        Browser b = new Browser().start();
+        for (int i = 0; i < 5; i++) {
+            assertThat(b.post("/api/auth/login", loginBody("ghost@example.com", "wrong-horse")).status()).isEqualTo(401);
+        }
+        assertThat(b.post("/api/auth/login", loginBody("ghost@example.com", "wrong-horse")).status()).isEqualTo(429);
+    }
+
+    @Test
+    void successfulLoginResetsFailureCount() throws Exception {
+        new Browser().start().post("/api/auth/register", registerBody("Tom", "tom@example.com", "correct-horse"));
+        Browser b = new Browser().start();
+        for (int i = 0; i < 4; i++) {
+            assertThat(b.post("/api/auth/login", loginBody("tom@example.com", "wrong-horse")).status()).isEqualTo(401);
+        }
+        assertThat(b.post("/api/auth/login", loginBody("tom@example.com", "correct-horse")).status()).isEqualTo(200);
+
+        for (int i = 0; i < 4; i++) {
+            assertThat(b.post("/api/auth/login", loginBody("tom@example.com", "wrong-horse")).status()).isEqualTo(401);
+        }
+        assertThat(b.post("/api/auth/login", loginBody("tom@example.com", "correct-horse")).status()).isEqualTo(200);
     }
 
     @Test

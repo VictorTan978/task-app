@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     ## Authentication
     Session-cookie auth (Spring Security). A successful `register` or `login` creates a server-side
@@ -30,6 +30,25 @@ info:
     All errors are RFC 7807 `application/problem+json` (see `Problem` schema), with a stable
     machine-readable `code`. Field-level errors (400 validation, 409 duplicate email and/or display
     name on register) also carry an `errors` array of `{field, code, message}`.
+
+    ## Rate limiting
+    `POST /api/auth/login` and `POST /api/auth/register` are rate limited. Counters are kept in
+    memory per server instance (reset on restart). When a limit is hit the API returns **429**
+    `application/problem+json` with `code: RATE_LIMITED`, detail
+    "Too many attempts. Please try again later." and a `Retry-After` header (whole seconds, >= 1).
+    A 429 never carries an `errors` array. Defaults (configurable on the server):
+    - Login, per client IP: 20 requests per 1 minute. Counted on every login request that passes
+      the CSRF check, including ones that end in 400 or 401.
+    - Login, per email (trimmed, lowercased): after 5 **failed** logins within 15 minutes, further
+      logins for that email get 429 (even with the correct password) until the oldest failure is
+      15 minutes old. Unknown emails are counted the same way, so the 429 does not reveal whether
+      an account exists. A successful login resets that email's failure count. This check runs
+      after body validation and before the password is checked. Other emails are not affected.
+    - Register, per client IP: 5 requests per 1 hour. Counted on every register request that
+      passes the CSRF check, including ones that end in 400 or 409.
+
+    Precedence: 403 `CSRF_INVALID` > 429 (per-IP) > 400 `VALIDATION_FAILED` > 429 (per-email) >
+    401 / 409.
 
     ## Request bodies
     Unknown properties in a JSON request body are ignored (never an error). In particular any
@@ -186,6 +205,8 @@ paths:
                       - field: displayName
                         code: DISPLAY_NAME_TAKEN
                         message: This display name is already taken
+        '429':
+          $ref: '#/components/responses/RateLimited'
 
   /api/auth/login:
     post:
@@ -240,6 +261,8 @@ paths:
                 code: INVALID_CREDENTIALS
         '403':
           $ref: '#/components/responses/CsrfInvalid'
+        '429':
+          $ref: '#/components/responses/RateLimited'
 
   /api/auth/logout:
     post:
@@ -523,8 +546,31 @@ components:
         `XSRF-TOKEN=<new token>; Path=/; SameSite=Lax`
       schema:
         type: string
+    RetryAfter:
+      description: Seconds to wait before trying again (integer, at least 1).
+      schema:
+        type: integer
+        minimum: 1
+      example: 840
 
   responses:
+    RateLimited:
+      description: |
+        Too many attempts (see "Rate limiting" above). Wait `Retry-After` seconds before retrying.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Too Many Requests
+            status: 429
+            detail: Too many attempts. Please try again later.
+            instance: /api/auth/login
+            code: RATE_LIMITED
     Unauthenticated:
       description: No session or session expired
       content:
@@ -883,6 +929,7 @@ components:
             - CSRF_INVALID
             - FORBIDDEN
             - NOT_FOUND
+            - RATE_LIMITED
             - INTERNAL_ERROR
           description: |
             Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email

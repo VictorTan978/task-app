@@ -10,6 +10,15 @@ function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };
 }
 
+const RATE_LIMITED = {
+  type: 'about:blank',
+  title: 'Too Many Requests',
+  status: 429,
+  detail: 'Too many attempts. Please try again later.',
+  instance: '/api/auth/register',
+  code: 'RATE_LIMITED',
+};
+
 describe('RegisterPage', () => {
   let fixture: ComponentFixture<RegisterPage>;
   let el: HTMLElement;
@@ -188,5 +197,31 @@ describe('RegisterPage', () => {
       'Something went wrong, please try again',
     );
     expect(button().disabled).toBe(false);
+  });
+
+  it('shows the rate-limit message and no field errors on 429 RATE_LIMITED', async () => {
+    await submit();
+    http.expectOne('/api/auth/register').flush(RATE_LIMITED, {
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: { 'Retry-After': '840' },
+    });
+    await fixture.whenStable();
+    const alerts = el.querySelectorAll('[role=alert]');
+    expect(alerts.length).toBe(1);
+    expect(alerts[0].textContent?.trim()).toBe(
+      'Too many attempts. Please wait a few minutes and try again.',
+    );
+    expect(el.querySelector('.field-error')).toBeNull();
+    expect(el.querySelector('[aria-invalid]')).toBeNull();
+    expect(button().disabled).toBe(false);
+    expect(el.querySelector('[data-testid=spinner]')).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+
+    // The button works again: a retry clears the message and sends a new request.
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    expect(el.querySelector('[role=alert]')).toBeNull();
+    http.expectOne('/api/auth/register').flush(BOB, { status: 201, statusText: 'Created' });
   });
 });

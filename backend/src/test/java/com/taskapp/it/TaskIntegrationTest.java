@@ -30,7 +30,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Task API end-to-end over real HTTP against MySQL 8.4 with the Flyway migrations applied. */
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        // Many registrations/logins from 127.0.0.1; the per-email failure limit keeps its default.
+        "app.rate-limit.login-per-ip-per-minute=10000",
+        "app.rate-limit.register-per-ip-per-hour=10000"})
 class TaskIntegrationTest {
 
     @Container

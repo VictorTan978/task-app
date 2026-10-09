@@ -12,6 +12,7 @@ public final class ErrorCode {
     public static final String CSRF_INVALID = "CSRF_INVALID";
     public static final String FORBIDDEN = "FORBIDDEN";
     public static final String NOT_FOUND = "NOT_FOUND";
+    public static final String RATE_LIMITED = "RATE_LIMITED";
     public static final String INTERNAL_ERROR = "INTERNAL_ERROR";
 
     /** Field-level codes used inside {@code errors[]}. */

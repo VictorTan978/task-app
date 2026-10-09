@@ -52,6 +52,16 @@ describe('authErrorInterceptor', () => {
     expect(navigateByUrl).not.toHaveBeenCalled();
   });
 
+  it.each(['/api/auth/login', '/api/auth/register', '/api/tasks'])(
+    'never treats 429 RATE_LIMITED from %s as signed out, and rethrows it',
+    (url) => {
+      const error = call(url, 429, 'RATE_LIMITED');
+      expect(handleSessionLost).not.toHaveBeenCalled();
+      expect(navigateByUrl).not.toHaveBeenCalled();
+      expect(error).toMatchObject({ status: 429 });
+    },
+  );
+
   it('ignores 401 with another code', () => {
     call('/api/tasks', 401, 'INVALID_CREDENTIALS');
     expect(handleSessionLost).not.toHaveBeenCalled();

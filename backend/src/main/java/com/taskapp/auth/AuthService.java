@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.taskapp.auth.dto.LoginRequest;
 import com.taskapp.auth.dto.RegisterRequest;
 import com.taskapp.auth.dto.UserResponse;
+import com.taskapp.security.ratelimit.AuthRateLimiter;
 
 @Service
 public class AuthService {
@@ -24,12 +25,15 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuthRateLimiter rateLimiter;
     /** Compared against when the email is unknown so both failure paths cost one BCrypt check. */
     private final String dummyHash;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
+            AuthRateLimiter rateLimiter) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.rateLimiter = rateLimiter;
         this.dummyHash = passwordEncoder.encode("timing-equalizer-not-a-real-password");
     }
 
@@ -91,17 +95,25 @@ public class AuthService {
         return lower.substring(lower.lastIndexOf('.') + 1);
     }
 
-    /** Throws {@link InvalidCredentialsException} for unknown email and wrong password alike. */
+    /**
+     * Throws {@link InvalidCredentialsException} for unknown email and wrong password alike, and counts both
+     * as a failure for that email. Too many recent failures for the email throw
+     * {@link com.taskapp.security.ratelimit.RateLimitedException} before the password is checked.
+     */
     @Transactional(readOnly = true)
     public UserResponse login(LoginRequest request) {
+        rateLimiter.checkLoginAllowed(request.email());
         User user = userRepository.findByEmail(request.email()).orElse(null);
         if (user == null) {
             passwordEncoder.matches(request.password(), dummyHash);
+            rateLimiter.recordLoginFailure(request.email());
             throw new InvalidCredentialsException();
         }
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            rateLimiter.recordLoginFailure(request.email());
             throw new InvalidCredentialsException();
         }
+        rateLimiter.recordLoginSuccess(request.email());
         return UserResponse.from(user);
     }
 

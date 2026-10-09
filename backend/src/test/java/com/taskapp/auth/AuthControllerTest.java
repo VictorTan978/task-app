@@ -35,7 +35,10 @@ import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.security.SecurityConfig;
 import com.taskapp.security.SessionAuthenticator;
 
-@WebMvcTest(AuthController.class)
+// High per-IP limits: the cached context's limiter sees every request in this class. Rate limiting: AuthRateLimitControllerTest.
+@WebMvcTest(controllers = AuthController.class, properties = {
+        "app.rate-limit.login-per-ip-per-minute=10000",
+        "app.rate-limit.register-per-ip-per-hour=10000"})
 @Import({SecurityConfig.class, SessionAuthenticator.class})
 class AuthControllerTest {
 

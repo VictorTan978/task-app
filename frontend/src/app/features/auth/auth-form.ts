@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { AbstractControl, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
 import { FieldError, FieldErrorCode, FieldName, Problem } from '../../core/auth/auth.models';
 import { readProblem } from '../../core/auth/problem';
@@ -5,6 +6,7 @@ import { readProblem } from '../../core/auth/problem';
 export const GENERIC_ERROR = 'Something went wrong, please try again';
 export const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password';
 export const SESSION_EXPIRED_MESSAGE = 'Your session expired, please sign in again';
+export const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a few minutes and try again.';
 
 export const DISPLAY_NAME_MAX = 50;
 export const EMAIL_MAX = 254;
@@ -155,4 +157,9 @@ export function fieldProblem(error: unknown): Problem | null {
     message: problem.detail,
   };
   return { ...problem, errors: [fallback] };
+}
+
+/** True for a 429 (`RATE_LIMITED`) response. Any 429 counts, even without a problem body. */
+export function isRateLimited(error: unknown): boolean {
+  return error instanceof HttpErrorResponse && error.status === 429;
 }

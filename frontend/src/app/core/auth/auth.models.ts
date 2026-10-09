@@ -43,6 +43,7 @@ export type ProblemCode =
   | 'CSRF_INVALID'
   | 'FORBIDDEN'
   | 'NOT_FOUND'
+  | 'RATE_LIMITED'
   | 'INTERNAL_ERROR';
 
 export interface Problem {

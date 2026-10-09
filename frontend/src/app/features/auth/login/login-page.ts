@@ -12,6 +12,8 @@ import {
   fieldProblem,
   GENERIC_ERROR,
   INVALID_CREDENTIALS_MESSAGE,
+  isRateLimited,
+  RATE_LIMITED_MESSAGE,
   requiredTrimmed,
   SESSION_EXPIRED_MESSAGE,
 } from '../auth-form';
@@ -70,6 +72,10 @@ export class LoginPage {
   }
 
   private handleError(error: unknown): void {
+    if (isRateLimited(error)) {
+      this.banner.set(RATE_LIMITED_MESSAGE);
+      return;
+    }
     if (hasProblemCode(error, 401, 'INVALID_CREDENTIALS')) {
       this.formError.set(INVALID_CREDENTIALS_MESSAGE);
       return;

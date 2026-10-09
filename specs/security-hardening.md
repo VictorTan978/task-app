@@ -11,12 +11,12 @@ As the owner of the task app, I want the backend to block password guessing, pro
 ## Acceptance criteria
 
 ### A. Rate limiting (#8)
-- [ ] AC1: Given the same email has had 5 failed logins in the last 15 minutes, when a 6th login is attempted for that email (even with the right password), then the API returns **429** with a ProblemDetail `code: RATE_LIMITED` and a `Retry-After` header. Other emails are not affected.
-- [ ] AC2: Given one IP address has made 20 login requests in the last minute, when it makes another, then the API returns 429 `RATE_LIMITED`.
-- [ ] AC3: Given one IP address has made 5 register requests in the last hour, when it makes another, then the API returns 429 `RATE_LIMITED`.
-- [ ] AC4: Given a successful login, then the failure counter for that email is reset.
-- [ ] AC5: Given the login or register page gets a 429, then the user sees "Too many attempts. Please wait a few minutes and try again." and no field errors.
-- [ ] AC6: `contracts/openapi.yaml` documents the 429 response on login and register.
+- [x] AC1: Given the same email has had 5 failed logins in the last 15 minutes, when a 6th login is attempted for that email (even with the right password), then the API returns **429** with a ProblemDetail `code: RATE_LIMITED` and a `Retry-After` header. Other emails are not affected.
+- [x] AC2: Given one IP address has made 20 login requests in the last minute, when it makes another, then the API returns 429 `RATE_LIMITED`.
+- [x] AC3: Given one IP address has made 5 register requests in the last hour, when it makes another, then the API returns 429 `RATE_LIMITED`.
+- [x] AC4: Given a successful login, then the failure counter for that email is reset.
+- [x] AC5: Given the login or register page gets a 429, then the user sees "Too many attempts. Please wait a few minutes and try again." and no field errors.
+- [x] AC6: `contracts/openapi.yaml` documents the 429 response on login and register.
 
 ### B. HTTPS, Secure cookies, proxy headers (#1, #4)
 - [ ] AC7: Given production settings, then the session cookie and the `XSRF-TOKEN` cookie carry the `Secure` flag, including the cookie that logout clears.
@@ -67,3 +67,6 @@ _Filled in by the PM during the build._
 | 2026-10-09 | Rate limiting is hand-written and in memory, with no new dependency | Enough for a single instance; avoids adding a dependency | user |
 | 2026-10-09 | Secure by default: no profile means production settings, and local runs use `SPRING_PROFILES_ACTIVE=dev` | Forgetting a setting fails safe | user |
 | 2026-10-09 | Dependabot config plus a documented OWASP command-line scan; no pom change | No new dependency; Dependabot works once the repo is on GitHub | user |
+| 2026-10-09 | Rate limits are configurable through `RATE_LIMIT_*` env vars; the defaults are the spec values | The e2e suite registers many users from 127.0.0.1, so e2e runs raise the limits; exact limits are checked by backend tests and a dedicated e2e run | PM |
+| 2026-10-09 | Build order A → F → E → B → C → D | F has no code dependencies; B's "production settings" need E's profiles; C logs the IPs from B and the 429s from A | PM |
+| 2026-10-09 | Section A verified PASS (AC1–AC6). The real-limit e2e tests run only with `E2E_RATE_LIMIT=1` against a freshly started backend with default limits; mocked 429 tests always run | The full suite shares one IP | tester / PM |

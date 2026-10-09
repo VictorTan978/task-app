@@ -4,11 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.sql.SQLIntegrityConstraintViolationException;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 
 import org.hibernate.exception.ConstraintViolationException;
@@ -23,6 +27,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.taskapp.auth.dto.LoginRequest;
 import com.taskapp.auth.dto.RegisterRequest;
 import com.taskapp.auth.dto.UserResponse;
+import com.taskapp.security.ratelimit.AuthRateLimiter;
+import com.taskapp.security.ratelimit.RateLimitProperties;
+import com.taskapp.security.ratelimit.RateLimitedException;
 
 class AuthServiceTest {
 
@@ -32,7 +39,9 @@ class AuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(userRepository, passwordEncoder);
+        AuthRateLimiter rateLimiter = new AuthRateLimiter(
+                new RateLimitProperties(5, Duration.ofMinutes(15), 20, 5, 100_000), Clock.systemUTC());
+        authService = new AuthService(userRepository, passwordEncoder, rateLimiter);
     }
 
     private static User persisted(long id, String email, String hash, String name) {
@@ -179,6 +188,54 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@example.com", "whatever")))
                 .isInstanceOf(InvalidCredentialsException.class);
+    }
+
+    @Test
+    void sixthLoginAfterFiveFailuresIsRateLimitedBeforePasswordCheckEvenIfCorrect() {
+        User bob = persisted(1L, "bob@example.com", passwordEncoder.encode("correct-horse"), "Bob");
+        when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "wrong-horse")))
+                    .isInstanceOf(InvalidCredentialsException.class);
+        }
+        clearInvocations(userRepository);
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest(" BOB@example.com", "correct-horse")))
+                .isInstanceOf(RateLimitedException.class);
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void unknownEmailFailuresCountTooAndOtherEmailsAreUnaffected() {
+        when(userRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+        User bob = persisted(1L, "bob@example.com", passwordEncoder.encode("correct-horse"), "Bob");
+        when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@example.com", "whatever")))
+                    .isInstanceOf(InvalidCredentialsException.class);
+        }
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@example.com", "whatever")))
+                .isInstanceOf(RateLimitedException.class);
+        assertThat(authService.login(new LoginRequest("bob@example.com", "correct-horse")).id()).isEqualTo(1L);
+    }
+
+    @Test
+    void successfulLoginResetsFailureCount() {
+        User bob = persisted(1L, "bob@example.com", passwordEncoder.encode("correct-horse"), "Bob");
+        when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "wrong-horse")))
+                    .isInstanceOf(InvalidCredentialsException.class);
+        }
+        authService.login(new LoginRequest("bob@example.com", "correct-horse"));
+
+        // 4 more failures would hit the limit without the reset; with it, the 5th attempt is still checked.
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "wrong-horse")))
+                    .isInstanceOf(InvalidCredentialsException.class);
+        }
+        assertThat(authService.login(new LoginRequest("bob@example.com", "correct-horse")).id()).isEqualTo(1L);
     }
 
     @Test

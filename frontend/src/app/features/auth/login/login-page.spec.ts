@@ -11,6 +11,15 @@ function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };
 }
 
+const RATE_LIMITED = {
+  type: 'about:blank',
+  title: 'Too Many Requests',
+  status: 429,
+  detail: 'Too many attempts. Please try again later.',
+  instance: '/api/auth/login',
+  code: 'RATE_LIMITED',
+};
+
 describe('LoginPage', () => {
   let fixture: ComponentFixture<LoginPage>;
   let el: HTMLElement;
@@ -88,6 +97,33 @@ describe('LoginPage', () => {
       'Invalid email or password',
     );
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('shows the rate-limit message and no field errors on 429 RATE_LIMITED', async () => {
+    await submit();
+    http.expectOne('/api/auth/login').flush(RATE_LIMITED, {
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: { 'Retry-After': '840' },
+    });
+    await fixture.whenStable();
+    const alerts = el.querySelectorAll('[role=alert]');
+    expect(alerts.length).toBe(1);
+    expect(alerts[0].textContent?.trim()).toBe(
+      'Too many attempts. Please wait a few minutes and try again.',
+    );
+    expect(text()).not.toContain('Invalid email or password');
+    expect(el.querySelector('.field-error')).toBeNull();
+    expect(el.querySelector('[aria-invalid]')).toBeNull();
+    expect(button().disabled).toBe(false);
+    expect(el.querySelector('[data-testid=spinner]')).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+
+    // The button works again: a retry clears the message and sends a new request.
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    expect(text()).not.toContain('Too many attempts');
+    http.expectOne('/api/auth/login').flush(BOB);
   });
 
   it('maps server field errors to fields', async () => {

@@ -19,6 +19,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.taskapp.auth.dto.RegisterRequest;
+import com.taskapp.security.ratelimit.AuthRateLimiter;
 
 /**
  * Runs against MySQL 8.4 with the real Flyway migrations: the derived queries compare with the V4 collation
@@ -67,7 +68,7 @@ class UserRepositoryTest {
         UserRepository racing = mock(UserRepository.class, delegatesTo(repository));
         doReturn(false).when(racing).existsByEmail(anyString());
         doReturn(false).when(racing).existsByDisplayName(anyString());
-        return new AuthService(racing, new BCryptPasswordEncoder(4));
+        return new AuthService(racing, new BCryptPasswordEncoder(4), mock(AuthRateLimiter.class));
     }
 
     @Test

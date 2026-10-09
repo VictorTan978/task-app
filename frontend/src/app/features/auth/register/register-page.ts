@@ -12,8 +12,10 @@ import {
   fieldMessage,
   fieldProblem,
   GENERIC_ERROR,
+  isRateLimited,
   maxTrimmed,
   passwordLength,
+  RATE_LIMITED_MESSAGE,
   requiredTrimmed,
 } from '../auth-form';
 
@@ -63,6 +65,10 @@ export class RegisterPage {
       .subscribe({
         next: () => void this.router.navigateByUrl('/tasks'),
         error: (error: unknown) => {
+          if (isRateLimited(error)) {
+            this.banner.set(RATE_LIMITED_MESSAGE);
+            return;
+          }
           const problem = fieldProblem(error);
           if (problem && applyServerFieldErrors(problem, this.form.controls)) {
             return;
