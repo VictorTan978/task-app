@@ -26,17 +26,17 @@ public class AuthRateLimiter {
 
     /** Counts one login request from {@code clientIp}; throws if over the per-IP limit. */
     public void acquireLogin(String clientIp) {
-        enforce(loginByIp.tryAcquire(clientIp));
+        enforce(loginByIp.tryAcquire(clientIp), RateLimitedException.Limit.LOGIN_IP, null);
     }
 
     /** Counts one register request from {@code clientIp}; throws if over the per-IP limit. */
     public void acquireRegister(String clientIp) {
-        enforce(registerByIp.tryAcquire(clientIp));
+        enforce(registerByIp.tryAcquire(clientIp), RateLimitedException.Limit.REGISTER_IP, null);
     }
 
     /** Throws if {@code email} (already normalized) has too many recent failed logins. Records nothing. */
     public void checkLoginAllowed(String email) {
-        enforce(loginFailuresByEmail.check(email));
+        enforce(loginFailuresByEmail.check(email), RateLimitedException.Limit.LOGIN_EMAIL, email);
     }
 
     public void recordLoginFailure(String email) {
@@ -47,9 +47,9 @@ public class AuthRateLimiter {
         loginFailuresByEmail.reset(email);
     }
 
-    private static void enforce(Optional<Duration> blockedFor) {
+    private static void enforce(Optional<Duration> blockedFor, RateLimitedException.Limit limit, String email) {
         if (blockedFor.isPresent()) {
-            throw new RateLimitedException(blockedFor.get());
+            throw new RateLimitedException(blockedFor.get(), limit, email);
         }
     }
 }

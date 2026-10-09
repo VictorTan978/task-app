@@ -218,7 +218,8 @@ class AuthControllerTest {
 
     @Test
     void loginWithBadCredentialsReturns401() throws Exception {
-        when(authService.login(any())).thenThrow(new InvalidCredentialsException());
+        when(authService.login(any())).thenThrow(
+                new InvalidCredentialsException(InvalidCredentialsException.Reason.BAD_PASSWORD, "bob@example.com"));
 
         mockMvc.perform(post("/api/auth/login").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)

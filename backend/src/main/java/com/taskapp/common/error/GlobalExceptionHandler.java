@@ -25,8 +25,12 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import com.taskapp.auth.InvalidCredentialsException;
 import com.taskapp.auth.RegistrationConflictException;
 import com.taskapp.auth.UnauthenticatedException;
+import com.taskapp.security.audit.SecurityEvent;
+import com.taskapp.security.audit.SecurityEventLogger;
 import com.taskapp.security.ratelimit.RateLimitedException;
 import com.taskapp.task.TaskNotFoundException;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Turns every error raised in the MVC layer into an {@code application/problem+json} body with a {@code code}.
@@ -66,14 +70,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)
-    ResponseEntity<ProblemDetail> handleInvalidCredentials(InvalidCredentialsException ex) {
+    ResponseEntity<ProblemDetail> handleInvalidCredentials(InvalidCredentialsException ex,
+            HttpServletRequest request) {
+        SecurityEventLogger.log(SecurityEvent.LOGIN_FAILURE, "reason",
+                ex.reason() == null ? null : ex.reason().logValue(), request, ex.email());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                 Problems.of(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_CREDENTIALS, "Invalid email or password"));
     }
 
     /** Every rate-limit refusal (per-IP and per-email) ends up here. */
     @ExceptionHandler(RateLimitedException.class)
-    ResponseEntity<ProblemDetail> handleRateLimited(RateLimitedException ex) {
+    ResponseEntity<ProblemDetail> handleRateLimited(RateLimitedException ex, HttpServletRequest request) {
+        SecurityEventLogger.log(SecurityEvent.RATE_LIMITED, "limit",
+                ex.limit() == null ? null : ex.limit().logValue(), request, ex.email());
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(ex.retryAfterSeconds()))
                 .body(Problems.of(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.RATE_LIMITED,
@@ -81,7 +90,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(UnauthenticatedException.class)
-    ResponseEntity<ProblemDetail> handleUnauthenticated(UnauthenticatedException ex) {
+    ResponseEntity<ProblemDetail> handleUnauthenticated(UnauthenticatedException ex, HttpServletRequest request) {
+        SecurityEventLogger.log(SecurityEvent.UNAUTHENTICATED, request, SecurityEventLogger.currentUserEmail());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                 Problems.of(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHENTICATED, "Authentication required"));
     }

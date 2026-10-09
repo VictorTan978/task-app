@@ -179,7 +179,10 @@ class AuthServiceTest {
         when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
 
         assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "wrong-horse")))
-                .isInstanceOf(InvalidCredentialsException.class);
+                .isInstanceOfSatisfying(InvalidCredentialsException.class, e -> {
+                    assertThat(e.reason()).isEqualTo(InvalidCredentialsException.Reason.BAD_PASSWORD);
+                    assertThat(e.email()).isEqualTo("bob@example.com");
+                });
     }
 
     @Test
@@ -187,7 +190,10 @@ class AuthServiceTest {
         when(userRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@example.com", "whatever")))
-                .isInstanceOf(InvalidCredentialsException.class);
+                .isInstanceOfSatisfying(InvalidCredentialsException.class, e -> {
+                    assertThat(e.reason()).isEqualTo(InvalidCredentialsException.Reason.UNKNOWN_EMAIL);
+                    assertThat(e.email()).isEqualTo("nobody@example.com");
+                });
     }
 
     @Test
@@ -201,7 +207,10 @@ class AuthServiceTest {
         clearInvocations(userRepository);
 
         assertThatThrownBy(() -> authService.login(new LoginRequest(" BOB@example.com", "correct-horse")))
-                .isInstanceOf(RateLimitedException.class);
+                .isInstanceOfSatisfying(RateLimitedException.class, e -> {
+                    assertThat(e.limit()).isEqualTo(RateLimitedException.Limit.LOGIN_EMAIL);
+                    assertThat(e.email()).isEqualTo("bob@example.com");
+                });
         verifyNoInteractions(userRepository);
     }
 

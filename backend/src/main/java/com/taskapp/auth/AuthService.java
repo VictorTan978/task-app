@@ -107,11 +107,11 @@ public class AuthService {
         if (user == null) {
             passwordEncoder.matches(request.password(), dummyHash);
             rateLimiter.recordLoginFailure(request.email());
-            throw new InvalidCredentialsException();
+            throw new InvalidCredentialsException(InvalidCredentialsException.Reason.UNKNOWN_EMAIL, request.email());
         }
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             rateLimiter.recordLoginFailure(request.email());
-            throw new InvalidCredentialsException();
+            throw new InvalidCredentialsException(InvalidCredentialsException.Reason.BAD_PASSWORD, request.email());
         }
         rateLimiter.recordLoginSuccess(request.email());
         return UserResponse.from(user);

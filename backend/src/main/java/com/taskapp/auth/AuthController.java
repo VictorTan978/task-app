@@ -14,6 +14,8 @@ import com.taskapp.auth.dto.RegisterRequest;
 import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.security.SessionAuthenticator;
+import com.taskapp.security.audit.SecurityEvent;
+import com.taskapp.security.audit.SecurityEventLogger;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -43,6 +45,7 @@ public class AuthController {
             HttpServletResponse response) {
         UserResponse user = authService.register(body);
         sessionAuthenticator.signIn(user, request, response);
+        SecurityEventLogger.log(SecurityEvent.REGISTER_SUCCESS, request, user.email());
         return user;
     }
 
@@ -51,12 +54,16 @@ public class AuthController {
             HttpServletResponse response) {
         UserResponse user = authService.login(body);
         sessionAuthenticator.signIn(user, request, response);
+        SecurityEventLogger.log(SecurityEvent.LOGIN_SUCCESS, request, user.email());
         return user;
     }
 
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logout(HttpServletRequest request, HttpServletResponse response) {
+    public void logout(@AuthenticationPrincipal AuthenticatedUser principal, HttpServletRequest request,
+            HttpServletResponse response) {
         sessionAuthenticator.signOut(request, response);
+        // Logged for anonymous callers too (email=-): logout is public and idempotent.
+        SecurityEventLogger.log(SecurityEvent.LOGOUT, request, principal == null ? null : principal.email());
     }
 }

@@ -68,8 +68,8 @@ class AuthRateLimiterTest {
 
     @Test
     void retryAfterRoundsUpToWholeSecondsAndIsAtLeastOne() {
-        assertThat(new RateLimitedException(Duration.ofMillis(1500)).retryAfterSeconds()).isEqualTo(2);
-        assertThat(new RateLimitedException(Duration.ofSeconds(3)).retryAfterSeconds()).isEqualTo(3);
-        assertThat(new RateLimitedException(Duration.ZERO).retryAfterSeconds()).isEqualTo(1);
+        assertThat(new RateLimitedException(Duration.ofMillis(1500), null, null).retryAfterSeconds()).isEqualTo(2);
+        assertThat(new RateLimitedException(Duration.ofSeconds(3), null, null).retryAfterSeconds()).isEqualTo(3);
+        assertThat(new RateLimitedException(Duration.ZERO, null, null).retryAfterSeconds()).isEqualTo(1);
     }
 }

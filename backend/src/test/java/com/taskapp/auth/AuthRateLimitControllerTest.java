@@ -131,7 +131,8 @@ class AuthRateLimitControllerTest {
 
     @Test
     void perEmailLimitFromServiceIsRenderedAs429() throws Exception {
-        when(authService.login(any())).thenThrow(new RateLimitedException(Duration.ofSeconds(839).plusMillis(10)));
+        when(authService.login(any())).thenThrow(new RateLimitedException(Duration.ofSeconds(839).plusMillis(10),
+                RateLimitedException.Limit.LOGIN_EMAIL, "bob@example.com"));
 
         mockMvc.perform(postJson("/api/auth/login", LOGIN, "10.0.5.1"))
                 .andExpect(status().isTooManyRequests())

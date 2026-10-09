@@ -25,8 +25,8 @@ As the owner of the task app, I want the backend to block password guessing, pro
 - [x] AC10: Given dev settings on localhost over plain HTTP, then login, logout and CSRF work exactly as today.
 
 ### C. Security event logging (#11)
-- [ ] AC11: These events each write one log line with a fixed prefix (`SECURITY`), the event name, email (when known), client IP and request path: login success, login failure, registration, logout, rate-limit hit, 401 rejection, 403 rejection (CSRF or access denied).
-- [ ] AC12: No log line ever contains a password, password hash, session ID or CSRF token value.
+- [x] AC11: These events each write one log line with a fixed prefix (`SECURITY`), the event name, email (when known), client IP and request path: login success, login failure, registration, logout, rate-limit hit, 401 rejection, 403 rejection (CSRF or access denied).
+- [x] AC12: No log line ever contains a password, password hash, session ID or CSRF token value.
 
 ### D. Least-privilege database users (#12)
 - [ ] AC13: The app connects with a user that can only `SELECT, INSERT, UPDATE, DELETE` on `taskapp.*`. Flyway connects with a separate migration user.
@@ -74,3 +74,4 @@ _Filled in by the PM during the build._
 | 2026-10-09 | Section E verified PASS (AC17–AC19). `DB_URL` also has no default in production (a silent localhost fallback would connect to the wrong DB). A startup check plus a FailureAnalyzer give the clear message, because Spring's own error didn't name the variable | Fail loudly | backend-dev / tester / PM |
 | 2026-10-09 | Accepted: `application-dev.yml` (with the dev password `taskapp`) is packaged in the jar | Same public dev-only value as docker-compose; only used when the dev profile is on | PM |
 | 2026-10-09 | Section B verified PASS (AC7–AC10). One flag, `app.security.require-https` (`REQUIRE_HTTPS`, default on; dev forces it off), drives the Secure cookies and the redirect. Forwarded headers are trusted only from `TRUSTED_PROXIES` (default: private/loopback ranges). `GET /api/health` is exempt from the redirect for load-balancer probes | The proxy does TLS; the app redirect is a safety net, and the proxy should do its own 301/308 | backend-dev / tester / PM |
+| 2026-10-09 | Section C verified PASS (AC11–AC12). Logger `security.audit`, format `SECURITY event=… [reason|limit] email= ip= path=`; INFO for successes, WARN for failures and rejections. LOGIN_FAILURE carries `reason=unknown_email|bad_password` (server-side only; the client response is unchanged). Values are percent-encoded against log injection | Grep-able, can be routed separately, attacker can't forge lines | backend-dev / tester / PM |
