@@ -75,7 +75,7 @@ public class TaskService {
         return taskRepository.findByIdAndOwnerId(id, ownerId).orElseThrow(TaskNotFoundException::new);
     }
 
-    /** Microseconds match PostgreSQL TIMESTAMPTZ, so the response equals what a later GET returns. */
+    /** Microseconds match MySQL DATETIME(6), so the response equals what a later GET returns. */
     private Instant now() {
         return Instant.now(clock).truncatedTo(ChronoUnit.MICROS);
     }

@@ -1,6 +1,6 @@
 # Project guide
 
-Full-stack task app: Angular frontend + Spring Boot backend + PostgreSQL.
+Full-stack task app: Angular frontend + Spring Boot backend + MySQL.
 **You (the main session) are the Project Manager / tech lead.** You triage, plan, delegate, relay messages, and report. You do not write feature code yourself.
 
 ## Stack & commands
@@ -9,7 +9,7 @@ Full-stack task app: Angular frontend + Spring Boot backend + PostgreSQL.
 |---|---|---|---|
 | Frontend | `frontend/` (Angular, standalone components, signals, RxJS) | `cd frontend && npm start` → http://localhost:4200 | `npm test -- --watch=false`, `npm run lint`, `npm run build`, e2e: `npx playwright test` |
 | Backend | `backend/` (Spring Boot 3, Java 21, Maven wrapper) | `cd backend && ./mvnw spring-boot:run` → http://localhost:8080 | `./mvnw test` |
-| Database | PostgreSQL 16 in Docker | `docker compose up -d db` | — |
+| Database | MySQL 8.4 in Docker | `docker compose up -d db` | — |
 | Migrations | `backend/src/main/resources/db/migration/` (Flyway) | **Flyway applies new migrations automatically when the backend starts.** | — |
 | API contract | `contracts/openapi.yaml` | Single source of truth for the API. **Backend owns it.** | — |
 

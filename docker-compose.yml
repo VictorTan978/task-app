@@ -1,19 +1,22 @@
 services:
   db:
-    image: postgres:16
+    image: mysql:8.4
     environment:
-      POSTGRES_DB: taskapp
-      POSTGRES_USER: taskapp
-      POSTGRES_PASSWORD: taskapp
+      MYSQL_DATABASE: taskapp
+      MYSQL_USER: taskapp
+      MYSQL_PASSWORD: taskapp
+      MYSQL_ROOT_PASSWORD: taskapp-root
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U taskapp -d taskapp"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "taskapp", "-ptaskapp"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
 volumes:
+  # db-data held the old PostgreSQL 16 files; no longer mounted, kept (not deleted) on purpose.
   db-data:
+  mysql-data:

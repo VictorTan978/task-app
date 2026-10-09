@@ -14,13 +14,13 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.taskapp.auth.User;
 
-/** Runs against PostgreSQL 16 with the real Flyway migrations (V2 schema, constraints and cascade). */
+/** Runs against MySQL 8.4 with the real Flyway migrations (V2 schema, constraints and cascade). */
 @Testcontainers
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -28,7 +28,9 @@ class TaskRepositoryTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
+    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.4")
+            .withUrlParam("connectionTimeZone", "UTC")
+            .withUrlParam("forceConnectionTimeZoneToSession", "true");
 
     private static final Instant T0 = Instant.parse("2026-10-01T00:00:00Z");
 

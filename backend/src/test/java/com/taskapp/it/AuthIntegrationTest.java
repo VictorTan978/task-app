@@ -18,7 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -26,7 +26,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * End-to-end over real HTTP (embedded Tomcat) against PostgreSQL 16 with the Flyway migrations applied.
+ * End-to-end over real HTTP (embedded Tomcat) against MySQL 8.4 with the Flyway migrations applied.
  * Uses a small cookie jar so the tests behave like a browser + Angular HttpClient.
  */
 @Testcontainers
@@ -35,7 +35,9 @@ class AuthIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
+    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.4")
+            .withUrlParam("connectionTimeZone", "UTC")
+            .withUrlParam("forceConnectionTimeZoneToSession", "true");
 
     @LocalServerPort
     int port;

@@ -27,7 +27,7 @@ class TaskServiceTest {
 
     private static final long OWNER = 7L;
     private static final Instant CREATED = Instant.parse("2026-10-01T18:00:00Z");
-    /** Nanosecond precision on purpose: the service must truncate to what PostgreSQL stores. */
+    /** Nanosecond precision on purpose: the service must truncate to what MySQL DATETIME(6) stores. */
     private static final Instant NOW = Instant.parse("2026-10-08T09:15:02.123456789Z");
     private static final Instant NOW_MICROS = Instant.parse("2026-10-08T09:15:02.123456Z");
 
