@@ -103,6 +103,69 @@ describe('RegisterPage', () => {
     expect(errorOf('register-email')).toBeUndefined();
   });
 
+  it('shows the display-name-taken message under display name on 409 DISPLAY_NAME_TAKEN', async () => {
+    await submit();
+    http.expectOne('/api/auth/register').flush(
+      problem(409, 'DISPLAY_NAME_TAKEN', [
+        { field: 'displayName', code: 'DISPLAY_NAME_TAKEN', message: 'srv' },
+      ]),
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    expect(errorOf('register-display-name')).toBe('This display name is already taken');
+    expect(errorOf('register-email')).toBeUndefined();
+    expect(el.querySelector('[role=alert]')).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+
+    // Editing the display name clears the server error.
+    type('#register-display-name', 'Bobby');
+    await fixture.whenStable();
+    expect(errorOf('register-display-name')).toBeUndefined();
+  });
+
+  it('shows both field errors when email and display name are taken', async () => {
+    await submit();
+    http.expectOne('/api/auth/register').flush(
+      problem(409, 'EMAIL_TAKEN', [
+        { field: 'email', code: 'EMAIL_TAKEN', message: 'srv' },
+        { field: 'displayName', code: 'DISPLAY_NAME_TAKEN', message: 'srv' },
+      ]),
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    expect(errorOf('register-email')).toBe('An account with this email already exists');
+    expect(errorOf('register-display-name')).toBe('This display name is already taken');
+    expect(el.querySelector('[role=alert]')).toBeNull();
+
+    // Editing one field clears only that field's server error.
+    type('#register-email', 'other@example.com');
+    await fixture.whenStable();
+    expect(errorOf('register-email')).toBeUndefined();
+    expect(errorOf('register-display-name')).toBe('This display name is already taken');
+  });
+
+  it('shows the email message on 409 EMAIL_TAKEN without errors[]', async () => {
+    await submit();
+    http.expectOne('/api/auth/register').flush(problem(409, 'EMAIL_TAKEN'), {
+      status: 409,
+      statusText: 'Conflict',
+    });
+    await fixture.whenStable();
+    expect(errorOf('register-email')).toBe('An account with this email already exists');
+    expect(el.querySelector('[role=alert]')).toBeNull();
+  });
+
+  it('shows the display name message on 409 DISPLAY_NAME_TAKEN without errors[]', async () => {
+    await submit();
+    http.expectOne('/api/auth/register').flush(problem(409, 'DISPLAY_NAME_TAKEN', []), {
+      status: 409,
+      statusText: 'Conflict',
+    });
+    await fixture.whenStable();
+    expect(errorOf('register-display-name')).toBe('This display name is already taken');
+    expect(el.querySelector('[role=alert]')).toBeNull();
+  });
+
   it('maps 400 VALIDATION_FAILED field errors with own text', async () => {
     await submit();
     http.expectOne('/api/auth/register').flush(

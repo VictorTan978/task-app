@@ -172,72 +172,165 @@ class AuthIntegrationTest {
     }
 
     @Test
-    void emailMatchingIsAccentSensitive() throws Exception {
+    void emailMatchingIsAccentInsensitive() throws Exception {
         Resp jose = new Browser().start().post("/api/auth/register",
-                registerBody("Jose", "jose@example.com", "jose-password"));
-        Resp joseAccent = new Browser().start().post("/api/auth/register",
-                registerBody("José", "josé@example.com", "jose-accent-password"));
-
+                registerBody("Jose Accent", "jose@example.com", "jose-password"));
         assertThat(jose.status()).isEqualTo(201);
-        assertThat(joseAccent.status()).isEqualTo(201);
-        assertThat(joseAccent.json().get("email").asText()).isEqualTo("josé@example.com");
-        assertThat(joseAccent.json().get("id").asLong()).isNotEqualTo(jose.json().get("id").asLong());
 
-        // jose's password must not sign in as josé (or as jose).
-        Resp crossLogin = new Browser().start()
-                .post("/api/auth/login", "{\"email\":\"josé@example.com\",\"password\":\"jose-password\"}");
-        assertThat(crossLogin.status()).isEqualTo(401);
-        assertThat(crossLogin.json().get("code").asText()).isEqualTo("INVALID_CREDENTIALS");
+        // Different display name, so only the email collides.
+        Resp joseAccent = new Browser().start().post("/api/auth/register",
+                registerBody("Josefina", "josé@example.com", "jose-accent-password"));
+        assertThat(joseAccent.status()).isEqualTo(409);
+        assertThat(joseAccent.json().get("code").asText()).isEqualTo("EMAIL_TAKEN");
+        assertThat(joseAccent.json().get("errors")).hasSize(1);
+        assertThat(joseAccent.json().get("errors").get(0).get("field").asText()).isEqualTo("email");
+        assertThat(jdbc.queryForObject("select count(*) from users where display_name = 'Josefina'", Integer.class))
+                .isZero();
 
-        Resp accentLogin = new Browser().start()
-                .post("/api/auth/login", "{\"email\":\"josé@example.com\",\"password\":\"jose-accent-password\"}");
+        // Logging in as josé@ with jose's password signs in as jose.
+        Browser b = new Browser().start();
+        Resp accentLogin = b.post("/api/auth/login", "{\"email\":\"josé@example.com\",\"password\":\"jose-password\"}");
         assertThat(accentLogin.status()).isEqualTo(200);
-        assertThat(accentLogin.json().get("id").asLong()).isEqualTo(joseAccent.json().get("id").asLong());
+        assertThat(accentLogin.json().get("id").asLong()).isEqualTo(jose.json().get("id").asLong());
+        assertThat(accentLogin.json().get("email").asText()).isEqualTo("jose@example.com");
+        assertThat(b.get("/api/auth/me").json().get("id").asLong()).isEqualTo(jose.json().get("id").asLong());
+
+        // The would-be josé password never became an account.
+        assertThat(new Browser().start()
+                .post("/api/auth/login", "{\"email\":\"josé@example.com\",\"password\":\"jose-accent-password\"}")
+                .status()).isEqualTo(401);
     }
 
     @Test
-    void emailMatchingStaysCaseInsensitiveAfterAccentFix() throws Exception {
+    void emailMatchingIsCaseInsensitiveAlsoCombinedWithAccents() throws Exception {
         Resp jose = new Browser().start().post("/api/auth/register",
-                registerBody("Jose", "jose.case@example.com", "jose-password"));
+                registerBody("Jose Case", "jose.case@example.com", "jose-password"));
         assertThat(jose.status()).isEqualTo(201);
 
         Resp dup = new Browser().start().post("/api/auth/register",
-                registerBody("JOSE", "JOSE.CASE@EXAMPLE.COM", "other-password"));
+                registerBody("Joseph Case", "JOSE.CASE@EXAMPLE.COM", "other-password"));
         assertThat(dup.status()).isEqualTo(409);
         assertThat(dup.json().get("code").asText()).isEqualTo("EMAIL_TAKEN");
+        assertThat(dup.json().get("errors")).hasSize(1);
 
         Resp login = new Browser().start()
                 .post("/api/auth/login", "{\"email\":\"JOSE.CASE@EXAMPLE.COM\",\"password\":\"jose-password\"}");
         assertThat(login.status()).isEqualTo(200);
         assertThat(login.json().get("id").asLong()).isEqualTo(jose.json().get("id").asLong());
         assertThat(login.json().get("email").asText()).isEqualTo("jose.case@example.com");
+
+        Resp caseAndAccentLogin = new Browser().start()
+                .post("/api/auth/login", "{\"email\":\"JOSÉ.CASE@EXAMPLE.COM\",\"password\":\"jose-password\"}");
+        assertThat(caseAndAccentLogin.status()).isEqualTo(200);
+        assertThat(caseAndAccentLogin.json().get("id").asLong()).isEqualTo(jose.json().get("id").asLong());
     }
 
     @Test
-    void sharpSIsDistinctFromDoubleS() throws Exception {
+    void sharpSEqualsDoubleSUnderAiCi() throws Exception {
+        // utf8mb4_0900_ai_ci expands 'ß' to 'ss' (verified on MySQL 8.4), so these are the same email.
         Resp strasse = new Browser().start().post("/api/auth/register",
                 registerBody("Strasse", "strasse@example.com", "strasse-password"));
         Resp strasseSharp = new Browser().start().post("/api/auth/register",
-                registerBody("Straße", "straße@example.com", "strasse-sharp-password"));
+                registerBody("Tramway", "straße@example.com", "strasse-sharp-password"));
 
         assertThat(strasse.status()).isEqualTo(201);
-        assertThat(strasseSharp.status()).isEqualTo(201);
-        assertThat(new Browser().start()
-                .post("/api/auth/login", "{\"email\":\"straße@example.com\",\"password\":\"strasse-password\"}")
-                .status()).isEqualTo(401);
+        assertThat(strasseSharp.status()).isEqualTo(409);
+        assertThat(strasseSharp.json().get("code").asText()).isEqualTo("EMAIL_TAKEN");
+        Resp login = new Browser().start()
+                .post("/api/auth/login", "{\"email\":\"straße@example.com\",\"password\":\"strasse-password\"}");
+        assertThat(login.status()).isEqualTo(200);
+        assertThat(login.json().get("id").asLong()).isEqualTo(strasse.json().get("id").asLong());
     }
 
     @Test
-    void emailColumnUsesAccentSensitiveCaseInsensitiveCollationWithUniqueKey() {
-        assertThat(jdbc.queryForObject("""
-                select collation_name from information_schema.columns
-                where table_schema = database() and table_name = 'users' and column_name = 'email'
-                """, String.class)).isEqualTo("utf8mb4_0900_as_ci");
+    void emailAndDisplayNameUseAiCiCollationWithUniqueKeys() {
+        for (String column : List.of("email", "display_name")) {
+            assertThat(jdbc.queryForObject("""
+                    select collation_name from information_schema.columns
+                    where table_schema = database() and table_name = 'users' and column_name = ?
+                    """, String.class, column)).as(column).isEqualTo("utf8mb4_0900_ai_ci");
+        }
         assertThat(jdbc.queryForObject("""
                 select count(*) from information_schema.statistics
                 where table_schema = database() and table_name = 'users'
                   and index_name = 'uk_users_email' and column_name = 'email' and non_unique = 0
                 """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from information_schema.statistics
+                where table_schema = database() and table_name = 'users'
+                  and index_name = 'uk_users_display_name' and column_name = 'display_name' and non_unique = 0
+                """, Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void displayNameMatchingIgnoresCaseAccentsAndSurroundingSpaces() throws Exception {
+        Resp owner = new Browser().start().post("/api/auth/register",
+                registerBody("José", "ac14-owner@example.com", "correct-horse"));
+        assertThat(owner.status()).isEqualTo(201);
+        assertThat(owner.json().get("displayName").asText()).isEqualTo("José");
+
+        List<String> variants = List.of("José", "jose", "JOSE", " José ");
+        for (int i = 0; i < variants.size(); i++) {
+            Resp dup = new Browser().start().post("/api/auth/register",
+                    registerBody(variants.get(i), "ac14-variant" + i + "@example.com", "correct-horse"));
+
+            assertThat(dup.status()).as(variants.get(i)).isEqualTo(409);
+            assertThat(dup.contentType()).startsWith("application/problem+json");
+            JsonNode body = dup.json();
+            assertThat(body.get("code").asText()).isEqualTo("DISPLAY_NAME_TAKEN");
+            assertThat(body.get("detail").asText()).isEqualTo("This display name is already taken");
+            assertThat(body.get("errors")).hasSize(1);
+            assertThat(body.get("errors").get(0).get("field").asText()).isEqualTo("displayName");
+            assertThat(body.get("errors").get(0).get("code").asText()).isEqualTo("DISPLAY_NAME_TAKEN");
+            assertThat(body.get("errors").get(0).get("message").asText()).isEqualTo("This display name is already taken");
+        }
+        assertThat(jdbc.queryForObject("select count(*) from users where email like 'ac14-%'", Integer.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void emailAndDisplayNameBothTakenReturnsEmailTakenWithTwoFieldErrors() throws Exception {
+        assertThat(new Browser().start().post("/api/auth/register",
+                registerBody("Hannah", "hannah@example.com", "correct-horse")).status()).isEqualTo(201);
+
+        Resp dup = new Browser().start().post("/api/auth/register",
+                registerBody(" HANNAH ", "Hannah@Example.com", "other-password"));
+
+        assertThat(dup.status()).isEqualTo(409);
+        JsonNode body = dup.json();
+        assertThat(body.get("code").asText()).isEqualTo("EMAIL_TAKEN");
+        assertThat(body.get("detail").asText()).isEqualTo("An account with this email already exists");
+        assertThat(body.get("errors")).hasSize(2);
+        assertThat(body.get("errors").findValuesAsText("field")).containsExactly("email", "displayName");
+        assertThat(body.get("errors").findValuesAsText("code")).containsExactly("EMAIL_TAKEN", "DISPLAY_NAME_TAKEN");
+        assertThat(body.get("errors").findValuesAsText("message")).containsExactly(
+                "An account with this email already exists", "This display name is already taken");
+        assertThat(jdbc.queryForObject("select count(*) from users where email = 'hannah@example.com'", Integer.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void differentDisplayNameSucceeds() throws Exception {
+        assertThat(new Browser().start().post("/api/auth/register",
+                registerBody("Ivan", "ivan@example.com", "correct-horse")).status()).isEqualTo(201);
+
+        Resp other = new Browser().start().post("/api/auth/register",
+                registerBody("Ivana", "ivana@example.com", "correct-horse"));
+
+        assertThat(other.status()).isEqualTo(201);
+        assertThat(other.json().get("displayName").asText()).isEqualTo("Ivana");
+    }
+
+    @Test
+    void validationRunsBeforeDisplayNameUniqueness() throws Exception {
+        assertThat(new Browser().start().post("/api/auth/register",
+                registerBody("Kim", "kim@example.com", "correct-horse")).status()).isEqualTo(201);
+
+        Resp r = new Browser().start().post("/api/auth/register", registerBody("kim", "kim2@example.com", "short"));
+
+        assertThat(r.status()).isEqualTo(400);
+        assertThat(r.json().get("code").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(r.json().get("errors").findValuesAsText("field")).containsExactly("password");
     }
 
     @Test

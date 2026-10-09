@@ -13,6 +13,8 @@ const SHOTS = '../test-results/mysql-regression';
 const PASSWORD = 'password123';
 let counter = 0;
 const uniq = (tag: string) => `qa-mysql-${RUN}-${tag}-${++counter}@example.com`;
+// Display names are unique (ignoring case/accents) and the DB keeps data, so suffix per run.
+const uname = (base: string) => `${base} ${RUN}-${++counter}`;
 
 function watch(page: Page) {
   const errors: string[] = [];
@@ -49,7 +51,7 @@ for (const tz of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
     test(`create via UI, set due date via dialog, reload: values unchanged (${tz})`, async ({ page }) => {
       const errors = watch(page);
       const title = `TZ check ${tz} ${RUN}`;
-      await registerUi(page, 'TZ', uniq('tz'));
+      await registerUi(page, uname('TZ'), uniq('tz'));
       await expect(page).toHaveURL(/\/tasks$/);
 
       // Create through the UI and capture the POST response
@@ -107,7 +109,7 @@ for (const tz of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
 
 test('due date boundaries round-trip exactly via API (leap day, year ends)', async ({ page }) => {
   const errors = watch(page);
-  await registerUi(page, 'Dates', uniq('dates'));
+  await registerUi(page, uname('Dates'), uniq('dates'));
   await expect(page).toHaveURL(/\/tasks$/);
   for (const d of ['2028-02-29', '1999-12-31', '2000-01-01', '2038-01-20', '9999-12-31']) {
     const res = await api(page, 'POST', '/api/tasks', { title: `d ${d}`, dueDate: d });
@@ -128,21 +130,21 @@ test('same email in different letter case is rejected as "email taken" (UI)', as
   // first account in a separate context
   const other = await browser.newContext();
   const p2 = await other.newPage();
-  await registerUi(p2, 'Bob', email);
+  await registerUi(p2, uname('Bob'), email);
   await expect(p2).toHaveURL(/\/tasks$/);
   await other.close();
 
   const errors = watch(page);
   const mixed = email.replace(/^qa-mysql/, 'QA-MySQL').replace('@example.com', '@Example.COM');
   expect(mixed).not.toBe(email);
-  await registerUi(page, 'Bob2', mixed);
+  await registerUi(page, uname('Bob2'), mixed);
   await expect(page.getByText('An account with this email already exists')).toBeVisible();
   await expect(page).toHaveURL(/\/register$/);
   await page.screenshot({ path: `${SHOTS}/email-case-taken.png`, fullPage: true });
 
   // API: 409 EMAIL_TAKEN for upper case + surrounding spaces
   const res = await api(page, 'POST', '/api/auth/register', {
-    displayName: 'Bob3',
+    displayName: uname('Bob3'),
     email: `  ${email.toUpperCase()}  `,
     password: PASSWORD,
   });

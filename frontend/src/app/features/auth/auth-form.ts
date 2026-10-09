@@ -1,5 +1,5 @@
 import { AbstractControl, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
-import { FieldErrorCode, FieldName, Problem } from '../../core/auth/auth.models';
+import { FieldError, FieldErrorCode, FieldName, Problem } from '../../core/auth/auth.models';
 import { readProblem } from '../../core/auth/problem';
 
 export const GENERIC_ERROR = 'Something went wrong, please try again';
@@ -16,6 +16,7 @@ export const FIELD_MESSAGES: Record<FieldName, Partial<Record<FieldErrorCode, st
   displayName: {
     REQUIRED: 'Enter your display name',
     TOO_LONG: `Display name must be at most ${DISPLAY_NAME_MAX} characters`,
+    DISPLAY_NAME_TAKEN: 'This display name is already taken',
   },
   email: {
     REQUIRED: 'Enter your email',
@@ -36,6 +37,7 @@ const CODE_PRECEDENCE: readonly FieldErrorCode[] = [
   'PASSWORD_LENGTH',
   'TOO_LONG',
   'EMAIL_TAKEN',
+  'DISPLAY_NAME_TAKEN',
 ];
 
 /** Server-reported errors are stored on the control under this key until the value changes. */
@@ -122,16 +124,35 @@ export function applyServerFieldErrors(
   return applied;
 }
 
-/** Problem body for field-level errors (400 VALIDATION_FAILED / 409 EMAIL_TAKEN), else null. */
+/** Field that each 409 conflict code belongs to (used when a 409 arrives without `errors[]`). */
+const CONFLICT_FIELDS: Partial<Record<string, FieldName>> = {
+  EMAIL_TAKEN: 'email',
+  DISPLAY_NAME_TAKEN: 'displayName',
+};
+
+/**
+ * Problem body for field-level errors (400 VALIDATION_FAILED / 409 EMAIL_TAKEN or
+ * DISPLAY_NAME_TAKEN), else null. A 409 without `errors[]` gets one entry built from its `code`.
+ */
 export function fieldProblem(error: unknown): Problem | null {
   const problem = readProblem(error);
-  if (
-    problem &&
-    ((problem.status === 400 && problem.code === 'VALIDATION_FAILED') ||
-      (problem.status === 409 && problem.code === 'EMAIL_TAKEN')) &&
-    problem.errors?.length
-  ) {
+  if (!problem) {
+    return null;
+  }
+  if (problem.status === 400 && problem.code === 'VALIDATION_FAILED') {
+    return problem.errors?.length ? problem : null;
+  }
+  const conflictField = problem.status === 409 ? CONFLICT_FIELDS[problem.code] : undefined;
+  if (!conflictField) {
+    return null;
+  }
+  if (problem.errors?.length) {
     return problem;
   }
-  return null;
+  const fallback: FieldError = {
+    field: conflictField,
+    code: problem.code as FieldErrorCode,
+    message: problem.detail,
+  };
+  return { ...problem, errors: [fallback] };
 }

@@ -8,8 +8,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.Optional;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -63,17 +65,93 @@ class AuthServiceTest {
         when(userRepository.existsByEmail("bob@example.com")).thenReturn(true);
 
         assertThatThrownBy(() -> authService.register(new RegisterRequest("Bob", "BOB@example.com", "correct-horse")))
-                .isInstanceOf(EmailTakenException.class);
+                .isInstanceOfSatisfying(RegistrationConflictException.class, e -> {
+                    assertThat(e.emailTaken()).isTrue();
+                    assertThat(e.displayNameTaken()).isFalse();
+                });
         verify(userRepository, never()).saveAndFlush(any());
     }
 
     @Test
-    void registerMapsUniqueConstraintRaceToEmailTaken() {
-        when(userRepository.existsByEmail("bob@example.com")).thenReturn(false);
-        when(userRepository.saveAndFlush(any())).thenThrow(new DataIntegrityViolationException("uk_users_email"));
+    void registerChecksTrimmedDisplayNameAndRejectsTakenName() {
+        when(userRepository.existsByDisplayName("José")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.register(new RegisterRequest("  José ", "new@example.com", "correct-horse")))
+                .isInstanceOfSatisfying(RegistrationConflictException.class, e -> {
+                    assertThat(e.emailTaken()).isFalse();
+                    assertThat(e.displayNameTaken()).isTrue();
+                });
+        verify(userRepository).existsByDisplayName("José");
+        verify(userRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void registerReportsBothTakenFields() {
+        when(userRepository.existsByEmail("bob@example.com")).thenReturn(true);
+        when(userRepository.existsByDisplayName("Bob")).thenReturn(true);
 
         assertThatThrownBy(() -> authService.register(new RegisterRequest("Bob", "bob@example.com", "correct-horse")))
-                .isInstanceOf(EmailTakenException.class);
+                .isInstanceOfSatisfying(RegistrationConflictException.class, e -> {
+                    assertThat(e.emailTaken()).isTrue();
+                    assertThat(e.displayNameTaken()).isTrue();
+                });
+        verify(userRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void registerMapsEmailUniqueKeyRaceToEmailTaken() {
+        when(userRepository.saveAndFlush(any())).thenThrow(raceOn("users.uk_users_email", "bob@example.com"));
+
+        assertThatThrownBy(() -> authService.register(new RegisterRequest("Bob", "bob@example.com", "correct-horse")))
+                .isInstanceOfSatisfying(RegistrationConflictException.class, e -> {
+                    assertThat(e.emailTaken()).isTrue();
+                    assertThat(e.displayNameTaken()).isFalse();
+                });
+    }
+
+    @Test
+    void registerMapsDisplayNameUniqueKeyRaceToDisplayNameTaken() {
+        when(userRepository.saveAndFlush(any())).thenThrow(raceOn("users.uk_users_display_name", "Bob"));
+
+        assertThatThrownBy(() -> authService.register(new RegisterRequest("Bob", "bob@example.com", "correct-horse")))
+                .isInstanceOfSatisfying(RegistrationConflictException.class, e -> {
+                    assertThat(e.emailTaken()).isFalse();
+                    assertThat(e.displayNameTaken()).isTrue();
+                });
+    }
+
+    @Test
+    void registerMapsRaceFromRawMysqlMessageAndIgnoresConstraintNamesInsideTheValue() {
+        // No Hibernate exception in the chain: the key is parsed from MySQL's message. The duplicate value
+        // itself mentions the other constraint and must not be mistaken for it.
+        SQLIntegrityConstraintViolationException sql = new SQLIntegrityConstraintViolationException(
+                "Duplicate entry 'uk_users_display_name@example.com' for key 'users.uk_users_email'", "23000", 1062);
+        when(userRepository.saveAndFlush(any())).thenThrow(new DataIntegrityViolationException("could not execute", sql));
+
+        assertThatThrownBy(() -> authService.register(
+                new RegisterRequest("Bob", "uk_users_display_name@example.com", "correct-horse")))
+                .isInstanceOfSatisfying(RegistrationConflictException.class, e -> {
+                    assertThat(e.emailTaken()).isTrue();
+                    assertThat(e.displayNameTaken()).isFalse();
+                });
+    }
+
+    @Test
+    void registerRethrowsIntegrityViolationOfUnknownConstraint() {
+        DataIntegrityViolationException other = raceOn("users.some_other_key", "x");
+        when(userRepository.saveAndFlush(any())).thenThrow(other);
+
+        assertThatThrownBy(() -> authService.register(new RegisterRequest("Bob", "bob@example.com", "correct-horse")))
+                .isSameAs(other);
+    }
+
+    /** Mirrors what Spring + Hibernate + MySQL Connector/J raise for a duplicate key on insert. */
+    private static DataIntegrityViolationException raceOn(String key, String value) {
+        String message = "Duplicate entry '" + value + "' for key '" + key + "'";
+        SQLIntegrityConstraintViolationException sql = new SQLIntegrityConstraintViolationException(message, "23000", 1062);
+        ConstraintViolationException hibernate = new ConstraintViolationException(
+                "could not execute statement [" + message + "]", sql, "insert into users ...", key);
+        return new DataIntegrityViolationException("could not execute statement", hibernate);
     }
 
     @Test

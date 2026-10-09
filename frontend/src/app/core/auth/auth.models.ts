@@ -24,7 +24,8 @@ export type FieldErrorCode =
   | 'INVALID_EMAIL'
   | 'TOO_LONG'
   | 'PASSWORD_LENGTH'
-  | 'EMAIL_TAKEN';
+  | 'EMAIL_TAKEN'
+  | 'DISPLAY_NAME_TAKEN';
 
 export interface FieldError {
   field: FieldName;
@@ -36,6 +37,7 @@ export type ProblemCode =
   | 'VALIDATION_FAILED'
   | 'MALFORMED_REQUEST'
   | 'EMAIL_TAKEN'
+  | 'DISPLAY_NAME_TAKEN'
   | 'INVALID_CREDENTIALS'
   | 'UNAUTHENTICATED'
   | 'CSRF_INVALID'

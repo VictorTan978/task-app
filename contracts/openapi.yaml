@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     ## Authentication
     Session-cookie auth (Spring Security). A successful `register` or `login` creates a server-side
@@ -28,8 +28,8 @@ info:
 
     ## Errors
     All errors are RFC 7807 `application/problem+json` (see `Problem` schema), with a stable
-    machine-readable `code`. Field-level errors (400 validation, 409 duplicate email) also carry an
-    `errors` array of `{field, code, message}`.
+    machine-readable `code`. Field-level errors (400 validation, 409 duplicate email and/or display
+    name on register) also carry an `errors` array of `{field, code, message}`.
 
     ## Request bodies
     Unknown properties in a JSON request body are ignored (never an error). In particular any
@@ -87,8 +87,15 @@ paths:
       summary: Create an account and sign in
       description: |
         Creates the account and starts a session (auto sign-in). The email is trimmed and
-        lowercased before validation and uniqueness checks; displayName is trimmed.
+        lowercased before validation and uniqueness checks; displayName is trimmed (and stored with
+        the user's casing).
         If a session already exists it is replaced by the new user's session.
+
+        Uniqueness (checked only after validation passes, so a 400 always wins over a 409):
+        - email: ignores letter case AND accents (`jose@example.com` = `JOSÉ@example.com`).
+        - displayName: compared after trimming, ignoring letter case AND accents
+          (`José` = `jose` = `JOSE` = ` José `).
+        Both are checked on every request, so a 409 reports every taken field at once.
       operationId: register
       tags: [auth]
       security:
@@ -122,28 +129,71 @@ paths:
         '403':
           $ref: '#/components/responses/CsrfInvalid'
         '409':
-          description: An account with this email already exists
+          description: |
+            The email and/or the display name already belong to another account. One response
+            covers both cases:
+            - Top-level `code` is `EMAIL_TAKEN` whenever the email is taken (unchanged from 0.2.0,
+              so existing clients keep working), otherwise `DISPLAY_NAME_TAKEN`. `detail` is the
+              message of that code.
+            - `errors` is always present and has one entry per taken field, email first:
+              `email` / `EMAIL_TAKEN` / "An account with this email already exists" and/or
+              `displayName` / `DISPLAY_NAME_TAKEN` / "This display name is already taken".
+              Clients should render field messages from `errors`, not from the top-level `code`.
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
-              example:
-                type: about:blank
-                title: Conflict
-                status: 409
-                detail: An account with this email already exists
-                instance: /api/auth/register
-                code: EMAIL_TAKEN
-                errors:
-                  - field: email
+              examples:
+                bothTaken:
+                  summary: Email and display name both taken
+                  value:
+                    type: about:blank
+                    title: Conflict
+                    status: 409
+                    detail: An account with this email already exists
+                    instance: /api/auth/register
                     code: EMAIL_TAKEN
-                    message: An account with this email already exists
+                    errors:
+                      - field: email
+                        code: EMAIL_TAKEN
+                        message: An account with this email already exists
+                      - field: displayName
+                        code: DISPLAY_NAME_TAKEN
+                        message: This display name is already taken
+                emailTaken:
+                  summary: Only the email is taken
+                  value:
+                    type: about:blank
+                    title: Conflict
+                    status: 409
+                    detail: An account with this email already exists
+                    instance: /api/auth/register
+                    code: EMAIL_TAKEN
+                    errors:
+                      - field: email
+                        code: EMAIL_TAKEN
+                        message: An account with this email already exists
+                displayNameTaken:
+                  summary: Only the display name is taken
+                  value:
+                    type: about:blank
+                    title: Conflict
+                    status: 409
+                    detail: This display name is already taken
+                    instance: /api/auth/register
+                    code: DISPLAY_NAME_TAKEN
+                    errors:
+                      - field: displayName
+                        code: DISPLAY_NAME_TAKEN
+                        message: This display name is already taken
 
   /api/auth/login:
     post:
       summary: Sign in
       description: |
-        Email is trimmed and lowercased before lookup (any letter case works). Wrong password and
+        Email is trimmed and lowercased before lookup, and matching ignores letter case and accents
+        (any letter case and accents work: `JOSÉ@example.com` signs in the account registered as
+        `jose@example.com`). Wrong password and
         unknown email return the identical 401 response. On success the session ID changes
         (session-fixation protection) and the `XSRF-TOKEN` rotates.
       operationId: login
@@ -631,13 +681,17 @@ components:
           type: string
           minLength: 1
           maxLength: 50
-          description: Trimmed; must be 1-50 characters after trimming.
+          description: |
+            Trimmed; must be 1-50 characters after trimming. Must be unique, ignoring letter case
+            and accents (409 `DISPLAY_NAME_TAKEN`). Stored with the casing the user typed.
           example: Bob
         email:
           type: string
           format: email
           maxLength: 254
-          description: Trimmed and lowercased; must be a valid email, max 254 characters.
+          description: |
+            Trimmed and lowercased; must be a valid email, max 254 characters. Must be unique,
+            ignoring letter case and accents (409 `EMAIL_TAKEN`).
           example: bob@example.com
         password:
           type: string
@@ -656,7 +710,9 @@ components:
         email:
           type: string
           format: email
-          description: Trimmed and lowercased; must be non-blank and a valid email.
+          description: |
+            Trimmed and lowercased; must be non-blank and a valid email. Matched ignoring letter
+            case and accents.
           example: bob@example.com
         password:
           type: string
@@ -780,14 +836,17 @@ components:
           description: Name of the request field (exactly as in the request body).
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN]
           description: |
             Stable machine-readable reason.
             - REQUIRED: missing, null, empty or blank
             - INVALID_EMAIL: not a valid email address
             - TOO_LONG: displayName > 50, email > 254, title > 200 or description > 2000 characters
             - PASSWORD_LENGTH: password not 8-72 characters, or over 72 UTF-8 bytes
-            - EMAIL_TAKEN: (409 only) email already registered
+            - EMAIL_TAKEN: (409 only, field `email`) email already registered, ignoring letter
+              case and accents
+            - DISPLAY_NAME_TAKEN: (409 only, field `displayName`) display name already used,
+              compared after trimming, ignoring letter case and accents
         message:
           type: string
           description: Human-readable English message, safe to display.
@@ -818,16 +877,22 @@ components:
             - VALIDATION_FAILED
             - MALFORMED_REQUEST
             - EMAIL_TAKEN
+            - DISPLAY_NAME_TAKEN
             - INVALID_CREDENTIALS
             - UNAUTHENTICATED
             - CSRF_INVALID
             - FORBIDDEN
             - NOT_FOUND
             - INTERNAL_ERROR
-          description: Stable machine-readable error code.
+          description: |
+            Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email
+            is taken (even when the display name is taken too), otherwise `DISPLAY_NAME_TAKEN`.
         errors:
           type: array
-          description: Present for VALIDATION_FAILED (400) and EMAIL_TAKEN (409) only.
+          description: |
+            Present for VALIDATION_FAILED (400), EMAIL_TAKEN (409) and DISPLAY_NAME_TAKEN (409)
+            only. On a 409 it has one entry per taken field, so EMAIL_TAKEN may also carry a
+            `displayName` / `DISPLAY_NAME_TAKEN` entry.
           items:
             $ref: '#/components/schemas/FieldError'
 

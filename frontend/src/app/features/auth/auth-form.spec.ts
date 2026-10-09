@@ -37,5 +37,7 @@ describe('auth form validators', () => {
     expect(fieldMessage('email', control)).toBe('Enter your email');
     control.setErrors({ server: { code: 'EMAIL_TAKEN', message: 'srv' } });
     expect(fieldMessage('email', control)).toBe('An account with this email already exists');
+    control.setErrors({ server: { code: 'DISPLAY_NAME_TAKEN', message: 'srv' } });
+    expect(fieldMessage('displayName', control)).toBe('This display name is already taken');
   });
 });

@@ -5,6 +5,12 @@ const SHOTS = '../test-results/auth';
 const PASSWORD = 'password123';
 
 let counter = 0;
+let nameCounter = 0;
+/** Display names are unique (ignoring case/accents) and the DB keeps data, so suffix per run. */
+function uniqueName(base: string): string {
+  nameCounter += 1;
+  return `${base} ${RUN}-${nameCounter}`;
+}
 function uniqueEmail(tag: string): string {
   counter += 1;
   return `qa-e2e-${RUN}-${tag}-${counter}@example.com`;
@@ -63,9 +69,10 @@ test.describe('Registration', () => {
   test('AC1: register signs in, lands on /tasks, header shows display name', async ({ page }) => {
     const w = watch(page);
     const email = uniqueEmail('ac1');
-    await registerViaUi(page, 'Alice QA', email);
+    const nameAliceQA = uniqueName('Alice QA');
+    await registerViaUi(page, nameAliceQA, email);
     await expect(page).toHaveURL(/\/tasks$/);
-    await expect(page.getByText('Hi, Alice QA')).toBeVisible();
+    await expect(page.getByText(`Hi, ${nameAliceQA}`)).toBeVisible();
     await expect(page.getByText('Task App')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
@@ -78,11 +85,12 @@ test.describe('Registration', () => {
   test('AC2: duplicate email (different case) shows error under email', async ({ page, context }) => {
     const w = watch(page);
     const email = uniqueEmail('ac2');
-    await registerViaApi(context, 'Bob', email);
-    await registerViaUi(page, 'Bob Again', email.toUpperCase().replace('@EXAMPLE.COM', '@Example.com'));
+    await registerViaApi(context, uniqueName('Bob'), email);
+    await registerViaUi(page, uniqueName('Bob Again'), email.toUpperCase().replace('@EXAMPLE.COM', '@Example.com'));
     await expect(page.locator('#register-email-error')).toHaveText(
       'An account with this email already exists',
     );
+    await expect(page.locator('#register-display-name-error')).toHaveCount(0);
     await expect(page).toHaveURL(/\/register$/);
     await page.screenshot({ path: `${SHOTS}/ac2-duplicate-email.png`, fullPage: true });
     console.log('AC2 console errors:', JSON.stringify(w.consoleErrors));
@@ -114,7 +122,7 @@ test.describe('Registration', () => {
     );
 
     // Too long password (73 chars), valid other fields
-    await page.locator('#register-display-name').fill('Long');
+    await page.locator('#register-display-name').fill(uniqueName('Long'));
     await page.locator('#register-email').fill(uniqueEmail('ac3long'));
     await page.locator('#register-password').fill('a'.repeat(73));
     await page.getByRole('button', { name: 'Create account' }).click();
@@ -136,7 +144,7 @@ test.describe('Registration', () => {
     page,
   }) => {
     // multibyte password: 40 chars but 80 UTF-8 bytes -> server rejects with PASSWORD_LENGTH
-    await registerViaUi(page, 'Multi', uniqueEmail('ac3mb'), 'é'.repeat(40));
+    await registerViaUi(page, uniqueName('Multi'), uniqueEmail('ac3mb'), 'é'.repeat(40));
     await expect(page.locator('#register-password-error')).toBeVisible();
     await expect(page).toHaveURL(/\/register$/);
     console.log('AC3 multibyte msg:', await page.locator('#register-password-error').textContent());
@@ -147,11 +155,12 @@ test.describe('Login', () => {
   test('AC4: login with any-case email lands on /tasks', async ({ page, context }) => {
     const w = watch(page);
     const email = uniqueEmail('ac4');
-    await registerViaApi(context, 'Carol', email);
+    const nameCarol = uniqueName('Carol');
+    await registerViaApi(context, nameCarol, email);
     await page.goto('/login');
     await loginViaUi(page, `  ${email.toUpperCase()}  `);
     await expect(page).toHaveURL(/\/tasks$/);
-    await expect(page.getByText('Hi, Carol')).toBeVisible();
+    await expect(page.getByText(`Hi, ${nameCarol}`)).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/ac4-login-success.png`, fullPage: true });
     console.log('AC4 console errors:', JSON.stringify(w.consoleErrors));
     expect(appErrors(w.consoleErrors)).toEqual([]);
@@ -160,7 +169,7 @@ test.describe('Login', () => {
   test('AC5: wrong password and unknown email show the same message', async ({ page, context }) => {
     const w = watch(page);
     const email = uniqueEmail('ac5');
-    await registerViaApi(context, 'Dave', email);
+    await registerViaApi(context, uniqueName('Dave'), email);
     await page.goto('/login');
 
     await loginViaUi(page, email, 'wrong-password');
@@ -181,18 +190,19 @@ test.describe('Login', () => {
 test.describe('Session and logout', () => {
   test('AC6: refresh keeps me signed in', async ({ page }) => {
     const w = watch(page);
-    await registerViaUi(page, 'Eve', uniqueEmail('ac6'));
+    const nameEve = uniqueName('Eve');
+    await registerViaUi(page, nameEve, uniqueEmail('ac6'));
     await expect(page).toHaveURL(/\/tasks$/);
     await page.reload();
     await expect(page).toHaveURL(/\/tasks$/);
-    await expect(page.getByText('Hi, Eve')).toBeVisible();
+    await expect(page.getByText(`Hi, ${nameEve}`)).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/ac6-after-refresh.png`, fullPage: true });
     expect(appErrors(w.consoleErrors)).toEqual([]);
   });
 
   test('AC7: log out lands on /login; /tasks afterwards goes to /login', async ({ page }) => {
     const w = watch(page);
-    await registerViaUi(page, 'Frank', uniqueEmail('ac7'));
+    await registerViaUi(page, uniqueName('Frank'), uniqueEmail('ac7'));
     await expect(page).toHaveURL(/\/tasks$/);
     await page.getByRole('button', { name: 'Log out' }).click();
     await expect(page).toHaveURL(/\/login$/);
@@ -210,7 +220,7 @@ test.describe('Session and logout', () => {
   });
 
   test('AC7 edge: double-click Log out sends one request and lands on /login', async ({ page }) => {
-    await registerViaUi(page, 'Gina', uniqueEmail('ac7dbl'));
+    await registerViaUi(page, uniqueName('Gina'), uniqueEmail('ac7dbl'));
     await expect(page).toHaveURL(/\/tasks$/);
     let logouts = 0;
     page.on('request', (r) => {
@@ -231,7 +241,8 @@ test.describe('Session and logout', () => {
   }) => {
     const w = watch(page);
     const email = uniqueEmail('ac8');
-    await registerViaUi(page, 'Hank', email);
+    const nameHank = uniqueName('Hank');
+    await registerViaUi(page, nameHank, email);
     await expect(page).toHaveURL(/\/tasks$/);
 
     // Simulate server-side expiry: drop the session cookie from the browser.
@@ -259,7 +270,7 @@ test.describe('Session and logout', () => {
 
     await loginViaUi(page, email);
     await expect(page).toHaveURL(/\/tasks$/);
-    await expect(page.getByText('Hi, Hank')).toBeVisible();
+    await expect(page.getByText(`Hi, ${nameHank}`)).toBeVisible();
     console.log('AC8 console errors:', JSON.stringify(w.consoleErrors));
     expect(appErrors(w.consoleErrors)).toEqual([]);
   });
@@ -268,7 +279,7 @@ test.describe('Session and logout', () => {
     page,
     context,
   }) => {
-    await registerViaUi(page, 'Ivy', uniqueEmail('ac8b'));
+    await registerViaUi(page, uniqueName('Ivy'), uniqueEmail('ac8b'));
     await expect(page).toHaveURL(/\/tasks$/);
     await context.clearCookies({ name: 'JSESSIONID' });
     await page.reload();
@@ -282,7 +293,7 @@ test.describe('Session and logout', () => {
     context,
   }) => {
     // Out-of-band invalidation with the same cookies, then click Log out in the app.
-    await registerViaUi(page, 'Jack', uniqueEmail('ac8c'));
+    await registerViaUi(page, uniqueName('Jack'), uniqueEmail('ac8c'));
     await expect(page).toHaveURL(/\/tasks$/);
     const token = (await context.cookies()).find((c) => c.name === 'XSRF-TOKEN')!.value;
     const out = await context.request.post('/api/auth/logout', {
@@ -307,7 +318,7 @@ test.describe('Route protection', () => {
   });
 
   test('AC9: signed in, /, /login, /register go to /tasks', async ({ page }) => {
-    await registerViaUi(page, 'Kim', uniqueEmail('ac9'));
+    await registerViaUi(page, uniqueName('Kim'), uniqueEmail('ac9'));
     await expect(page).toHaveURL(/\/tasks$/);
     for (const path of ['/', '/login', '/register']) {
       await page.goto(path);
@@ -354,7 +365,7 @@ test.describe('States', () => {
   }) => {
     await page.goto('/register');
     await page.route('**/api/auth/register', (route) => route.abort('connectionrefused'));
-    await page.locator('#register-display-name').fill('Net');
+    await page.locator('#register-display-name').fill(uniqueName('Net'));
     await page.locator('#register-email').fill(uniqueEmail('ac13r'));
     await page.locator('#register-password').fill(PASSWORD);
     await page.getByRole('button', { name: 'Create account' }).click();
@@ -410,7 +421,7 @@ test.describe('States', () => {
     context,
   }) => {
     const email = uniqueEmail('csrf');
-    await registerViaApi(context, 'Csrf', email);
+    await registerViaApi(context, uniqueName('Csrf'), email);
     await page.goto('/login');
     await context.clearCookies({ name: 'XSRF-TOKEN' });
     await loginViaUi(page, email);
@@ -431,10 +442,11 @@ test.describe('AC10-12 via browser request context', () => {
       }
     });
     const email = uniqueEmail('ac12');
-    await registerViaUi(page, 'Pat', email);
+    const namePat = uniqueName('Pat');
+    await registerViaUi(page, namePat, email);
     await expect(page).toHaveURL(/\/tasks$/);
     await page.reload();
-    await expect(page.getByText('Hi, Pat')).toBeVisible();
+    await expect(page.getByText(`Hi, ${namePat}`)).toBeVisible();
     await page.getByRole('button', { name: 'Log out' }).click();
     await expect(page).toHaveURL(/\/login$/);
     await loginViaUi(page, email);

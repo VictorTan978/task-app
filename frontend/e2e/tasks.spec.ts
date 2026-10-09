@@ -68,7 +68,8 @@ async function signUp(page: Page, name = 'QA'): Promise<string> {
   const me = await page.request.get('/api/auth/me');
   expect(me.status()).toBe(401);
   const res = await page.request.post('/api/auth/register', {
-    data: { displayName: name, email, password: PASSWORD },
+    // Display names are unique (ignoring case/accents) and the DB keeps data, so suffix per run.
+    data: { displayName: `${name} ${RUN}-${counter}`, email, password: PASSWORD },
     headers: { 'X-XSRF-TOKEN': await xsrf(page) },
   });
   expect(res.status()).toBe(201);

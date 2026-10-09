@@ -12,11 +12,12 @@ As a visitor, I want to create an account and sign in with my email and password
 
 ### Registration
 - [x] AC1: Given I am on `/register`, when I enter a display name, a new email and a password of 8–72 characters and submit, then my account is created, I am signed in, and I land on `/tasks`. The header shows "Hi, <display name>".
-- [x] AC2: Given an account exists for `bob@example.com`, when I register with `Bob@Example.com`, then I stay on `/register` and see "An account with this email already exists" under the email field.
+- [x] AC2: Given an account exists for `bob@example.com`, when I register with `Bob@Example.com` or `böb@example.com` (email matching ignores letter case and accents), then I stay on `/register` and see "An account with this email already exists" under the email field.
 - [x] AC3: Given I am on `/register`, when I submit an invalid email, a password shorter than 8 or longer than 72 characters, or an empty display name, then nothing is created and an error appears under each invalid field.
+- [x] AC14: Given a user with display name "José" exists, when I register with display name "José", "jose", "JOSE" or " José " (trimmed; matching ignores letter case and accents), then I stay on `/register`, nothing is created, and I see "This display name is already taken" under the display name field. If the email is also taken, both field errors show.
 
 ### Login
-- [x] AC4: Given I have an account, when I enter my email (any letter case) and the correct password on `/login`, then I am signed in and land on `/tasks`.
+- [x] AC4: Given I have an account, when I enter my email (any letter case, with or without accents) and the correct password on `/login`, then I am signed in and land on `/tasks`.
 - [x] AC5: Given I am on `/login`, when I enter a wrong password or an email that is not registered, then I stay on `/login` and see the same message in both cases: "Invalid email or password".
 
 ### Session and logout
@@ -94,3 +95,7 @@ _Filled in by the PM during the build._
 | 2026-10-09 | Approved migration `V3` changing `users.email` collation to `utf8mb4_0900_as_ci` (accent-sensitive, case-insensitive), so `jose@` and `josé@` are different accounts, as on Postgres | Tester found accent-insensitive matching after the MySQL switch | User |
 | 2026-10-09 | V3 verified: backend 99/99, e2e 52/52 (adds `frontend/e2e/accent-email.spec.ts`), AC2/AC4 PASS via UI and API, no console errors. Found: frontend `Validators.email` rejects accented emails (`josé@…`) that the backend accepts. This predates V3; how to align is up to the user | Final verification | PM |
 | 2026-10-09 | Accented emails: option A. The UI keeps rejecting them (Angular `Validators.email`), the backend accepts them, and the DB compares them accent-sensitively (V3). No further change | User choice | User |
+| 2026-10-09 | Reverses the V3 decision: email matching ignores letter case AND accents (`jose@` = `josé@`). Display names must be unique, also ignoring case and accents (trimmed). AC2/AC4 changed, AC14 added | User request | User |
+| 2026-10-09 | Approved: migration `V4` (email collation back to `utf8mb4_0900_ai_ci`; unique key on `display_name` with `utf8mb4_0900_ai_ci`), new 409 code `DISPLAY_NAME_TAKEN` (additive contract change), deleting all local users and tasks (test data) so V4 can apply | Approval gates (schema, auth, data deletion) | User |
+| 2026-10-09 | Contract for 409 on register: one 409 response; top-level `code` stays `EMAIL_TAKEN` when the email is taken (backward compatible), otherwise `DISPLAY_NAME_TAKEN`; `errors[]` has one entry per taken field (`email`/EMAIL_TAKEN, `displayName`/DISPLAY_NAME_TAKEN, message "This display name is already taken"). The frontend renders from `errors[]` | Shows both errors at once; existing clients keep working | PM |
+| 2026-10-09 | Unique names + accent-insensitive email verified: backend 114, frontend lint/134 unit/build green, e2e 59/59 twice in a row on the same DB; auth AC1–AC14 PASS (accent part of AC2/AC4 via API, since the UI rejects accented emails), tasks AC1–AC15 PASS; 409 bodies match contract v0.3.0; no console errors | Final verification | PM |

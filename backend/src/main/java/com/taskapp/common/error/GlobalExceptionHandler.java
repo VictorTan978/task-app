@@ -1,5 +1,6 @@
 package com.taskapp.common.error;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,8 +22,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-import com.taskapp.auth.EmailTakenException;
 import com.taskapp.auth.InvalidCredentialsException;
+import com.taskapp.auth.RegistrationConflictException;
 import com.taskapp.auth.UnauthenticatedException;
 import com.taskapp.task.TaskNotFoundException;
 
@@ -35,6 +36,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    private static final String EMAIL_TAKEN_MESSAGE = "An account with this email already exists";
+    private static final String DISPLAY_NAME_TAKEN_MESSAGE = "This display name is already taken";
+
     /** Lower value wins when one field has several violations. */
     private static final Map<String, Integer> FIELD_CODE_PRIORITY = Map.of(
             ErrorCode.REQUIRED, 0,
@@ -42,11 +46,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             ErrorCode.PASSWORD_LENGTH, 1,
             ErrorCode.TOO_LONG, 2);
 
-    @ExceptionHandler(EmailTakenException.class)
-    ResponseEntity<ProblemDetail> handleEmailTaken(EmailTakenException ex) {
-        String message = "An account with this email already exists";
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Problems.of(HttpStatus.CONFLICT, ErrorCode.EMAIL_TAKEN,
-                message, List.of(new ApiFieldError("email", ErrorCode.EMAIL_TAKEN, message))));
+    /**
+     * One 409 for register: top-level code is EMAIL_TAKEN whenever the email is taken (backward compatible),
+     * otherwise DISPLAY_NAME_TAKEN; {@code errors} has one entry per taken field.
+     */
+    @ExceptionHandler(RegistrationConflictException.class)
+    ResponseEntity<ProblemDetail> handleRegistrationConflict(RegistrationConflictException ex) {
+        List<ApiFieldError> errors = new ArrayList<>();
+        if (ex.emailTaken()) {
+            errors.add(new ApiFieldError("email", ErrorCode.EMAIL_TAKEN, EMAIL_TAKEN_MESSAGE));
+        }
+        if (ex.displayNameTaken()) {
+            errors.add(new ApiFieldError("displayName", ErrorCode.DISPLAY_NAME_TAKEN, DISPLAY_NAME_TAKEN_MESSAGE));
+        }
+        ApiFieldError top = errors.get(0);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Problems.of(HttpStatus.CONFLICT, top.code(), top.message(), errors));
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)

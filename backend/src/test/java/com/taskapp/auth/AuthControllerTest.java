@@ -120,7 +120,7 @@ class AuthControllerTest {
 
     @Test
     void registerDuplicateEmailReturns409() throws Exception {
-        when(authService.register(any())).thenThrow(new EmailTakenException());
+        when(authService.register(any())).thenThrow(new RegistrationConflictException(true, false));
 
         mockMvc.perform(post("/api/auth/register").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -130,8 +130,47 @@ class AuthControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("EMAIL_TAKEN"))
                 .andExpect(jsonPath("$.detail").value("An account with this email already exists"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
                 .andExpect(jsonPath("$.errors[0].field").value("email"))
                 .andExpect(jsonPath("$.errors[0].code").value("EMAIL_TAKEN"));
+    }
+
+    @Test
+    void registerDuplicateDisplayNameReturns409DisplayNameTaken() throws Exception {
+        when(authService.register(any())).thenThrow(new RegistrationConflictException(false, true));
+
+        mockMvc.perform(post("/api/auth/register").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName":"Bob","email":"bob@example.com","password":"correct-horse"}"""))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("DISPLAY_NAME_TAKEN"))
+                .andExpect(jsonPath("$.detail").value("This display name is already taken"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("displayName"))
+                .andExpect(jsonPath("$.errors[0].code").value("DISPLAY_NAME_TAKEN"))
+                .andExpect(jsonPath("$.errors[0].message").value("This display name is already taken"));
+    }
+
+    @Test
+    void registerBothTakenReturns409EmailTakenWithTwoFieldErrors() throws Exception {
+        when(authService.register(any())).thenThrow(new RegistrationConflictException(true, true));
+
+        mockMvc.perform(post("/api/auth/register").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"displayName":"Bob","email":"bob@example.com","password":"correct-horse"}"""))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EMAIL_TAKEN"))
+                .andExpect(jsonPath("$.detail").value("An account with this email already exists"))
+                .andExpect(jsonPath("$.errors", hasSize(2)))
+                .andExpect(jsonPath("$.errors[0].field").value("email"))
+                .andExpect(jsonPath("$.errors[0].code").value("EMAIL_TAKEN"))
+                .andExpect(jsonPath("$.errors[0].message").value("An account with this email already exists"))
+                .andExpect(jsonPath("$.errors[1].field").value("displayName"))
+                .andExpect(jsonPath("$.errors[1].code").value("DISPLAY_NAME_TAKEN"))
+                .andExpect(jsonPath("$.errors[1].message").value("This display name is already taken"));
     }
 
     @Test

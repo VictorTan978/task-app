@@ -105,12 +105,14 @@ class TaskIntegrationTest {
             return this;
         }
 
-        /** Registers a fresh user (unique email) and stays signed in. */
+        /** Registers a fresh user (unique email and display name, both must be unique) and stays signed in. */
         Browser signUp(String name) throws Exception {
             start();
-            String email = name.toLowerCase() + "-" + UUID.randomUUID() + "@example.com";
+            String suffix = UUID.randomUUID().toString();
+            String email = name.toLowerCase() + "-" + suffix + "@example.com";
+            String displayName = name + " " + suffix.substring(0, 8);
             Resp r = post("/api/auth/register",
-                    "{\"displayName\":\"" + name + "\",\"email\":\"" + email + "\",\"password\":\"correct-horse\"}");
+                    "{\"displayName\":\"" + displayName + "\",\"email\":\"" + email + "\",\"password\":\"correct-horse\"}");
             assertThat(r.status()).isEqualTo(201);
             return this;
         }
