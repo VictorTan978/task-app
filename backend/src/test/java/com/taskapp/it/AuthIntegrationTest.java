@@ -172,6 +172,75 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void emailMatchingIsAccentSensitive() throws Exception {
+        Resp jose = new Browser().start().post("/api/auth/register",
+                registerBody("Jose", "jose@example.com", "jose-password"));
+        Resp joseAccent = new Browser().start().post("/api/auth/register",
+                registerBody("José", "josé@example.com", "jose-accent-password"));
+
+        assertThat(jose.status()).isEqualTo(201);
+        assertThat(joseAccent.status()).isEqualTo(201);
+        assertThat(joseAccent.json().get("email").asText()).isEqualTo("josé@example.com");
+        assertThat(joseAccent.json().get("id").asLong()).isNotEqualTo(jose.json().get("id").asLong());
+
+        // jose's password must not sign in as josé (or as jose).
+        Resp crossLogin = new Browser().start()
+                .post("/api/auth/login", "{\"email\":\"josé@example.com\",\"password\":\"jose-password\"}");
+        assertThat(crossLogin.status()).isEqualTo(401);
+        assertThat(crossLogin.json().get("code").asText()).isEqualTo("INVALID_CREDENTIALS");
+
+        Resp accentLogin = new Browser().start()
+                .post("/api/auth/login", "{\"email\":\"josé@example.com\",\"password\":\"jose-accent-password\"}");
+        assertThat(accentLogin.status()).isEqualTo(200);
+        assertThat(accentLogin.json().get("id").asLong()).isEqualTo(joseAccent.json().get("id").asLong());
+    }
+
+    @Test
+    void emailMatchingStaysCaseInsensitiveAfterAccentFix() throws Exception {
+        Resp jose = new Browser().start().post("/api/auth/register",
+                registerBody("Jose", "jose.case@example.com", "jose-password"));
+        assertThat(jose.status()).isEqualTo(201);
+
+        Resp dup = new Browser().start().post("/api/auth/register",
+                registerBody("JOSE", "JOSE.CASE@EXAMPLE.COM", "other-password"));
+        assertThat(dup.status()).isEqualTo(409);
+        assertThat(dup.json().get("code").asText()).isEqualTo("EMAIL_TAKEN");
+
+        Resp login = new Browser().start()
+                .post("/api/auth/login", "{\"email\":\"JOSE.CASE@EXAMPLE.COM\",\"password\":\"jose-password\"}");
+        assertThat(login.status()).isEqualTo(200);
+        assertThat(login.json().get("id").asLong()).isEqualTo(jose.json().get("id").asLong());
+        assertThat(login.json().get("email").asText()).isEqualTo("jose.case@example.com");
+    }
+
+    @Test
+    void sharpSIsDistinctFromDoubleS() throws Exception {
+        Resp strasse = new Browser().start().post("/api/auth/register",
+                registerBody("Strasse", "strasse@example.com", "strasse-password"));
+        Resp strasseSharp = new Browser().start().post("/api/auth/register",
+                registerBody("Straße", "straße@example.com", "strasse-sharp-password"));
+
+        assertThat(strasse.status()).isEqualTo(201);
+        assertThat(strasseSharp.status()).isEqualTo(201);
+        assertThat(new Browser().start()
+                .post("/api/auth/login", "{\"email\":\"straße@example.com\",\"password\":\"strasse-password\"}")
+                .status()).isEqualTo(401);
+    }
+
+    @Test
+    void emailColumnUsesAccentSensitiveCaseInsensitiveCollationWithUniqueKey() {
+        assertThat(jdbc.queryForObject("""
+                select collation_name from information_schema.columns
+                where table_schema = database() and table_name = 'users' and column_name = 'email'
+                """, String.class)).isEqualTo("utf8mb4_0900_as_ci");
+        assertThat(jdbc.queryForObject("""
+                select count(*) from information_schema.statistics
+                where table_schema = database() and table_name = 'users'
+                  and index_name = 'uk_users_email' and column_name = 'email' and non_unique = 0
+                """, Integer.class)).isEqualTo(1);
+    }
+
+    @Test
     void validationReportsAllInvalidFields() throws Exception {
         Resp r = new Browser().start().post("/api/auth/register", registerBody("", "nope", "1234567"));
 
