@@ -2,13 +2,18 @@
 #   e.g. cd backend && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
 # Never activate this profile in production: it contains the docker-compose dev password.
 # Without a profile the app uses production settings (application.yml) and requires
-# DB_URL, DB_USERNAME and DB_PASSWORD to be set.
+# DB_URL, DB_USERNAME, DB_PASSWORD, DB_MIGRATION_USERNAME and DB_MIGRATION_PASSWORD to be set.
 spring:
   datasource:
     # Matches the "db" service in ../docker-compose.yml. Env vars still override these defaults.
     url: ${DB_URL:jdbc:mysql://localhost:3306/taskapp?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true}
-    username: ${DB_USERNAME:taskapp}
-    password: ${DB_PASSWORD:taskapp}
+    # Restricted app user (data only), created by backend/docker/mysql-init/01-app-user.sh.
+    username: ${DB_USERNAME:taskapp_app}
+    password: ${DB_PASSWORD:taskapp_app}
+  flyway:
+    # Migration user = MYSQL_USER of the "db" service (ALL on taskapp.*). Used only by Flyway.
+    user: ${DB_MIGRATION_USERNAME:taskapp}
+    password: ${DB_MIGRATION_PASSWORD:taskapp}
 
 app:
   # Swagger UI + /v3/api-docs on by default in dev (set API_DOCS_ENABLED=false to turn them off).

@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 
-/** AC17 / AC18: no dev secrets outside dev. */
+/** AC17 / AC18: no dev secrets outside dev. AC13: separate migration user is required too. */
 class RequiredSettingsCheckTest {
 
     private final RequiredSettingsCheck check = new RequiredSettingsCheck();
@@ -32,7 +32,9 @@ class RequiredSettingsCheckTest {
         var env = envWith(Map.of(
                 "spring.datasource.url", "jdbc:mysql://db/taskapp",
                 "spring.datasource.username", "app",
-                "spring.datasource.password", "${DB_PASSWORD_THAT_IS_NOT_SET}"));
+                "spring.datasource.password", "${DB_PASSWORD_THAT_IS_NOT_SET}",
+                "spring.flyway.user", "migrator",
+                "spring.flyway.password", "m1grate"));
 
         assertThatThrownBy(() -> check.postProcessEnvironment(env, new SpringApplication()))
                 .isInstanceOf(MissingRequiredSettingsException.class)
@@ -44,7 +46,9 @@ class RequiredSettingsCheckTest {
         var env = envWith(Map.of(
                 "spring.datasource.url", "jdbc:mysql://db/taskapp",
                 "spring.datasource.username", " ",
-                "spring.datasource.password", ""));
+                "spring.datasource.password", "",
+                "spring.flyway.user", "migrator",
+                "spring.flyway.password", "m1grate"));
 
         assertThatThrownBy(() -> check.postProcessEnvironment(env, new SpringApplication()))
                 .isInstanceOfSatisfying(MissingRequiredSettingsException.class,
@@ -56,9 +60,25 @@ class RequiredSettingsCheckTest {
         var env = envWith(Map.of(
                 "spring.datasource.url", "jdbc:mysql://db/taskapp",
                 "spring.datasource.username", "app",
-                "spring.datasource.password", "s3cret"));
+                "spring.datasource.password", "s3cret",
+                "spring.flyway.user", "migrator",
+                "spring.flyway.password", "m1grate"));
 
         check.postProcessEnvironment(env, new SpringApplication());
+    }
+
+    @Test
+    void failsNamingMigrationUserSettingsWhenMissing() {
+        var env = envWith(Map.of(
+                "spring.datasource.url", "jdbc:mysql://db/taskapp",
+                "spring.datasource.username", "app",
+                "spring.datasource.password", "s3cret",
+                "spring.flyway.user", "${DB_MIGRATION_USERNAME_THAT_IS_NOT_SET}",
+                "spring.flyway.password", " "));
+
+        assertThatThrownBy(() -> check.postProcessEnvironment(env, new SpringApplication()))
+                .isInstanceOf(MissingRequiredSettingsException.class)
+                .hasMessage("DB_MIGRATION_USERNAME, DB_MIGRATION_PASSWORD are not set.");
     }
 
     @Test
@@ -78,6 +98,11 @@ class RequiredSettingsCheckTest {
     static class Empty {
     }
 
+    private static boolean noDbEnvVars() {
+        return java.util.stream.Stream.of("DB_URL", "DB_USERNAME", "DB_PASSWORD",
+                "DB_MIGRATION_USERNAME", "DB_MIGRATION_PASSWORD").allMatch(name -> System.getenv(name) == null);
+    }
+
     private static SpringApplication app() {
         SpringApplication app = new SpringApplication(Empty.class);
         app.setWebApplicationType(WebApplicationType.NONE);
@@ -87,18 +112,17 @@ class RequiredSettingsCheckTest {
 
     @Test
     void startupWithoutProfileAndWithoutDbSettingsFailsNamingThem() {
-        assumeTrue(System.getenv("DB_URL") == null && System.getenv("DB_USERNAME") == null
-                && System.getenv("DB_PASSWORD") == null, "DB_* env vars are set in this shell");
+        assumeTrue(noDbEnvVars(), "DB_* env vars are set in this shell");
 
         assertThatThrownBy(() -> app().run("--spring.config.location=classpath:application.yml"))
                 .isInstanceOfSatisfying(MissingRequiredSettingsException.class,
-                        e -> assertThat(e.getMissing()).containsExactly("DB_URL", "DB_USERNAME", "DB_PASSWORD"));
+                        e -> assertThat(e.getMissing()).containsExactly("DB_URL", "DB_USERNAME", "DB_PASSWORD",
+                                "DB_MIGRATION_USERNAME", "DB_MIGRATION_PASSWORD"));
     }
 
     @Test
     void devProfileUsesLocalDefaultsAndEnablesApiDocs() {
-        assumeTrue(System.getenv("DB_URL") == null && System.getenv("DB_USERNAME") == null
-                && System.getenv("DB_PASSWORD") == null && System.getenv("API_DOCS_ENABLED") == null,
+        assumeTrue(noDbEnvVars() && System.getenv("API_DOCS_ENABLED") == null,
                 "DB_* / API_DOCS_ENABLED env vars are set in this shell");
 
         try (ConfigurableApplicationContext ctx = app().run(
@@ -107,8 +131,11 @@ class RequiredSettingsCheckTest {
             var env = ctx.getEnvironment();
             assertThat(env.getProperty("spring.datasource.url"))
                     .startsWith("jdbc:mysql://localhost:3306/taskapp?");
-            assertThat(env.getProperty("spring.datasource.username")).isEqualTo("taskapp");
-            assertThat(env.getProperty("spring.datasource.password")).isEqualTo("taskapp");
+            // AC13: the app uses the restricted user, Flyway the migration user (docker-compose "db" service).
+            assertThat(env.getProperty("spring.datasource.username")).isEqualTo("taskapp_app");
+            assertThat(env.getProperty("spring.datasource.password")).isEqualTo("taskapp_app");
+            assertThat(env.getProperty("spring.flyway.user")).isEqualTo("taskapp");
+            assertThat(env.getProperty("spring.flyway.password")).isEqualTo("taskapp");
             assertThat(env.getProperty("app.api-docs-enabled")).isEqualTo("true");
             assertThat(env.getProperty("springdoc.api-docs.enabled")).isEqualTo("true");
         }
@@ -120,7 +147,8 @@ class RequiredSettingsCheckTest {
 
         try (ConfigurableApplicationContext ctx = app().run(
                 "--spring.config.location=classpath:application.yml",
-                "--DB_URL=jdbc:mysql://db/taskapp", "--DB_USERNAME=app", "--DB_PASSWORD=s3cret")) {
+                "--DB_URL=jdbc:mysql://db/taskapp", "--DB_USERNAME=app", "--DB_PASSWORD=s3cret",
+                "--DB_MIGRATION_USERNAME=migrator", "--DB_MIGRATION_PASSWORD=m1grate")) {
             assertThat(ctx.getEnvironment().getProperty("springdoc.api-docs.enabled")).isEqualTo("false");
         }
     }

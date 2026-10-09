@@ -6,11 +6,16 @@ services:
       MYSQL_USER: taskapp
       MYSQL_PASSWORD: taskapp
       MYSQL_ROOT_PASSWORD: taskapp-root
+      # Restricted app user (data only). MYSQL_USER above is the Flyway migration user.
+      APP_DB_USER: taskapp_app
+      APP_DB_PASSWORD: taskapp_app
     ports:
       # Localhost only: never reachable from other machines on the network.
       - "127.0.0.1:3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+      # Runs only when the volume is first created. For an existing volume, see backend/docker/mysql-init/.
+      - ./backend/docker/mysql-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "taskapp", "-ptaskapp"]
       interval: 5s

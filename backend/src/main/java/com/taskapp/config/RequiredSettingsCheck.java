@@ -27,6 +27,9 @@ public class RequiredSettingsCheck implements EnvironmentPostProcessor, Ordered 
         REQUIRED.put("spring.datasource.url", "DB_URL");
         REQUIRED.put("spring.datasource.username", "DB_USERNAME");
         REQUIRED.put("spring.datasource.password", "DB_PASSWORD");
+        // Flyway's own (privileged) user; the datasource user above is data-only.
+        REQUIRED.put("spring.flyway.user", "DB_MIGRATION_USERNAME");
+        REQUIRED.put("spring.flyway.password", "DB_MIGRATION_PASSWORD");
     }
 
     @Override

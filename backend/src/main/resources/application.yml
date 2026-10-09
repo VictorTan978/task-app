@@ -6,7 +6,8 @@ spring:
     exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     # Secure by default: no profile = production settings, so there are NO defaults here.
-    # DB_URL, DB_USERNAME and DB_PASSWORD must be set, or startup fails naming the missing variable
+    # DB_USERNAME / DB_PASSWORD = the restricted app user (SELECT, INSERT, UPDATE, DELETE only).
+    # DB_URL, DB_USERNAME, DB_PASSWORD, DB_MIGRATION_USERNAME and DB_MIGRATION_PASSWORD must be set, or startup fails naming the missing variable
     # (see com.taskapp.config.RequiredSettingsCheck). For local development use the dev profile
     # (application-dev.yml): SPRING_PROFILES_ACTIVE=dev.
     # Keep connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true in DB_URL: DATETIME(6) values
@@ -24,6 +25,12 @@ spring:
           time_zone: UTC
   flyway:
     locations: classpath:db/migration
+    # Least privilege: Flyway migrates with its own user (DDL rights); the datasource user above is data-only
+    # (SELECT, INSERT, UPDATE, DELETE). Flyway opens its own connection to spring.datasource.url with these.
+    # Required outside the dev profile (see com.taskapp.config.RequiredSettingsCheck).
+    # See backend/docker/mysql-init/README.md.
+    user: ${DB_MIGRATION_USERNAME}
+    password: ${DB_MIGRATION_PASSWORD}
 
 server:
   port: 8080

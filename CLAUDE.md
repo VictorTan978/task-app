@@ -9,8 +9,8 @@ Full-stack task app: Angular frontend + Spring Boot backend + MySQL.
 |---|---|---|---|
 | Frontend | `frontend/` (Angular, standalone components, signals, RxJS) | `cd frontend && npm start` → http://localhost:4200 | `npm test -- --watch=false`, `npm run lint`, `npm run build`, e2e: `npx playwright test` |
 | Backend | `backend/` (Spring Boot 3, Java 21, Maven wrapper) | `cd backend && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run` → http://localhost:8080 (the `dev` profile holds local defaults; without it the app needs `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) | `./mvnw test` |
-| Database | MySQL 8.4 in Docker | `docker compose up -d db` | — |
-| Migrations | `backend/src/main/resources/db/migration/` (Flyway) | **Flyway applies new migrations automatically when the backend starts.** | — |
+| Database | MySQL 8.4 in Docker (localhost only). Users: `taskapp` = Flyway migrations (DDL), `taskapp_app` = the app (data only) | `docker compose up -d db` (a fresh volume creates both users; for an existing volume run `docker compose exec db sh /docker-entrypoint-initdb.d/01-app-user.sh` once) | — |
+| Migrations | `backend/src/main/resources/db/migration/` (Flyway) | **Flyway applies new migrations automatically when the backend starts.** Flyway connects as the migration user (`DB_MIGRATION_USERNAME`/`DB_MIGRATION_PASSWORD`, required in production). | — |
 | API contract | `contracts/openapi.yaml` | Single source of truth for the API. **Backend owns it.** | — |
 | Dependency scan | — | Frontend: `cd frontend && npm audit`. Backend (known CVEs, report in `backend/target/`): `cd backend && ./mvnw org.owasp:dependency-check-maven:12.1.0:check -DnvdApiKey=$NVD_API_KEY` (free key: https://nvd.nist.gov/developers/request-an-api-key; the first run without a key takes hours). Dependabot (`.github/dependabot.yml`) opens weekly update PRs once the repo is on GitHub. | — |
 
