@@ -30,14 +30,17 @@ public class SessionAuthenticator {
     private final SecurityContextRepository securityContextRepository;
     private final CsrfTokenRepository csrfTokenRepository;
     private final String sessionCookieName;
+    private final boolean requireHttps;
     private final SecurityContextHolderStrategy contextHolder = SecurityContextHolder.getContextHolderStrategy();
 
     public SessionAuthenticator(SecurityContextRepository securityContextRepository,
             CsrfTokenRepository csrfTokenRepository,
-            @Value("${server.servlet.session.cookie.name:JSESSIONID}") String sessionCookieName) {
+            @Value("${server.servlet.session.cookie.name:JSESSIONID}") String sessionCookieName,
+            @Value("${app.security.require-https:true}") boolean requireHttps) {
         this.securityContextRepository = securityContextRepository;
         this.csrfTokenRepository = csrfTokenRepository;
         this.sessionCookieName = sessionCookieName;
+        this.requireHttps = requireHttps;
     }
 
     /** Replaces any existing session with a fresh one holding {@code user}, and rotates the CSRF token. */
@@ -63,6 +66,8 @@ public class SessionAuthenticator {
                 .maxAge(0)
                 .httpOnly(true)
                 .sameSite("Lax")
+                // Same rule as the session cookie itself (server.servlet.session.cookie.secure + Tomcat).
+                .secure(requireHttps || request.isSecure())
                 .build()
                 .toString());
         rotateCsrfToken(request, response);

@@ -29,8 +29,9 @@ class AuthRateLimitInterceptor implements HandlerInterceptor {
     }
 
     /**
-     * The direct peer address. Once forwarded headers are enabled ({@code server.forward-headers-strategy}),
-     * the container rewrites it to the real client from {@code X-Forwarded-For}, with no change here.
+     * The client address. With {@code server.forward-headers-strategy: native} (application.yml) Tomcat
+     * rewrites it to the real client from {@code X-Forwarded-For} when the direct peer is a trusted proxy
+     * ({@code TRUSTED_PROXIES}); from any other peer it stays the peer address, so the header can't be spoofed.
      */
     static String clientIp(HttpServletRequest request) {
         String ip = request.getRemoteAddr();

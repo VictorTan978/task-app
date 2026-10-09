@@ -19,10 +19,10 @@ As the owner of the task app, I want the backend to block password guessing, pro
 - [x] AC6: `contracts/openapi.yaml` documents the 429 response on login and register.
 
 ### B. HTTPS, Secure cookies, proxy headers (#1, #4)
-- [ ] AC7: Given production settings, then the session cookie and the `XSRF-TOKEN` cookie carry the `Secure` flag, including the cookie that logout clears.
-- [ ] AC8: Given production settings and a request that arrives through a TLS proxy with `X-Forwarded-Proto: https`, then the app treats it as HTTPS: the response includes `Strict-Transport-Security`, and the client IP used for rate limiting and logs is the real client from `X-Forwarded-For`.
-- [ ] AC9: Given production settings and a request with `X-Forwarded-Proto: http`, then the app redirects it to HTTPS.
-- [ ] AC10: Given dev settings on localhost over plain HTTP, then login, logout and CSRF work exactly as today.
+- [x] AC7: Given production settings, then the session cookie and the `XSRF-TOKEN` cookie carry the `Secure` flag, including the cookie that logout clears.
+- [x] AC8: Given production settings and a request that arrives through a TLS proxy with `X-Forwarded-Proto: https`, then the app treats it as HTTPS: the response includes `Strict-Transport-Security`, and the client IP used for rate limiting and logs is the real client from `X-Forwarded-For`.
+- [x] AC9: Given production settings and a request with `X-Forwarded-Proto: http`, then the app redirects it to HTTPS.
+- [x] AC10: Given dev settings on localhost over plain HTTP, then login, logout and CSRF work exactly as today.
 
 ### C. Security event logging (#11)
 - [ ] AC11: These events each write one log line with a fixed prefix (`SECURITY`), the event name, email (when known), client IP and request path: login success, login failure, registration, logout, rate-limit hit, 401 rejection, 403 rejection (CSRF or access denied).
@@ -73,3 +73,4 @@ _Filled in by the PM during the build._
 | 2026-10-09 | Section F done: `.github/dependabot.yml` added and scan commands documented in CLAUDE.md. `npm audit`: 0 vulnerabilities. The OWASP command runs (first NVD download without a key takes hours; result reported separately) | Verified by the PM; config-only change | PM |
 | 2026-10-09 | Section E verified PASS (AC17–AC19). `DB_URL` also has no default in production (a silent localhost fallback would connect to the wrong DB). A startup check plus a FailureAnalyzer give the clear message, because Spring's own error didn't name the variable | Fail loudly | backend-dev / tester / PM |
 | 2026-10-09 | Accepted: `application-dev.yml` (with the dev password `taskapp`) is packaged in the jar | Same public dev-only value as docker-compose; only used when the dev profile is on | PM |
+| 2026-10-09 | Section B verified PASS (AC7–AC10). One flag, `app.security.require-https` (`REQUIRE_HTTPS`, default on; dev forces it off), drives the Secure cookies and the redirect. Forwarded headers are trusted only from `TRUSTED_PROXIES` (default: private/loopback ranges). `GET /api/health` is exempt from the redirect for load-balancer probes | The proxy does TLS; the app redirect is a safety net, and the proxy should do its own 301/308 | backend-dev / tester / PM |

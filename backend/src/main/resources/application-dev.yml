@@ -13,3 +13,8 @@ spring:
 app:
   # Swagger UI + /v3/api-docs on by default in dev (set API_DOCS_ENABLED=false to turn them off).
   api-docs-enabled: ${API_DOCS_ENABLED:true}
+  security:
+    # Plain http://localhost: no Secure cookies and no redirect to HTTPS (production default is true).
+    # Deliberately not read from REQUIRE_HTTPS, so a production value of that variable can't break local
+    # runs. To try the production behaviour locally, set APP_SECURITY_REQUIREHTTPS=true.
+    require-https: false
