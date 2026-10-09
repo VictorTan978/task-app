@@ -7,7 +7,8 @@ services:
       MYSQL_PASSWORD: taskapp
       MYSQL_ROOT_PASSWORD: taskapp-root
     ports:
-      - "3306:3306"
+      # Localhost only: never reachable from other machines on the network.
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:

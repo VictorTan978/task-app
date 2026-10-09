@@ -120,6 +120,15 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void apiDocsAreNotPublicByDefault() throws Exception {
+        for (String path : List.of("/v3/api-docs", "/swagger-ui.html", "/swagger-ui/index.html")) {
+            Resp r = new Browser().get(path);
+            assertThat(r.status()).as(path).isEqualTo(401);
+            assertThat(r.contentType()).as(path).startsWith("application/problem+json");
+        }
+    }
+
+    @Test
     void meWithoutSessionIs401AndIssuesReadableCsrfCookieWithoutCreatingSession() throws Exception {
         Resp r = new Browser().get("/api/auth/me");
 

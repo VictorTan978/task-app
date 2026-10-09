@@ -33,8 +33,9 @@ server:
         same-site: lax
 
 app:
-  # Swagger UI + /v3/api-docs are public when enabled (local dev). Set API_DOCS_ENABLED=false to turn them off.
-  api-docs-enabled: ${API_DOCS_ENABLED:true}
+  # Swagger UI + /v3/api-docs are off by default. Set API_DOCS_ENABLED=true for local dev
+  # (they are then public). Never enable in production.
+  api-docs-enabled: ${API_DOCS_ENABLED:false}
 
 springdoc:
   api-docs:
