@@ -8,7 +8,7 @@ Full-stack task app: Angular frontend + Spring Boot backend + MySQL.
 | Part | Path | Run | Test / Build |
 |---|---|---|---|
 | Frontend | `frontend/` (Angular, standalone components, signals, RxJS) | `cd frontend && npm start` → http://localhost:4200 | `npm test -- --watch=false`, `npm run lint`, `npm run build`, e2e: `npx playwright test` |
-| Backend | `backend/` (Spring Boot 3, Java 21, Maven wrapper) | `cd backend && ./mvnw spring-boot:run` → http://localhost:8080 | `./mvnw test` |
+| Backend | `backend/` (Spring Boot 3, Java 21, Maven wrapper) | `cd backend && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run` → http://localhost:8080 (the `dev` profile holds local defaults; without it the app needs `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) | `./mvnw test` |
 | Database | MySQL 8.4 in Docker | `docker compose up -d db` | — |
 | Migrations | `backend/src/main/resources/db/migration/` (Flyway) | **Flyway applies new migrations automatically when the backend starts.** | — |
 | API contract | `contracts/openapi.yaml` | Single source of truth for the API. **Backend owns it.** | — |

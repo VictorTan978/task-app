@@ -1,0 +1,4 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.taskapp.config.RequiredSettingsCheck
+org.springframework.boot.diagnostics.FailureAnalyzer=\
+com.taskapp.config.MissingRequiredSettingsFailureAnalyzer

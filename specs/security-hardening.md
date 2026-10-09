@@ -35,9 +35,9 @@ As the owner of the task app, I want the backend to block password guessing, pro
 - [ ] AC16: All existing e2e tests still pass with the new users.
 
 ### E. No dev secrets outside dev (#7)
-- [ ] AC17: Given the app is started without the `dev` profile and without `DB_PASSWORD`, then it refuses to start with a clear error naming the missing variable.
-- [ ] AC18: Given the `dev` profile, then the app starts with the local docker-compose defaults, and API docs can be turned on, as today.
-- [ ] AC19: The run commands in `CLAUDE.md` (and anything that starts the backend, e.g. agent instructions) are updated to use the `dev` profile.
+- [x] AC17: Given the app is started without the `dev` profile and without `DB_PASSWORD`, then it refuses to start with a clear error naming the missing variable.
+- [x] AC18: Given the `dev` profile, then the app starts with the local docker-compose defaults, and API docs can be turned on, as today.
+- [x] AC19: The run commands in `CLAUDE.md` (and anything that starts the backend, e.g. agent instructions) are updated to use the `dev` profile.
 
 ### F. Dependency scanning (#9)
 - [x] AC20: `.github/dependabot.yml` checks Maven (`backend/`), npm (`frontend/`) and GitHub Actions weekly. It has no effect until the repo is pushed to GitHub.
@@ -71,3 +71,5 @@ _Filled in by the PM during the build._
 | 2026-10-09 | Build order A → F → E → B → C → D | F has no code dependencies; B's "production settings" need E's profiles; C logs the IPs from B and the 429s from A | PM |
 | 2026-10-09 | Section A verified PASS (AC1–AC6). The real-limit e2e tests run only with `E2E_RATE_LIMIT=1` against a freshly started backend with default limits; mocked 429 tests always run | The full suite shares one IP | tester / PM |
 | 2026-10-09 | Section F done: `.github/dependabot.yml` added and scan commands documented in CLAUDE.md. `npm audit`: 0 vulnerabilities. The OWASP command runs (first NVD download without a key takes hours; result reported separately) | Verified by the PM; config-only change | PM |
+| 2026-10-09 | Section E verified PASS (AC17–AC19). `DB_URL` also has no default in production (a silent localhost fallback would connect to the wrong DB). A startup check plus a FailureAnalyzer give the clear message, because Spring's own error didn't name the variable | Fail loudly | backend-dev / tester / PM |
+| 2026-10-09 | Accepted: `application-dev.yml` (with the dev password `taskapp`) is packaged in the jar | Same public dev-only value as docker-compose; only used when the dev profile is on | PM |

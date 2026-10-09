@@ -15,7 +15,8 @@ The spec path (`specs/<feature>.md`) and a summary of what was built.
 3. **Frontend checks:** in `frontend/` run `npm run lint`, `npm test -- --watch=false`, `npm run build`.
 4. **Start the app** (in the background, wait until healthy):
    - `docker compose up -d db`
-   - backend on :8080, frontend on :4200
+   - backend on :8080: `cd backend && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run`. Rate limits are per IP and every test runs from 127.0.0.1, so for the full e2e suite also set `RATE_LIMIT_REGISTER_PER_IP_PER_HOUR=100000 RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE=100000`. Real-limit tests run only with `E2E_RATE_LIMIT=1` against a freshly started backend with default limits.
+   - frontend on :4200
 5. **API checks:** call each new/changed endpoint with `curl`. Compare status codes and response shape to `contracts/openapi.yaml`. Try at least one invalid input per endpoint.
 6. **UI / e2e:** write or update a Playwright test in `frontend/e2e/<feature>.spec.ts` that walks through each acceptance criterion. Run `npx playwright test`. Take screenshots of key states and look at them: does the UI look broken? Collect any browser console errors.
 7. **Edge cases:** empty data, error from the API, double-clicks, refresh mid-flow.

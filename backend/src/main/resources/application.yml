@@ -5,12 +5,15 @@ spring:
     # No in-memory user store; users live in the database (see com.taskapp.auth).
     exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
-    # Matches the "db" service in ../docker-compose.yml
-    # connectionTimeZone=UTC + forceConnectionTimeZoneToSession: DATETIME(6) values (and DB defaults) are UTC,
-    # so Instant round-trips exactly regardless of the JVM or server time zone.
-    url: ${DB_URL:jdbc:mysql://localhost:3306/taskapp?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true}
-    username: ${DB_USERNAME:taskapp}
-    password: ${DB_PASSWORD:taskapp}
+    # Secure by default: no profile = production settings, so there are NO defaults here.
+    # DB_URL, DB_USERNAME and DB_PASSWORD must be set, or startup fails naming the missing variable
+    # (see com.taskapp.config.RequiredSettingsCheck). For local development use the dev profile
+    # (application-dev.yml): SPRING_PROFILES_ACTIVE=dev.
+    # Keep connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true in DB_URL: DATETIME(6) values
+    # (and DB defaults) are UTC, so Instant round-trips exactly regardless of the JVM or server time zone.
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:
@@ -33,8 +36,8 @@ server:
         same-site: lax
 
 app:
-  # Swagger UI + /v3/api-docs are off by default. Set API_DOCS_ENABLED=true for local dev
-  # (they are then public). Never enable in production.
+  # Swagger UI + /v3/api-docs are off by default (on by default in the dev profile).
+  # When enabled they are public. Never enable in production.
   api-docs-enabled: ${API_DOCS_ENABLED:false}
   # In-memory rate limits for POST /api/auth/login and /register (per app instance, reset on restart).
   # Over a limit the API answers 429 RATE_LIMITED with Retry-After. Env-var overrides:
