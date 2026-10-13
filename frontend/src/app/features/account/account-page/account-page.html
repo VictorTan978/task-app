@@ -1,0 +1,35 @@
+<div class="account-page">
+  <h1>Account</h1>
+
+  <section class="account-card" aria-labelledby="account-email-heading">
+    <h2 id="account-email-heading">Email</h2>
+    <div class="field">
+      <label for="account-email">Email address</label>
+      <input id="account-email" type="email" [value]="email()" readonly />
+    </div>
+  </section>
+
+  <section class="account-card" aria-labelledby="account-display-name-heading">
+    <h2 id="account-display-name-heading">Display name</h2>
+    <app-display-name-form />
+  </section>
+
+  <section class="account-card" aria-labelledby="account-password-heading">
+    <h2 id="account-password-heading">Change password</h2>
+    <app-change-password-form />
+  </section>
+
+  <section class="account-card account-card--danger" aria-labelledby="account-delete-heading">
+    <h2 id="account-delete-heading">Delete account</h2>
+    <p class="account-card__text">
+      Permanently delete your account and all your tasks. This can't be undone.
+    </p>
+    <button type="button" class="btn btn--danger" (click)="deleting.set(true)">
+      Delete account
+    </button>
+  </section>
+</div>
+
+@if (deleting()) {
+  <app-delete-account-dialog (deleted)="onDeleted()" (closed)="deleting.set(false)" />
+}

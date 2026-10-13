@@ -2,7 +2,7 @@
   <span class="app-header__name">Task App</span>
   <div class="app-header__user">
     @if (user(); as u) {
-      <span class="app-header__greeting">Hi, {{ u.displayName }}</span>
+      <a class="app-header__greeting" routerLink="/account">Hi, {{ u.displayName }}</a>
     }
     <button
       type="button"

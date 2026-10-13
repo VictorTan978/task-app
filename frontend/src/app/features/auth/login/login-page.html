@@ -2,6 +2,11 @@
   <section class="auth-card" aria-labelledby="login-title">
     <h1 id="login-title">Sign in</h1>
 
+    @if (accountDeleted()) {
+      <p class="notice notice--info" role="status" data-testid="account-deleted">
+        {{ accountDeletedMessage }}
+      </p>
+    }
     @if (sessionExpired()) {
       <p class="notice notice--info" role="status">{{ sessionExpiredMessage }}</p>
     }

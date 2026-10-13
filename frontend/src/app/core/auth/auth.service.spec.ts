@@ -139,4 +139,38 @@ describe('AuthService', () => {
     service.clearSessionExpired();
     expect(service.sessionExpired()).toBe(false);
   });
+
+  it('updateCurrentUser replaces the signed-in user', () => {
+    service.loadMe().subscribe();
+    http.expectOne('/api/auth/me').flush(BOB);
+    service.updateCurrentUser({ ...BOB, displayName: 'Bobby' });
+    expect(service.currentUser()?.displayName).toBe('Bobby');
+    expect(service.isSignedIn()).toBe(true);
+  });
+
+  it('updateCurrentUser does nothing when signed out', () => {
+    service.updateCurrentUser(BOB);
+    expect(service.isSignedIn()).toBe(false);
+  });
+
+  it('handleAccountDeleted signs out locally and flags the deletion, not an expiry', () => {
+    service.loadMe().subscribe();
+    http.expectOne('/api/auth/me').flush(BOB);
+    service.handleAccountDeleted();
+    expect(service.isSignedIn()).toBe(false);
+    expect(service.wasSignedInThisTab).toBe(false);
+    expect(service.accountDeleted()).toBe(true);
+    expect(service.sessionExpired()).toBe(false);
+
+    service.clearAccountDeleted();
+    expect(service.accountDeleted()).toBe(false);
+  });
+
+  it('signing in again clears the deleted flag', async () => {
+    service.handleAccountDeleted();
+    const result = firstValueFrom(service.login({ email: 'a@b.co', password: 'x' }));
+    http.expectOne('/api/auth/login').flush(BOB);
+    await result;
+    expect(service.accountDeleted()).toBe(false);
+  });
 });

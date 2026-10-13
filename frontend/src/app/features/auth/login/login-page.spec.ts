@@ -178,4 +178,18 @@ describe('LoginPage', () => {
     expect(text()).not.toContain('Your session expired');
     http.expectOne('/api/auth/login').flush(BOB);
   });
+
+  it('shows "Your account has been deleted" and clears it on submit', async () => {
+    const auth = TestBed.inject(AuthService);
+    auth.handleAccountDeleted();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid=account-deleted]')?.textContent?.trim()).toBe(
+      'Your account has been deleted',
+    );
+    expect(text()).not.toContain('Your session expired');
+
+    await submit();
+    expect(el.querySelector('[data-testid=account-deleted]')).toBeNull();
+    http.expectOne('/api/auth/login').flush(BOB);
+  });
 });

@@ -1,0 +1,35 @@
+<form class="account-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  @if (banner(); as message) {
+    <p class="notice notice--error" role="alert">{{ message }}</p>
+  }
+
+  <div class="field">
+    <label for="account-display-name">Display name</label>
+    <input
+      id="account-display-name"
+      type="text"
+      formControlName="displayName"
+      autocomplete="nickname"
+      [attr.aria-invalid]="error() ? true : null"
+      [attr.aria-describedby]="error() ? 'account-display-name-error' : null"
+    />
+    @if (error(); as message) {
+      <p class="field-error" id="account-display-name-error">{{ message }}</p>
+    }
+  </div>
+
+  <div class="account-form__actions">
+    <button
+      type="submit"
+      class="btn btn--primary"
+      [disabled]="pending()"
+      [attr.aria-busy]="pending()"
+    >
+      @if (pending()) {
+        <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+      }
+      Save
+    </button>
+    <p class="account-form__status" role="status">{{ status() }}</p>
+  </div>
+</form>

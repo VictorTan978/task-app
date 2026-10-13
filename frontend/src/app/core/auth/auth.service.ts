@@ -11,6 +11,7 @@ export class AuthService {
 
   private readonly user = signal<User | null>(null);
   private readonly expired = signal(false);
+  private readonly deleted = signal(false);
   private signedInThisTab = false;
 
   /** The signed-in user, or null when signed out. */
@@ -18,6 +19,8 @@ export class AuthService {
   readonly isSignedIn = computed(() => this.user() !== null);
   /** True when the session expired after the user had signed in during this tab. */
   readonly sessionExpired = this.expired.asReadonly();
+  /** True after this tab deleted the signed-in account (shown once on the login page). */
+  readonly accountDeleted = this.deleted.asReadonly();
 
   /** True once a user was signed in at any point during this tab's lifetime. */
   get wasSignedInThisTab(): boolean {
@@ -74,16 +77,38 @@ export class AuthService {
     this.expired.set(false);
   }
 
+  /** Replaces the signed-in user with fresh data from the server (e.g. after a display name change). */
+  updateCurrentUser(user: User): void {
+    if (this.user() !== null) {
+      this.user.set(user);
+    }
+  }
+
+  /**
+   * Called after a successful account delete: the server already ended the session and set a
+   * fresh XSRF-TOKEN, so only the local state is cleared (no GET /me needed).
+   */
+  handleAccountDeleted(): void {
+    this.clearLocal();
+    this.deleted.set(true);
+  }
+
+  clearAccountDeleted(): void {
+    this.deleted.set(false);
+  }
+
   private setUser(user: User): void {
     this.user.set(user);
     this.signedInThisTab = true;
     this.expired.set(false);
+    this.deleted.set(false);
   }
 
   private clearLocal(): void {
     this.user.set(null);
     this.signedInThisTab = false;
     this.expired.set(false);
+    this.deleted.set(false);
   }
 
   /** On 403 CSRF_INVALID: fetch a fresh XSRF-TOKEN via GET /me once, then retry once. */

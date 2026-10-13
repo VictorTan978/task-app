@@ -17,7 +17,7 @@ export interface LoginRequest {
   password: string;
 }
 
-export type FieldName = 'displayName' | 'email' | 'password';
+export type FieldName = 'displayName' | 'email' | 'password' | 'currentPassword' | 'newPassword';
 
 export type FieldErrorCode =
   | 'REQUIRED'
@@ -25,7 +25,8 @@ export type FieldErrorCode =
   | 'TOO_LONG'
   | 'PASSWORD_LENGTH'
   | 'EMAIL_TAKEN'
-  | 'DISPLAY_NAME_TAKEN';
+  | 'DISPLAY_NAME_TAKEN'
+  | 'WRONG_PASSWORD';
 
 export interface FieldError {
   field: FieldName;
@@ -38,6 +39,7 @@ export type ProblemCode =
   | 'MALFORMED_REQUEST'
   | 'EMAIL_TAKEN'
   | 'DISPLAY_NAME_TAKEN'
+  | 'WRONG_PASSWORD'
   | 'INVALID_CREDENTIALS'
   | 'UNAUTHENTICATED'
   | 'CSRF_INVALID'

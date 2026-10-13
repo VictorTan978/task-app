@@ -38,7 +38,7 @@ export class RegisterPage {
   protected readonly submitted = signal(false);
   protected readonly banner = signal<string | null>(null);
 
-  protected error(field: FieldName): string | null {
+  protected error(field: Extract<FieldName, 'displayName' | 'email' | 'password'>): string | null {
     const control = this.form.controls[field];
     if (!this.submitted() && !control.touched) {
       return null;

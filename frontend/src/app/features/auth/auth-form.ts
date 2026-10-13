@@ -7,6 +7,7 @@ export const GENERIC_ERROR = 'Something went wrong, please try again';
 export const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password';
 export const SESSION_EXPIRED_MESSAGE = 'Your session expired, please sign in again';
 export const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a few minutes and try again.';
+export const ACCOUNT_DELETED_MESSAGE = 'Your account has been deleted';
 
 export const DISPLAY_NAME_MAX = 50;
 export const EMAIL_MAX = 254;
@@ -28,6 +29,15 @@ export const FIELD_MESSAGES: Record<FieldName, Partial<Record<FieldErrorCode, st
   },
   password: {
     REQUIRED: 'Enter your password',
+    PASSWORD_LENGTH: `Password must be ${PASSWORD_MIN} to ${PASSWORD_MAX} characters`,
+    WRONG_PASSWORD: 'Password is incorrect',
+  },
+  currentPassword: {
+    REQUIRED: 'Enter your current password',
+    WRONG_PASSWORD: 'Current password is incorrect',
+  },
+  newPassword: {
+    REQUIRED: 'Enter a new password',
     PASSWORD_LENGTH: `Password must be ${PASSWORD_MIN} to ${PASSWORD_MAX} characters`,
   },
 };
