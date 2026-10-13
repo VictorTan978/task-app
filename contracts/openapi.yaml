@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     ## Authentication
     Session-cookie auth (Spring Security). A successful `register` or `login` creates a server-side
@@ -12,6 +12,17 @@ info:
     Unauthenticated calls to protected endpoints return **401** `application/problem+json`.
     There are never redirects to an HTML login page.
 
+    **The session's user is re-checked on every request.** For each request that carries a
+    signed-in session, the server loads that user by id from the database (one primary-key
+    lookup) before authorization runs:
+    - User no longer exists (account deleted, e.g. from another tab or device): the session is
+      invalidated and the request is treated as anonymous, so protected endpoints answer **401**
+      `UNAUTHENTICATED` (public endpoints such as `POST /api/auth/logout` still work). Such a
+      session can never create data for a deleted account.
+    - User exists but `email` or `displayName` differ from what the session holds (e.g. the
+      display name was changed in another session): the session's user is refreshed with the
+      current values. `GET /api/auth/me` therefore always returns current data.
+
     ## CSRF
     Every state-changing request (POST/PUT/PATCH/DELETE), **including register, login and logout**,
     must send header `X-XSRF-TOKEN` with the value of the `XSRF-TOKEN` cookie.
@@ -20,19 +31,25 @@ info:
       request did not carry one, and always on register/login/logout (rotation). An existing valid
       cookie is not re-sent on every response. The app should call `GET /api/auth/me` on startup to
       obtain it.
-    - The token **rotates** on login, register and logout; the new cookie is set on that same
-      response, so the next request just reads the cookie again (Angular HttpClient does this
-      automatically).
+    - The token **rotates** on login, register, logout and a successful account delete
+      (`POST /api/account/delete`); the new cookie is set on that same response, so the next
+      request just reads the cookie again (Angular HttpClient does this automatically). Changing
+      the display name or the password does NOT rotate it.
     - The header value is the raw cookie value (no masking/encoding needed on the client).
     - Missing/invalid token: **403** problem with `code: CSRF_INVALID`.
 
     ## Errors
     All errors are RFC 7807 `application/problem+json` (see `Problem` schema), with a stable
-    machine-readable `code`. Field-level errors (400 validation, 409 duplicate email and/or display
-    name on register) also carry an `errors` array of `{field, code, message}`.
+    machine-readable `code`. Field-level errors (400 validation, 400 wrong current password on the
+    account endpoints, 409 duplicate email and/or display name) also carry an `errors` array of
+    `{field, code, message}`.
+
+    A wrong current password on `/api/account/*` is **400 `WRONG_PASSWORD`, never 401**: a 401
+    always means "you are not signed in", so clients can treat every 401 as "session expired".
 
     ## Rate limiting
-    `POST /api/auth/login` and `POST /api/auth/register` are rate limited. Counters are kept in
+    `POST /api/auth/login`, `POST /api/auth/register`, `PUT /api/account/password` and
+    `POST /api/account/delete` are rate limited. Counters are kept in
     memory per server instance (reset on restart). When a limit is hit the API returns **429**
     `application/problem+json` with `code: RATE_LIMITED`, detail
     "Too many attempts. Please try again later." and a `Retry-After` header (whole seconds, >= 1).
@@ -47,8 +64,21 @@ info:
     - Register, per client IP: 5 requests per 1 hour. Counted on every register request that
       passes the CSRF check, including ones that end in 400 or 409.
 
-    Precedence: 403 `CSRF_INVALID` > 429 (per-IP) > 400 `VALIDATION_FAILED` > 429 (per-email) >
-    401 / 409.
+    - Password checks, per signed-in user id: `PUT /api/account/password` and
+      `POST /api/account/delete` share **one** counter per user. After 5 **wrong** passwords
+      (400 `WRONG_PASSWORD`, from either endpoint, in any mix) within 15 minutes, further calls to
+      either endpoint get 429 (even with the correct password) until the oldest failure is
+      15 minutes old. Requests that fail validation (400 `VALIDATION_FAILED`) are not counted and
+      do not check the limit. A correct password resets the counter. Other users are not
+      affected. Configurable on the server (`RATE_LIMIT_PASSWORD_CHECK_FAILURES_PER_USER`,
+      default 5; `RATE_LIMIT_PASSWORD_CHECK_FAILURE_WINDOW`, default 15m).
+
+    Precedence (auth endpoints): 403 `CSRF_INVALID` > 429 (per-IP) > 400 `VALIDATION_FAILED` >
+    429 (per-email) > 401 / 409.
+
+    Precedence (account endpoints): 403 `CSRF_INVALID` > 401 `UNAUTHENTICATED` >
+    400 `VALIDATION_FAILED` / `MALFORMED_REQUEST` > 429 (per-user password checks) >
+    400 `WRONG_PASSWORD` / 409 `DISPLAY_NAME_TAKEN`.
 
     ## Request bodies
     Unknown properties in a JSON request body are ignored (never an error). In particular any
@@ -59,6 +89,7 @@ servers:
 tags:
   - name: health
   - name: auth
+  - name: account
   - name: tasks
 paths:
   /api/health:
@@ -283,6 +314,268 @@ paths:
               $ref: '#/components/headers/SetSessionAndXsrfCookies'
         '403':
           $ref: '#/components/responses/CsrfInvalid'
+
+  /api/account/display-name:
+    put:
+      summary: Change my display name
+      description: |
+        Sets the signed-in user's display name. `displayName` is trimmed and must then be 1-50
+        characters (same rules as register). It is stored with the casing the user typed.
+
+        Uniqueness ignores letter case and accents (`José` = `jose` = `JOSE` = ` José `), but only
+        against OTHER accounts: my own current name never counts as taken, so "Bob" can be changed
+        to "bob" or "Böb". Saving the exact current name is allowed and returns 200.
+
+        On success the session's signed-in user is updated too (same session, no new cookies), so
+        later requests and security logs see the new name. Other sessions of the same user pick
+        it up on their next request (see "Authentication").
+      operationId: changeDisplayName
+      tags: [account]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeDisplayNameRequest'
+            example:
+              displayName: '  Bobby '
+      responses:
+        '200':
+          description: Updated. The body is the updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                email: bob@example.com
+                displayName: Bobby
+        '400':
+          description: |
+            Validation failed (`code: VALIDATION_FAILED`). Possible entries:
+            - `displayName` / `REQUIRED` / "Display name is required" (missing, null, empty or
+              blank after trimming)
+            - `displayName` / `TOO_LONG` / "Display name must be at most 50 characters"
+
+            A body that is not valid JSON returns 400 `MALFORMED_REQUEST` with no `errors`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                required:
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: Validation failed
+                    instance: /api/account/display-name
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: displayName
+                        code: REQUIRED
+                        message: Display name is required
+                tooLong:
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: Validation failed
+                    instance: /api/account/display-name
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: displayName
+                        code: TOO_LONG
+                        message: Display name must be at most 50 characters
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '409':
+          description: |
+            Another account already uses this display name (ignoring letter case and accents).
+            Same shape as the register 409 for a taken display name.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: This display name is already taken
+                instance: /api/account/display-name
+                code: DISPLAY_NAME_TAKEN
+                errors:
+                  - field: displayName
+                    code: DISPLAY_NAME_TAKEN
+                    message: This display name is already taken
+
+  /api/account/password:
+    put:
+      summary: Change my password
+      description: |
+        Checks `currentPassword` against the signed-in user's password, then stores `newPassword`
+        (BCrypt). The current session stays signed in: the session id and the `XSRF-TOKEN` do not
+        change and no cookies are set. Other sessions of the same user are not signed out (out of
+        scope, see specs/account-settings.md). After this, login works only with the new password.
+
+        `newPassword` follows the register password rules. It may equal the current password.
+
+        Order of checks: body validation (400 `VALIDATION_FAILED`, the current password is not
+        checked and nothing is counted) > per-user password-check limit (429) > current password
+        (400 `WRONG_PASSWORD`, counted as one failure). A correct current password resets the
+        per-user failure counter (see "Rate limiting").
+      operationId: changePassword
+      tags: [account]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+            example:
+              currentPassword: correct-horse
+              newPassword: battery-staple-42
+      responses:
+        '204':
+          description: Password changed. No body, no cookies.
+        '400':
+          description: |
+            Either `VALIDATION_FAILED` or `WRONG_PASSWORD` (see `code`). Both carry `errors`.
+            - `VALIDATION_FAILED` entries:
+              - `currentPassword` / `REQUIRED` / "Current password is required"
+              - `newPassword` / `REQUIRED` / "New password is required"
+              - `newPassword` / `PASSWORD_LENGTH` / "Password must be 8 to 72 characters"
+            - `WRONG_PASSWORD`: exactly one entry,
+              `currentPassword` / `WRONG_PASSWORD` / "Current password is incorrect".
+
+            A body that is not valid JSON returns 400 `MALFORMED_REQUEST` with no `errors`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                validation:
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: Validation failed
+                    instance: /api/account/password
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: newPassword
+                        code: PASSWORD_LENGTH
+                        message: Password must be 8 to 72 characters
+                wrongPassword:
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: Current password is incorrect
+                    instance: /api/account/password
+                    code: WRONG_PASSWORD
+                    errors:
+                      - field: currentPassword
+                        code: WRONG_PASSWORD
+                        message: Current password is incorrect
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '429':
+          $ref: '#/components/responses/PasswordCheckRateLimited'
+
+  /api/account/delete:
+    post:
+      summary: Delete my account
+      description: |
+        Checks `password` against the signed-in user's password, then permanently deletes the
+        account and all its tasks (immediate hard delete, no restore). The email and display name
+        can be registered again right away. Other users' data is not affected.
+
+        On success the server signs the caller out exactly like `POST /api/auth/logout`: the
+        session is invalidated, `JSESSIONID` is expired (Max-Age=0) and a **fresh `XSRF-TOKEN`
+        cookie is set on this 204 response**, so the client can call login/register next without
+        first calling `GET /api/auth/me` (which would answer 401 and not re-send a cookie the
+        client already has). Other sessions of the deleted account get 401 `UNAUTHENTICATED` on
+        their next request (see "Authentication").
+
+        POST (not `DELETE /api/account`) because the request needs a body, and request bodies on
+        DELETE are not reliably supported by proxies and HTTP clients.
+
+        Order of checks: body validation (400 `VALIDATION_FAILED`, nothing counted) > per-user
+        password-check limit (429, shared with `PUT /api/account/password`) > password
+        (400 `WRONG_PASSWORD`, counted as one failure, nothing deleted).
+      operationId: deleteAccount
+      tags: [account]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+            example:
+              password: correct-horse
+      responses:
+        '204':
+          description: Account and tasks deleted, signed out. Expires `JSESSIONID` and sets a fresh `XSRF-TOKEN`.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetSessionAndXsrfCookies'
+        '400':
+          description: |
+            Either `VALIDATION_FAILED` or `WRONG_PASSWORD` (see `code`). Both carry `errors`.
+            - `VALIDATION_FAILED`: `password` / `REQUIRED` / "Password is required"
+            - `WRONG_PASSWORD`: `password` / `WRONG_PASSWORD` / "Password is incorrect"
+
+            A body that is not valid JSON returns 400 `MALFORMED_REQUEST` with no `errors`.
+            Nothing is deleted and the session is kept.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                validation:
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: Validation failed
+                    instance: /api/account/delete
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: password
+                        code: REQUIRED
+                        message: Password is required
+                wrongPassword:
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: Password is incorrect
+                    instance: /api/account/delete
+                    code: WRONG_PASSWORD
+                    errors:
+                      - field: password
+                        code: WRONG_PASSWORD
+                        message: Password is incorrect
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '429':
+          $ref: '#/components/responses/PasswordCheckRateLimited'
 
   /api/tasks:
     get:
@@ -571,8 +864,27 @@ components:
             detail: Too many attempts. Please try again later.
             instance: /api/auth/login
             code: RATE_LIMITED
+    PasswordCheckRateLimited:
+      description: |
+        Too many wrong passwords for this user on `PUT /api/account/password` and
+        `POST /api/account/delete` combined (one shared per-user counter, see "Rate limiting").
+        Wait `Retry-After` seconds. No `errors` array. Nothing was changed or deleted.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Too Many Requests
+            status: 429
+            detail: Too many attempts. Please try again later.
+            instance: /api/account/password
+            code: RATE_LIMITED
     Unauthenticated:
-      description: No session or session expired
+      description: No session, session expired, or the session's account was deleted
       content:
         application/problem+json:
           schema:
@@ -766,6 +1078,53 @@ components:
           description: Must be non-blank. Length policy is NOT checked at login.
           example: correct-horse
 
+    ChangeDisplayNameRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: |
+            Same rules as `RegisterRequest.displayName`: trimmed, then 1-50 characters. Unique among
+            other accounts ignoring letter case and accents (409 `DISPLAY_NAME_TAKEN`). Stored with
+            the casing the user typed.
+          example: Bobby
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+          description: |
+            Must be non-blank (`REQUIRED`). Not trimmed. The length policy is NOT checked (like
+            login); a wrong value is 400 `WRONG_PASSWORD`.
+          example: correct-horse
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: |
+            Same rules as `RegisterRequest.password`: non-blank, 8-72 characters AND at most 72 UTF-8
+            bytes, not trimmed. A violation returns `PASSWORD_LENGTH` (blank returns `REQUIRED`).
+          example: battery-staple-42
+
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          format: password
+          description: |
+            The signed-in user's current password. Must be non-blank (`REQUIRED`). Not trimmed; the
+            length policy is NOT checked. A wrong value is 400 `WRONG_PASSWORD`.
+          example: correct-horse
+
     Task:
       type: object
       required: [id, title, description, done, dueDate, createdAt, updatedAt]
@@ -878,21 +1237,24 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, title, description, done]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done]
           description: Name of the request field (exactly as in the request body).
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD]
           description: |
             Stable machine-readable reason.
             - REQUIRED: missing, null, empty or blank
             - INVALID_EMAIL: not a valid email address
             - TOO_LONG: displayName > 50, email > 254, title > 200 or description > 2000 characters
-            - PASSWORD_LENGTH: password not 8-72 characters, or over 72 UTF-8 bytes
+            - PASSWORD_LENGTH: password / newPassword not 8-72 characters, or over 72 UTF-8 bytes
             - EMAIL_TAKEN: (409 only, field `email`) email already registered, ignoring letter
               case and accents
-            - DISPLAY_NAME_TAKEN: (409 only, field `displayName`) display name already used,
-              compared after trimming, ignoring letter case and accents
+            - DISPLAY_NAME_TAKEN: (409 only, field `displayName`) display name already used by
+              another account, compared after trimming, ignoring letter case and accents
+            - WRONG_PASSWORD: (400 `WRONG_PASSWORD` only, field `currentPassword` on
+              `PUT /api/account/password`, `password` on `POST /api/account/delete`) the password
+              does not match the signed-in user's password
         message:
           type: string
           description: Human-readable English message, safe to display.
@@ -924,6 +1286,7 @@ components:
             - MALFORMED_REQUEST
             - EMAIL_TAKEN
             - DISPLAY_NAME_TAKEN
+            - WRONG_PASSWORD
             - INVALID_CREDENTIALS
             - UNAUTHENTICATED
             - CSRF_INVALID
@@ -934,12 +1297,15 @@ components:
           description: |
             Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email
             is taken (even when the display name is taken too), otherwise `DISPLAY_NAME_TAKEN`.
+            `WRONG_PASSWORD` (400) is only returned by `/api/account/*`: the password given to
+            confirm the action is wrong. It is never 401.
         errors:
           type: array
           description: |
-            Present for VALIDATION_FAILED (400), EMAIL_TAKEN (409) and DISPLAY_NAME_TAKEN (409)
-            only. On a 409 it has one entry per taken field, so EMAIL_TAKEN may also carry a
-            `displayName` / `DISPLAY_NAME_TAKEN` entry.
+            Present for VALIDATION_FAILED (400), WRONG_PASSWORD (400), EMAIL_TAKEN (409) and
+            DISPLAY_NAME_TAKEN (409) only. On a register 409 it has one entry per taken field, so
+            EMAIL_TAKEN may also carry a `displayName` / `DISPLAY_NAME_TAKEN` entry. WRONG_PASSWORD
+            has exactly one entry.
           items:
             $ref: '#/components/schemas/FieldError'
 
