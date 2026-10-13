@@ -13,9 +13,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.taskapp.security.SecurityConfig;
+import com.taskapp.security.UnchangedSessionUserLookup;
 
 @WebMvcTest(HealthController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, UnchangedSessionUserLookup.class})
 class HealthControllerTest {
 
     @Autowired

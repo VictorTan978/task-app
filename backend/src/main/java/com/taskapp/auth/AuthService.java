@@ -74,7 +74,7 @@ public class AuthService {
      * {@code Duplicate entry '...' for key 'users.uk_users_display_name'} (the key is the last quoted
      * part, so a user value containing a constraint name cannot be mistaken for it).
      */
-    private static String violatedConstraint(Throwable e) {
+    static String violatedConstraint(Throwable e) {
         String fromMessage = null;
         for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
             if (t instanceof ConstraintViolationException cve && cve.getConstraintName() != null) {

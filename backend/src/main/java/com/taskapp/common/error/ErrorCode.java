@@ -7,6 +7,8 @@ public final class ErrorCode {
     public static final String MALFORMED_REQUEST = "MALFORMED_REQUEST";
     public static final String EMAIL_TAKEN = "EMAIL_TAKEN";
     public static final String DISPLAY_NAME_TAKEN = "DISPLAY_NAME_TAKEN";
+    /** 400 on /api/account/*: the password given to confirm the action is wrong. Also a field-level code. */
+    public static final String WRONG_PASSWORD = "WRONG_PASSWORD";
     public static final String INVALID_CREDENTIALS = "INVALID_CREDENTIALS";
     public static final String UNAUTHENTICATED = "UNAUTHENTICATED";
     public static final String CSRF_INVALID = "CSRF_INVALID";

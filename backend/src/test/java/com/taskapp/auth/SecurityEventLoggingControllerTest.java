@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.security.SecurityConfig;
+import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.security.SessionAuthenticator;
 import com.taskapp.security.audit.SecurityLogCapture;
 import com.taskapp.security.ratelimit.RateLimitedException;
@@ -39,7 +40,7 @@ import ch.qos.logback.classic.Level;
 @WebMvcTest(controllers = AuthController.class, properties = {
         "app.rate-limit.login-per-ip-per-minute=1",
         "app.rate-limit.register-per-ip-per-hour=1"})
-@Import({SecurityConfig.class, SessionAuthenticator.class})
+@Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class SecurityEventLoggingControllerTest {
 
     private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob");

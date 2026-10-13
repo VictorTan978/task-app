@@ -9,7 +9,13 @@ public enum SecurityEvent {
     LOGIN_FAILURE(Level.WARN),
     REGISTER_SUCCESS(Level.INFO),
     LOGOUT(Level.INFO),
-    /** Field {@code limit=login-ip|login-email|register-ip}. */
+    PASSWORD_CHANGED(Level.INFO),
+    /** Only when the stored display name actually changed (a case-only change counts). */
+    DISPLAY_NAME_CHANGED(Level.INFO),
+    ACCOUNT_DELETED(Level.INFO),
+    /** Wrong current password on an account endpoint. Field {@code action=change_password|delete_account}. */
+    PASSWORD_CHECK_FAILURE(Level.WARN),
+    /** Field {@code limit=login-ip|login-email|register-ip|password-check-user}. */
     RATE_LIMITED(Level.WARN),
     /** 401 from the security chain or from a session whose user no longer exists. */
     UNAUTHENTICATED(Level.WARN),

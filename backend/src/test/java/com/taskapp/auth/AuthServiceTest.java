@@ -40,7 +40,7 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         AuthRateLimiter rateLimiter = new AuthRateLimiter(
-                new RateLimitProperties(5, Duration.ofMinutes(15), 20, 5, 100_000), Clock.systemUTC());
+                new RateLimitProperties(5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)), Clock.systemUTC());
         authService = new AuthService(userRepository, passwordEncoder, rateLimiter);
     }
 

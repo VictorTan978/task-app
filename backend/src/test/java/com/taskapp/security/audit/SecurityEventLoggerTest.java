@@ -64,7 +64,8 @@ class SecurityEventLoggerTest {
     void levelsAreInfoForSuccessesAndWarnForFailuresAndRejections() {
         for (SecurityEvent event : SecurityEvent.values()) {
             boolean success = event == SecurityEvent.LOGIN_SUCCESS || event == SecurityEvent.REGISTER_SUCCESS
-                    || event == SecurityEvent.LOGOUT;
+                    || event == SecurityEvent.LOGOUT || event == SecurityEvent.PASSWORD_CHANGED
+                    || event == SecurityEvent.DISPLAY_NAME_CHANGED || event == SecurityEvent.ACCOUNT_DELETED;
             assertThat(event.level().name()).as(event.name()).isEqualTo(success ? "INFO" : "WARN");
         }
     }

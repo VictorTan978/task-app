@@ -1,5 +1,6 @@
 package com.taskapp.security;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,6 +35,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper,
             CsrfTokenRepository csrfTokenRepository, SecurityContextRepository securityContextRepository,
+            ObjectProvider<SessionUserLookup> sessionUserLookup,
             @Value("${app.api-docs-enabled:false}") boolean apiDocsEnabled,
             @Value("${app.security.require-https:true}") boolean requireHttps) throws Exception {
         ProblemResponseWriter problemWriter = new ProblemResponseWriter(objectMapper);
@@ -65,6 +67,10 @@ public class SecurityConfig {
                         // Angular sends the raw cookie value, so no XOR masking (BREACH n/a for this JSON API).
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
+                // After CSRF, before authorization: a deleted user's session becomes anonymous (then 401),
+                // a changed email/display name refreshes the session principal.
+                .addFilterAfter(new SessionUserRefreshFilter(sessionUserLookup::getObject, securityContextRepository),
+                        CsrfCookieFilter.class)
                 .securityContext(sc -> sc.securityContextRepository(securityContextRepository))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(new ProblemAuthenticationEntryPoint(problemWriter))

@@ -575,7 +575,24 @@ paths:
         '403':
           $ref: '#/components/responses/CsrfInvalid'
         '429':
-          $ref: '#/components/responses/PasswordCheckRateLimited'
+          description: |
+            Too many wrong passwords for this user on `PUT /api/account/password` and
+            `POST /api/account/delete` combined (one shared per-user counter, see "Rate limiting").
+            Wait `Retry-After` seconds. No `errors` array. Nothing was deleted and the session is kept.
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Too Many Requests
+                status: 429
+                detail: Too many attempts. Please try again later.
+                instance: /api/account/delete
+                code: RATE_LIMITED
 
   /api/tasks:
     get:

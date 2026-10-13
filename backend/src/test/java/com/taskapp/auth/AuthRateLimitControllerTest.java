@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.SecurityConfig;
+import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.security.SessionAuthenticator;
 import com.taskapp.security.ratelimit.RateLimitedException;
 
@@ -32,7 +33,7 @@ import com.taskapp.security.ratelimit.RateLimitedException;
 @WebMvcTest(controllers = AuthController.class, properties = {
         "app.rate-limit.login-per-ip-per-minute=3",
         "app.rate-limit.register-per-ip-per-hour=2"})
-@Import({SecurityConfig.class, SessionAuthenticator.class})
+@Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class AuthRateLimitControllerTest {
 
     private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob");

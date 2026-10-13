@@ -17,4 +17,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** {@code displayName} must already be trimmed. */
     boolean existsByDisplayName(String displayName);
+
+    /** Whether a user OTHER than {@code id} has this display name (same collation rules). Must be trimmed. */
+    boolean existsByDisplayNameAndIdNot(String displayName, Long id);
 }

@@ -72,19 +72,25 @@ app:
   # Swagger UI + /v3/api-docs are off by default (on by default in the dev profile).
   # When enabled they are public. Never enable in production.
   api-docs-enabled: ${API_DOCS_ENABLED:false}
-  # In-memory rate limits for POST /api/auth/login and /register (per app instance, reset on restart).
+  # In-memory rate limits for POST /api/auth/login and /register, and for the current-password checks of
+  # PUT /api/account/password and POST /api/account/delete (per app instance, reset on restart).
   # Over a limit the API answers 429 RATE_LIMITED with Retry-After. Env-var overrides:
   #   RATE_LIMIT_LOGIN_FAILURES_PER_EMAIL  failed logins per email within the window below (default 5)
   #   RATE_LIMIT_LOGIN_FAILURE_WINDOW      sliding window for those failures, e.g. 15m, 1h (default 15m)
   #   RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE   login requests per client IP per minute (default 20)
   #   RATE_LIMIT_REGISTER_PER_IP_PER_HOUR  register requests per client IP per hour (default 5)
-  #   RATE_LIMIT_MAX_TRACKED_KEYS          emails/IPs kept per counter before the oldest are dropped (default 100000)
+  #   RATE_LIMIT_PASSWORD_CHECK_FAILURES_PER_USER  wrong current passwords per signed-in user within the window
+  #                                        below, one counter shared by change password and delete account (default 5)
+  #   RATE_LIMIT_PASSWORD_CHECK_FAILURE_WINDOW     sliding window for those failures (default 15m)
+  #   RATE_LIMIT_MAX_TRACKED_KEYS          emails/IPs/users kept per counter before the oldest are dropped (default 100000)
   # The e2e suite registers many users from 127.0.0.1, so raise the per-IP limits for e2e runs.
   rate-limit:
     login-failures-per-email: ${RATE_LIMIT_LOGIN_FAILURES_PER_EMAIL:5}
     login-failure-window: ${RATE_LIMIT_LOGIN_FAILURE_WINDOW:15m}
     login-per-ip-per-minute: ${RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE:20}
     register-per-ip-per-hour: ${RATE_LIMIT_REGISTER_PER_IP_PER_HOUR:5}
+    password-check-failures-per-user: ${RATE_LIMIT_PASSWORD_CHECK_FAILURES_PER_USER:5}
+    password-check-failure-window: ${RATE_LIMIT_PASSWORD_CHECK_FAILURE_WINDOW:15m}
     max-tracked-keys: ${RATE_LIMIT_MAX_TRACKED_KEYS:100000}
 
 springdoc:
