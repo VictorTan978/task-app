@@ -1,6 +1,6 @@
 # Feature: Sessions (remember me, maximum session length, log out other devices)
 
-**Status:** DRAFT 2026-10-13 (waiting for user approval). **Depends on:** `specs/auth.md`, `specs/account-settings.md` (both DONE). **Branch:** `feature/sessions`
+**Status:** APPROVED 2026-10-13, in build. **Depends on:** `specs/auth.md`, `specs/account-settings.md` (both DONE). **Branch:** `feature/sessions`
 
 ## Why
 Today every sign-in is a 30-minute idle session that is gone when the browser closes, so people who use the app daily sign in again and again. Users can't end a session they left signed in on another computer, and a session kept busy never ends at all. A changed password also leaves old sessions on other devices signed in (A1 deferred this to this part).
@@ -67,10 +67,7 @@ As a signed-in user, I want to stay signed in on my own device, have sessions en
 - **New dependency:** none expected. If the backend finds it needs one, I'll ask separately.
 
 ## Open questions
-1. **Lengths:** is a 12-hour maximum for normal sessions and 30 days for "Remember me" OK? (Draft: yes. Common choices are 8–24 hours and 14–30 days.)
-2. **Password change** (AC11): should it log out all other devices? (Draft: yes. OWASP recommends it, and A1 deferred it to this part.)
-3. **Log out other devices** (AC10): should it ask for confirmation (draft: yes, a simple dialog) or for your password too? (Draft: no password. It only removes access, so there is nothing to protect.)
-4. **Maximum length with "Remember me":** should the 12-hour maximum also apply to remember-me sessions? (Draft: no. The 30-day remember-me limit takes over, and each automatic sign-in starts a new session.)
+None. All answered 2026-10-13 (see Decisions log).
 
 ---
 
@@ -79,3 +76,9 @@ _Filled in by the PM during the build._
 
 | Date | Decision | Why | Approved by |
 |---|---|---|---|
+| 2026-10-13 | Spec approved, including the approval gates for migration V5 (remember-me token table plus a "sessions valid after" column on `users`) and the auth/security config changes. Any new dependency still needs a separate approval | Approval gates | User |
+| 2026-10-13 | Normal sessions: 12h maximum from sign-in; remember me: 30 days from sign-in, not extended by use | Open question 1 | User |
+| 2026-10-13 | A password change logs out all other devices and renews this session's id | Open question 2 | User |
+| 2026-10-13 | "Log out all other devices" needs a simple confirmation, no password | Open question 3 | User |
+| 2026-10-13 | The 12h maximum applies only to normal sessions; remember-me logins are limited by their 30 days, and each automatic sign-in starts a new session | Open question 4 | User |
+
