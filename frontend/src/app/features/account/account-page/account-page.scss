@@ -28,6 +28,19 @@
     color: var(--color-muted);
   }
 
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  &__status {
+    margin: 0;
+    color: var(--color-muted);
+    font-weight: 600;
+  }
+
   &--danger {
     border-color: var(--color-error);
 

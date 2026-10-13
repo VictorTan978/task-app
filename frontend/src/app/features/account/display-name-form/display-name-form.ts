@@ -25,6 +25,8 @@ export class DisplayNameForm {
   });
 
   protected readonly pending = signal(false);
+  /** Page-level busy lock: no request while this session's id is being renewed. */
+  protected readonly locked = this.account.sessionRenewing;
   protected readonly submitted = signal(false);
   protected readonly banner = signal<string | null>(null);
   protected readonly status = signal<string | null>(null);
@@ -38,7 +40,7 @@ export class DisplayNameForm {
   }
 
   protected submit(): void {
-    if (this.pending()) {
+    if (this.pending() || this.locked()) {
       return;
     }
     this.submitted.set(true);

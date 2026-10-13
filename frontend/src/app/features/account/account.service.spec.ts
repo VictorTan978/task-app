@@ -97,4 +97,55 @@ describe('AccountService', () => {
     http.expectNone('/api/auth/me');
     http.expectNone('/api/account/password');
   });
+
+  it('logoutOtherSessions sends POST with no body, completes on 204 and stays signed in', async () => {
+    const result = firstValueFrom(service.logoutOtherSessions(), { defaultValue: 'none' });
+    const req = http.expectOne('/api/account/logout-other-sessions');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toBeNull();
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    expect(await result).toBeUndefined();
+    expect(auth.isSignedIn()).toBe(true);
+    http.expectNone('/api/auth/me');
+  });
+
+  it('logoutOtherSessions does not retry on 403 CSRF_INVALID', async () => {
+    const result = firstValueFrom(service.logoutOtherSessions());
+    http
+      .expectOne('/api/account/logout-other-sessions')
+      .flush(problem(403, 'CSRF_INVALID'), { status: 403, statusText: 'Forbidden' });
+    await expect(result).rejects.toMatchObject({ status: 403 });
+    http.expectNone('/api/auth/me');
+  });
+
+  it.each([
+    ['logoutOtherSessions', '/api/account/logout-other-sessions'],
+    ['changePassword', '/api/account/password'],
+  ] as const)('sessionRenewing is true only while %s is in flight', (method, url) => {
+    expect(service.sessionRenewing()).toBe(false);
+    const call =
+      method === 'changePassword'
+        ? service.changePassword({ currentPassword: 'a', newPassword: 'b' })
+        : service.logoutOtherSessions();
+    // Not before subscribe.
+    expect(service.sessionRenewing()).toBe(false);
+    call.subscribe({ error: () => undefined });
+    expect(service.sessionRenewing()).toBe(true);
+    http.expectOne(url).flush(problem(500, 'INTERNAL_ERROR'), { status: 500, statusText: 'x' });
+    expect(service.sessionRenewing()).toBe(false);
+  });
+
+  it('sessionRenewing resets when the caller unsubscribes', () => {
+    const sub = service.logoutOtherSessions().subscribe();
+    expect(service.sessionRenewing()).toBe(true);
+    sub.unsubscribe();
+    expect(service.sessionRenewing()).toBe(false);
+    http.expectOne('/api/account/logout-other-sessions');
+  });
+
+  it('changeDisplayName does not set sessionRenewing', () => {
+    service.changeDisplayName({ displayName: 'Bobby' }).subscribe();
+    expect(service.sessionRenewing()).toBe(false);
+    http.expectOne('/api/account/display-name').flush(BOB);
+  });
 });

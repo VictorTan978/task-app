@@ -22,7 +22,7 @@
     <button
       type="submit"
       class="btn btn--primary"
-      [disabled]="pending()"
+      [disabled]="pending() || locked()"
       [attr.aria-busy]="pending()"
     >
       @if (pending()) {

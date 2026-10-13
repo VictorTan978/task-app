@@ -86,6 +86,34 @@ describe('LoginPage', () => {
     expect(input.type).toBe('password');
   });
 
+  it('has an unchecked "Remember me" checkbox between the password and "Sign in"', () => {
+    const checkbox = el.querySelector<HTMLInputElement>('#login-remember-me')!;
+    expect(checkbox.type).toBe('checkbox');
+    expect(checkbox.checked).toBe(false);
+    expect(el.querySelector('label[for=login-remember-me]')?.textContent?.trim()).toBe(
+      'Remember me',
+    );
+    const password = el.querySelector('#login-password')!;
+    const follows = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(password, checkbox)).toBe(true);
+    expect(follows(checkbox, button())).toBe(true);
+  });
+
+  it('sends rememberMe: true when "Remember me" is checked', async () => {
+    el.querySelector<HTMLInputElement>('#login-remember-me')!.click();
+    await submit();
+    const req = http.expectOne('/api/auth/login');
+    expect(req.request.body).toEqual({
+      email: 'Bob@Example.com',
+      password: 'secret12',
+      rememberMe: true,
+    });
+    req.flush(BOB);
+    await fixture.whenStable();
+    expect(navigate).toHaveBeenCalledWith('/tasks');
+  });
+
   it('shows field errors and sends nothing when invalid', async () => {
     await submit('nope', '   ');
     expect(text()).toContain('Enter a valid email address');
@@ -96,7 +124,11 @@ describe('LoginPage', () => {
   it('disables the button with a spinner while pending, then goes to /tasks', async () => {
     await submit();
     const req = http.expectOne('/api/auth/login');
-    expect(req.request.body).toEqual({ email: 'Bob@Example.com', password: 'secret12' });
+    expect(req.request.body).toEqual({
+      email: 'Bob@Example.com',
+      password: 'secret12',
+      rememberMe: false,
+    });
     expect(button().disabled).toBe(true);
     expect(el.querySelector('[data-testid=spinner]')).not.toBeNull();
 
