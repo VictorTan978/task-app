@@ -1,6 +1,6 @@
 # Feature: Account settings
 
-**Status:** APPROVED 2026-10-13, in build. **Depends on:** `specs/auth.md`, `specs/security-hardening.md` (both DONE). **Branch:** `feature/account-settings`
+**Status:** DONE 2026-10-13. **Depends on:** `specs/auth.md`, `specs/security-hardening.md` (both DONE). **Branch:** `feature/account-settings`
 
 ## Why
 Signed-in users can't change anything about their account. Today they can't fix a display name typo, change a password they think has leaked, or leave the app and take their data with them.
@@ -11,33 +11,33 @@ As a signed-in user, I want to change my display name and password, and delete m
 ## Acceptance criteria
 
 ### Account page
-- [ ] AC1: Given I am signed in, when I click my name ("Hi, <display name>") in the header, then I land on `/account`. It shows my email (read-only) and three sections: "Display name", "Change password" and "Delete account".
-- [ ] AC2: Given I am not signed in, when I visit `/account`, then I am sent to `/login`.
+- [x] AC1: Given I am signed in, when I click my name ("Hi, <display name>") in the header, then I land on `/account`. It shows my email (read-only) and three sections: "Display name", "Change password" and "Delete account".
+- [x] AC2: Given I am not signed in, when I visit `/account`, then I am sent to `/login`.
 
 ### Change display name
-- [ ] AC3: Given I am on `/account`, when I enter a new display name (1–50 characters after trimming) and click "Save", then I see "Display name updated" and the header shows "Hi, <new name>" without a page reload. After a refresh the new name is still shown.
-- [ ] AC4: Given another user has the display name "José", when I try to save "jose", "JOSE" or " José " (matching ignores letter case and accents, as at registration), then the name is not changed and I see "This display name is already taken" under the field.
-- [ ] AC5: Given my display name is "Bob", when I save "bob" (only the letter case or accents differ from my own name), then it is saved as "bob". My own name never counts as taken.
-- [ ] AC6: Given I am on `/account`, when I save an empty or whitespace-only display name, or one longer than 50 characters, then nothing changes and an error appears under the field.
+- [x] AC3: Given I am on `/account`, when I enter a new display name (1–50 characters after trimming) and click "Save", then I see "Display name updated" and the header shows "Hi, <new name>" without a page reload. After a refresh the new name is still shown.
+- [x] AC4: Given another user has the display name "José", when I try to save "jose", "JOSE" or " José " (matching ignores letter case and accents, as at registration), then the name is not changed and I see "This display name is already taken" under the field.
+- [x] AC5: Given my display name is "Bob", when I save "bob" (only the letter case or accents differ from my own name), then it is saved as "bob". My own name never counts as taken.
+- [x] AC6: Given I am on `/account`, when I save an empty or whitespace-only display name, or one longer than 50 characters, then nothing changes and an error appears under the field.
 
 ### Change password
-- [ ] AC7: Given I am on `/account`, when I enter my current password and a new password of 8–72 characters and click "Change password", then I see "Password changed", the fields are cleared, and I stay signed in. After logging out, the old password fails ("Invalid email or password") and the new one works.
-- [ ] AC8: Given I am on `/account`, when I enter a wrong current password, then the password doesn't change and I see "Current password is incorrect" under the current password field.
-- [ ] AC9: Given I am on `/account`, when the new password is shorter than 8 or longer than 72 characters, then nothing changes and an error appears under the new password field.
+- [x] AC7: Given I am on `/account`, when I enter my current password and a new password of 8–72 characters and click "Change password", then I see "Password changed", the fields are cleared, and I stay signed in. After logging out, the old password fails ("Invalid email or password") and the new one works.
+- [x] AC8: Given I am on `/account`, when I enter a wrong current password, then the password doesn't change and I see "Current password is incorrect" under the current password field.
+- [x] AC9: Given I am on `/account`, when the new password is shorter than 8 or longer than 72 characters, then nothing changes and an error appears under the new password field.
 
 ### Delete account
-- [ ] AC10: Given I am on `/account`, when I click "Delete account", then a confirmation dialog explains that my account and all my tasks will be permanently deleted and asks for my password. "Cancel" closes it with no changes.
-- [ ] AC11: Given the dialog is open, when I enter my correct password and confirm, then my account and all my tasks are deleted, I am signed out and land on `/login` with "Your account has been deleted". Signing in with the old email and password then fails with "Invalid email or password", and the email and display name can be used to register again.
-- [ ] AC12: Given the dialog is open, when I enter a wrong password and confirm, then nothing is deleted and I see "Password is incorrect" in the dialog.
-- [ ] AC13: Given user A deletes their account, then user B's account and tasks are unaffected.
+- [x] AC10: Given I am on `/account`, when I click "Delete account", then a confirmation dialog explains that my account and all my tasks will be permanently deleted and asks for my password. "Cancel" closes it with no changes.
+- [x] AC11: Given the dialog is open, when I enter my correct password and confirm, then my account and all my tasks are deleted, I am signed out and land on `/login` with "Your account has been deleted". Signing in with the old email and password then fails with "Invalid email or password", and the email and display name can be used to register again.
+- [x] AC12: Given the dialog is open, when I enter a wrong password and confirm, then nothing is deleted and I see "Password is incorrect" in the dialog.
+- [x] AC13: Given user A deletes their account, then user B's account and tasks are unaffected.
 
 ### Security
-- [ ] AC14: Changing the password, changing the display name and deleting the account each write a security event to the `security.audit` log (`PASSWORD_CHANGED`, `DISPLAY_NAME_CHANGED`, `ACCOUNT_DELETED`; a wrong current password logs a failure event). No password ever appears in a log or a response.
-- [ ] AC15: Too many wrong current-password attempts on change password or delete account (default: 5 failures in 15 minutes per user) are rejected with 429 and "Too many attempts, please try again later", like the login rate limit.
-- [ ] AC16: All the new endpoints return 401 when not signed in, and 403 without a valid CSRF token.
+- [x] AC14: Changing the password, changing the display name and deleting the account each write a security event to the `security.audit` log (`PASSWORD_CHANGED`, `DISPLAY_NAME_CHANGED`, `ACCOUNT_DELETED`; a wrong current password logs a failure event). No password ever appears in a log or a response.
+- [x] AC15: Too many wrong current-password attempts on change password or delete account (default: 5 failures in 15 minutes per user) are rejected with 429 and "Too many attempts, please try again later", like the login rate limit.
+- [x] AC16: All the new endpoints return 401 when not signed in, and 403 without a valid CSRF token.
 
 ### States
-- [ ] AC17: While a save, password change or delete is in progress, that section's button is disabled and shows a loading indicator. If the server is unreachable, an error banner appears: "Something went wrong, please try again".
+- [x] AC17: While a save, password change or delete is in progress, that section's button is disabled and shows a loading indicator. If the server is unreachable, an error banner appears: "Something went wrong, please try again".
 
 ## Out of scope
 - Changing the email address (needs email verification, which comes in a later part)
@@ -91,4 +91,5 @@ _Filled in by the PM during the build._
 | 2026-10-13 | The account page shows its own AC15 rate-limit text; the login text is unchanged. AccountService does no CSRF retry (same as TasksService) | Keep existing behaviour unchanged | PM |
 | 2026-10-13 | Password-check rate limit settings: `RATE_LIMIT_PASSWORD_CHECK_FAILURES_PER_USER` (5) and `RATE_LIMIT_PASSWORD_CHECK_FAILURE_WINDOW` (15m); validation failures don't count; a correct password resets the counter | Backend proposal | PM |
 | 2026-10-13 | Approved: a security filter that looks up the signed-in user on each request; a deleted user's session is ended (then 401), and the display name is refreshed. One PK lookup per authenticated request | Spec constraint (other sessions of a deleted account get 401); security config gate | User |
+| 2026-10-13 | Tester verdict PASS: AC1–AC17 and Constraints. Backend 248 tests, frontend 191 unit tests, lint, build; e2e `account-settings.spec.ts` 24/24; full e2e suite 90 passed, plus the 3 env-gated specs run separately and passed. No fix rounds needed | Definition of Done | PM |
 
