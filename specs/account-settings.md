@@ -62,6 +62,9 @@ As a signed-in user, I want to change my display name and password, and delete m
   - `PUT /api/account/password` `{currentPassword, newPassword}` → 204; 400 VALIDATION_FAILED / WRONG_PASSWORD; 429 RATE_LIMITED
   - `POST /api/account/delete` `{password}` → 204 and the session is ended; 400 WRONG_PASSWORD; 429 RATE_LIMITED
 - Existing login, register, logout and tasks behaviour must not change.
+- After a display name change, the session's signed-in user is updated too, so later requests and audit logs see the new name.
+- If the account is deleted while signed in on other tabs or devices, those sessions get 401 on their next API call. They follow the existing "session expired" flow and never cause a 500 or create orphan data.
+- The AC15 counter is shared by change password and delete account and keyed by user id, so 5 wrong attempts across both endpoints trigger the limit.
 
 ## Approvals needed before build
 - **Touches authentication and security config:** new authenticated endpoints that check passwords, a session ended on account delete, new security audit events, and a new rate limit for current-password checks.
@@ -83,3 +86,4 @@ _Filled in by the PM during the build._
 | 2026-10-13 | Deleting the account requires the current password | Open question 2 | User |
 | 2026-10-13 | Wrong current password: 5 failures per 15 minutes per user, then 429 | Open question 3; matches the login limit | User |
 | 2026-10-13 | Git flow: commit and push the feature branch after each change; merge and push `main` only when the user asks and tests pass; never force-push | Settings and CLAUDE.md updated | User |
+| 2026-10-13 | Other sessions of a deleted account get 401 on their next call; the session principal is refreshed after a display name change; one wrong-password counter per user covers both endpoints | Gaps found in the Phase 0 spec check | PM |
