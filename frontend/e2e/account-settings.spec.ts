@@ -62,6 +62,7 @@ async function register(page: Page, name: string, mail: string, password = PASSW
   await page.locator('#register-display-name').fill(name);
   await page.locator('#register-email').fill(mail);
   await page.locator('#register-password').fill(password);
+  await page.locator('#register-confirm-password').fill(password);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/tasks$/);
 }
@@ -298,6 +299,7 @@ test.describe('Change password', () => {
     await gotoAccount(page);
     await page.locator('#account-current-password').fill(PASSWORD);
     await page.locator('#account-new-password').fill(NEW_PASSWORD);
+    await page.locator('#account-confirm-password').fill(NEW_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
     await expect(page.getByText('Password changed')).toBeVisible();
     await expect(page.locator('#account-current-password')).toHaveValue('');
@@ -326,6 +328,7 @@ test.describe('Change password', () => {
     await gotoAccount(page);
     await page.locator('#account-current-password').fill('not-my-password');
     await page.locator('#account-new-password').fill(NEW_PASSWORD);
+    await page.locator('#account-confirm-password').fill(NEW_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
     await expect(page.locator('#account-current-password-error')).toHaveText('Current password is incorrect');
     await expect(page.getByText('Password changed')).toHaveCount(0);
@@ -348,6 +351,7 @@ test.describe('Change password', () => {
     for (const bad of ['short7!', 'a'.repeat(73)]) {
       await page.locator('#account-current-password').fill(PASSWORD);
       await page.locator('#account-new-password').fill(bad);
+      await page.locator('#account-confirm-password').fill(bad);
       await page.getByRole('button', { name: 'Change password' }).click();
       const err = page.locator('#account-new-password-error');
       await expect(err).toBeVisible();
@@ -356,6 +360,7 @@ test.describe('Change password', () => {
     }
     // 37 x 'é' = 37 chars but 74 UTF-8 bytes (constraint: max 72 bytes)
     await page.locator('#account-new-password').fill('é'.repeat(37));
+    await page.locator('#account-confirm-password').fill('é'.repeat(37));
     await page.getByRole('button', { name: 'Change password' }).click();
     await expect(page.locator('#account-new-password-error')).toBeVisible();
     msgs.push((await page.locator('#account-new-password-error').textContent())?.trim() ?? '');
@@ -558,10 +563,12 @@ test.describe('Security', () => {
     await expect(page.getByText('Display name updated')).toBeVisible();
     await page.locator('#account-current-password').fill('audit-wrong-pw');
     await page.locator('#account-new-password').fill(NEW_PASSWORD);
+    await page.locator('#account-confirm-password').fill(NEW_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
     await expect(page.locator('#account-current-password-error')).toBeVisible();
     await page.locator('#account-current-password').fill(PASSWORD);
     await page.locator('#account-new-password').fill(NEW_PASSWORD);
+    await page.locator('#account-confirm-password').fill(NEW_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
     await expect(page.getByText('Password changed')).toBeVisible();
     await page.getByRole('button', { name: 'Delete account' }).click();
@@ -591,6 +598,7 @@ test.describe('Security', () => {
     for (let i = 0; i < 3; i++) {
       await page.locator('#account-current-password').fill(`wrong-${i}-pw`);
       await page.locator('#account-new-password').fill(NEW_PASSWORD);
+      await page.locator('#account-confirm-password').fill(NEW_PASSWORD);
       await page.getByRole('button', { name: 'Change password' }).click();
       await expect(page.locator('#account-current-password-error')).toHaveText('Current password is incorrect');
     }
@@ -615,6 +623,7 @@ test.describe('Security', () => {
     // correct password on change password -> also limited
     await page.locator('#account-current-password').fill(PASSWORD);
     await page.locator('#account-new-password').fill(NEW_PASSWORD);
+    await page.locator('#account-confirm-password').fill(NEW_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
     await expect(page.getByText(RATE_LIMITED)).toBeVisible();
     await expect(page.getByText('Password changed')).toHaveCount(0);
@@ -677,6 +686,7 @@ test.describe('States', () => {
 
     await page.locator('#account-current-password').fill('wrong-pw-busy');
     await page.locator('#account-new-password').fill(NEW_PASSWORD);
+    await page.locator('#account-confirm-password').fill(NEW_PASSWORD);
     const change = page.getByRole('button', { name: 'Change password' });
     await change.click();
     await expect(change).toBeDisabled();
@@ -717,6 +727,7 @@ test.describe('States', () => {
 
     await page.locator('#account-current-password').fill(PASSWORD);
     await page.locator('#account-new-password').fill(NEW_PASSWORD);
+    await page.locator('#account-confirm-password').fill(NEW_PASSWORD);
     await page.getByRole('button', { name: 'Change password' }).click();
     const pwSection = page.locator('section', { has: page.locator('#account-new-password') });
     await expect(pwSection.getByRole('alert')).toHaveText(GENERIC);

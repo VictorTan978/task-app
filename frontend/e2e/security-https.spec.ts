@@ -39,6 +39,7 @@ test('AC10: dev over plain HTTP: register, logout, login, CSRF; cookies not Secu
   await page.locator('#register-display-name').fill(`SecB ${RUN}`);
   await page.locator('#register-email').fill(email);
   await page.locator('#register-password').fill(PASSWORD);
+  await page.locator('#register-confirm-password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/tasks$/);
   await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();

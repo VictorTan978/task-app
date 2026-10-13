@@ -1,6 +1,6 @@
 # Feature: Account settings
 
-**Status:** DONE 2026-10-13 for AC1–AC17; AC18–AC22 (password fields) added 2026-10-13 and in build. **Depends on:** `specs/auth.md`, `specs/security-hardening.md` (both DONE). **Branch:** `feature/account-settings`
+**Status:** DONE 2026-10-13 (AC1–AC22). **Depends on:** `specs/auth.md`, `specs/security-hardening.md` (both DONE). **Branch:** `feature/account-settings`
 
 ## Why
 Signed-in users can't change anything about their account. Today they can't fix a display name typo, change a password they think has leaked, or leave the app and take their data with them.
@@ -40,11 +40,11 @@ As a signed-in user, I want to change my display name and password, and delete m
 - [x] AC17: While a save, password change or delete is in progress, that section's button is disabled and shows a loading indicator. If the server is unreachable, an error banner appears: "Something went wrong, please try again".
 
 ### Password fields (added 2026-10-13 at the user's request)
-- [ ] AC18: Every password field (login, register, current and new password on `/account`, the delete dialog, and the new confirm fields) has a show/hide button inside the field. Clicking it shows the typed text, and clicking again hides it. The button's label switches between "Show password" and "Hide password" (`aria-label`, `aria-pressed`), it is reachable with Tab, and it doesn't submit the form. Each field toggles on its own. Fields start hidden on every page load and after a successful submit.
-- [ ] AC19: Given I am on `/register`, there is a "Confirm password" field below "Password". When the two don't match and I submit, then nothing is sent and "Passwords do not match" appears under "Confirm password". When "Confirm password" is empty, "Confirm your password" appears instead.
-- [ ] AC20: Given I am on `/account`, the "Change password" card has a "Confirm new password" field below "New password". The same rules as AC19 apply ("Passwords do not match" / "Confirm your new password"), and nothing is sent.
-- [ ] AC21: When the passwords match, register and change password work exactly as before (AC1 in `specs/auth.md`, AC7 here). The confirm field is never sent to the API, and after "Password changed" it is cleared along with the other fields.
-- [ ] AC22: Login and the delete dialog get only the show/hide button and no confirm field. Login behaviour is otherwise unchanged.
+- [x] AC18: Every password field (login, register, current and new password on `/account`, the delete dialog, and the new confirm fields) has a show/hide button inside the field. Clicking it shows the typed text, and clicking again hides it. The button's label switches between "Show password" and "Hide password" (`aria-label`, `aria-pressed`), it is reachable with Tab, and it doesn't submit the form. Each field toggles on its own. Fields start hidden on every page load and after a successful submit.
+- [x] AC19: Given I am on `/register`, there is a "Confirm password" field below "Password". When the two don't match and I submit, then nothing is sent and "Passwords do not match" appears under "Confirm password". When "Confirm password" is empty, "Confirm your password" appears instead.
+- [x] AC20: Given I am on `/account`, the "Change password" card has a "Confirm new password" field below "New password". The same rules as AC19 apply ("Passwords do not match" / "Confirm your new password"), and nothing is sent.
+- [x] AC21: When the passwords match, register and change password work exactly as before (AC1 in `specs/auth.md`, AC7 here). The confirm field is never sent to the API, and after "Password changed" it is cleared along with the other fields.
+- [x] AC22: Login and the delete dialog get only the show/hide button and no confirm field. Login behaviour is otherwise unchanged.
 
 ## Out of scope
 - Changing the email address (needs email verification, which comes in a later part)
@@ -100,4 +100,5 @@ _Filled in by the PM during the build._
 | 2026-10-13 | Approved: a security filter that looks up the signed-in user on each request; a deleted user's session is ended (then 401), and the display name is refreshed. One PK lookup per authenticated request | Spec constraint (other sessions of a deleted account get 401); security config gate | User |
 | 2026-10-13 | Tester verdict PASS: AC1–AC17 and Constraints. Backend 248 tests, frontend 191 unit tests, lint, build; e2e `account-settings.spec.ts` 24/24; full e2e suite 90 passed, plus the 3 env-gated specs run separately and passed. No fix rounds needed | Definition of Done | PM |
 | 2026-10-13 | Added AC18–AC22: show/hide button on every password field; confirm password on register and change password, checked in the browser only (no API or contract change). Built on `feature/account-settings` because A1 isn't merged yet | User request; the user's explicit request counts as approval for this UI-only change to the login/register pages | User |
+| 2026-10-13 | Tester verdict PASS for AC18–AC22, no regressions: backend 248, unit 207, lint, build; full e2e 103 passed (plus the env-gated rate-limit 5/5 and logging specs). Existing e2e specs updated to fill the confirm fields; `password-fields.spec.ts` added. Known flaky test: `mysql-regression.spec.ts:78` (reads a PUT response body after navigation, a test timing issue unrelated to this change) | Definition of Done | PM |
 

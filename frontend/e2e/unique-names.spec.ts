@@ -26,6 +26,7 @@ async function fillRegister(page: Page, name: string, email: string, pw = PASSWO
   await page.locator('#register-display-name').fill(name);
   await page.locator('#register-email').fill(email);
   await page.locator('#register-password').fill(pw);
+  await page.locator('#register-confirm-password').fill(pw);
 }
 async function submit(page: Page) {
   await page.getByRole('button', { name: 'Create account' }).click();
@@ -33,7 +34,7 @@ async function submit(page: Page) {
 
 /** Registers the owner of `name` in a separate context so the test page stays signed out. */
 async function registerOwner(browser: Browser, name: string, email: string) {
-  const ctx = await browser.newContext({ baseURL: 'http://localhost:4200' });
+  const ctx = await browser.newContext({ baseURL: process.env['E2E_BASE_URL'] ?? 'http://localhost:4200' });
   const p = await ctx.newPage();
   const errors = watch(p);
   await p.goto('/register');

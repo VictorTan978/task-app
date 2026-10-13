@@ -91,6 +91,7 @@ test.describe('AC5 rate-limit banner (mocked 429)', () => {
     await page.locator('#register-display-name').fill('Mock User');
     await page.locator('#register-email').fill('mock@example.com');
     await page.locator('#register-password').fill(PASSWORD);
+    await page.locator('#register-confirm-password').fill(PASSWORD);
     await page.getByRole('button', { name: 'Create account' }).click();
     await expectRateLimitedState(page, 'Create account');
     await expect(page).toHaveURL(/\/register/);
@@ -131,6 +132,7 @@ test.describe('AC5 rate-limit banner (mocked 429)', () => {
     await page.locator('#register-display-name').fill('Mock Taken');
     await page.locator('#register-email').fill('taken@example.com');
     await page.locator('#register-password').fill(PASSWORD);
+    await page.locator('#register-confirm-password').fill(PASSWORD);
     const button = page.getByRole('button', { name: 'Create account' });
     await button.click();
     await expect(page.locator('.field-error')).toHaveCount(1);
@@ -195,7 +197,7 @@ test.describe('AC5 rate-limit banner (real backend 429)', () => {
   }) => {
     const w = watch(page);
     // 1: create an account in a separate context (counts 1 of 5).
-    const other = await browser.newContext({ baseURL: 'http://localhost:4200' });
+    const other = await browser.newContext({ baseURL: process.env['E2E_BASE_URL'] ?? 'http://localhost:4200' });
     const takenEmail = `qa-rl-taken-${RUN}@example.com`;
     const created = await other.request.post('/api/auth/register', {
       data: { displayName: `RL Taken ${RUN}`, email: takenEmail, password: PASSWORD },
@@ -209,6 +211,7 @@ test.describe('AC5 rate-limit banner (real backend 429)', () => {
     await page.locator('#register-display-name').fill(`RL UI ${RUN}`);
     await page.locator('#register-email').fill(takenEmail);
     await page.locator('#register-password').fill(PASSWORD);
+    await page.locator('#register-confirm-password').fill(PASSWORD);
     const button = page.getByRole('button', { name: 'Create account' });
     const r409 = page.waitForResponse('**/api/auth/register');
     await button.click();

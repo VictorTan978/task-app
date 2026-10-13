@@ -549,7 +549,7 @@ test.describe('Delete', () => {
 // ---------- Ownership ----------
 
 async function newUserPage(browser: Browser, name: string) {
-  const ctx = await browser.newContext({ baseURL: 'http://localhost:4200' });
+  const ctx = await browser.newContext({ baseURL: process.env['E2E_BASE_URL'] ?? 'http://localhost:4200' });
   const p = await ctx.newPage();
   await signUp(p, name);
   return { ctx, p };
