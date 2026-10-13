@@ -58,4 +58,14 @@ public class User {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    /** {@code displayName} must already be trimmed and validated. */
+    public void changeDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    /** {@code passwordHash} is the BCrypt hash, never the raw password. */
+    public void changePasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
 }

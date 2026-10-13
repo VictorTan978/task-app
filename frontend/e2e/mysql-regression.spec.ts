@@ -41,6 +41,7 @@ async function registerUi(page: Page, name: string, email: string) {
   await page.locator('#register-display-name').fill(name);
   await page.locator('#register-email').fill(email);
   await page.locator('#register-password').fill(PASSWORD);
+  await page.locator('#register-confirm-password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
 }
 

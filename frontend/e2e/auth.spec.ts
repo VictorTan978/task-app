@@ -37,6 +37,7 @@ async function registerViaUi(page: Page, name: string, email: string, password =
   await page.locator('#register-display-name').fill(name);
   await page.locator('#register-email').fill(email);
   await page.locator('#register-password').fill(password);
+  await page.locator('#register-confirm-password').fill(password);
   await page.getByRole('button', { name: 'Create account' }).click();
 }
 
@@ -107,6 +108,7 @@ test.describe('Registration', () => {
     await page.locator('#register-display-name').fill('   ');
     await page.locator('#register-email').fill('not-an-email');
     await page.locator('#register-password').fill('short');
+    await page.locator('#register-confirm-password').fill('short');
     await page.getByRole('button', { name: 'Create account' }).click();
     await expect(page.locator('#register-display-name-error')).toBeVisible();
     await expect(page.locator('#register-email-error')).toBeVisible();
@@ -125,6 +127,7 @@ test.describe('Registration', () => {
     await page.locator('#register-display-name').fill(uniqueName('Long'));
     await page.locator('#register-email').fill(uniqueEmail('ac3long'));
     await page.locator('#register-password').fill('a'.repeat(73));
+    await page.locator('#register-confirm-password').fill('a'.repeat(73));
     await page.getByRole('button', { name: 'Create account' }).click();
     await expect(page.locator('#register-password-error')).toBeVisible();
     await expect(page.locator('#register-display-name-error')).toHaveCount(0);
@@ -135,6 +138,7 @@ test.describe('Registration', () => {
 
     // Exactly 72 chars is accepted
     await page.locator('#register-password').fill('a'.repeat(72));
+    await page.locator('#register-confirm-password').fill('a'.repeat(72));
     await page.getByRole('button', { name: 'Create account' }).click();
     await expect(page).toHaveURL(/\/tasks$/);
     expect(appErrors(w.consoleErrors)).toEqual([]);
@@ -368,6 +372,7 @@ test.describe('States', () => {
     await page.locator('#register-display-name').fill(uniqueName('Net'));
     await page.locator('#register-email').fill(uniqueEmail('ac13r'));
     await page.locator('#register-password').fill(PASSWORD);
+    await page.locator('#register-confirm-password').fill(PASSWORD);
     await page.getByRole('button', { name: 'Create account' }).click();
     await expect(page.getByRole('alert')).toHaveText('Something went wrong, please try again');
     await page.screenshot({ path: `${SHOTS}/ac13-register-unreachable.png`, fullPage: true });

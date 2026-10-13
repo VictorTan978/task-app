@@ -30,11 +30,23 @@ describe('AppHeader', () => {
   afterEach(() => http.verify());
 
   const button = () => el.querySelector('button')!;
+  const greeting = () => el.querySelector<HTMLAnchorElement>('a.app-header__greeting');
 
   it('shows app name and greeting', () => {
     expect(el.textContent).toContain('Task App');
     expect(el.textContent).toContain('Hi, Bob');
     expect(button().textContent).toContain('Log out');
+  });
+
+  it('links the greeting to /account', () => {
+    expect(greeting()?.textContent?.trim()).toBe('Hi, Bob');
+    expect(greeting()?.getAttribute('href')).toBe('/account');
+  });
+
+  it('shows the new name as soon as the signed-in user is updated', async () => {
+    auth.updateCurrentUser({ id: 1, email: 'bob@example.com', displayName: 'Bobby' });
+    await fixture.whenStable();
+    expect(greeting()?.textContent?.trim()).toBe('Hi, Bobby');
   });
 
   it('logs out: disabled while pending, then goes to /login', async () => {

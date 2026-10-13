@@ -39,20 +39,39 @@
 
       <div class="field">
         <label for="register-password">Password</label>
-        <input
-          id="register-password"
-          type="password"
-          formControlName="password"
-          autocomplete="new-password"
-          [attr.aria-invalid]="error('password') ? true : null"
-          [attr.aria-describedby]="
-            error('password') ? 'register-password-error' : 'register-password-hint'
-          "
-        />
+        <app-password-field>
+          <input
+            id="register-password"
+            type="password"
+            formControlName="password"
+            autocomplete="new-password"
+            [attr.aria-invalid]="error('password') ? true : null"
+            [attr.aria-describedby]="
+              error('password') ? 'register-password-error' : 'register-password-hint'
+            "
+          />
+        </app-password-field>
         @if (error('password'); as message) {
           <p class="field-error" id="register-password-error">{{ message }}</p>
         } @else {
           <p class="field-hint" id="register-password-hint">8 to 72 characters</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="register-confirm-password">Confirm password</label>
+        <app-password-field>
+          <input
+            id="register-confirm-password"
+            type="password"
+            formControlName="confirmPassword"
+            autocomplete="new-password"
+            [attr.aria-invalid]="confirmError() ? true : null"
+            [attr.aria-describedby]="confirmError() ? 'register-confirm-password-error' : null"
+          />
+        </app-password-field>
+        @if (confirmError(); as message) {
+          <p class="field-error" id="register-confirm-password-error">{{ message }}</p>
         }
       </div>
 

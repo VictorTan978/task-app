@@ -40,12 +40,13 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.security.SecurityConfig;
+import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.TaskResponse;
 
 @WebMvcTest(TaskController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, UnchangedSessionUserLookup.class})
 class TaskControllerTest {
 
     private static final long OWNER = 7L;

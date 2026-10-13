@@ -39,7 +39,7 @@ Subagents cannot talk to each other and **remember nothing between calls**. Ever
 3. **Contract negotiation: max 2 rounds** between frontend needs and backend proposal. After that, you decide or ask the user.
 4. **Fix loops: max 3 rounds per failure.** Then stop and report what was tried, what still fails, and your best guess why.
 5. Record every decision (contract changes, trade-offs, approvals) in the spec's **Decisions log**.
-6. **Commit only when the user asks.** Suggest a commit message when a feature or fix is done.
+6. **Git flow: one branch per feature or bug** (`feature/<name>`, `fix/<name>`), created from `main`. On that branch, commit and push (`git push -u origin <branch>`) each time a change is done. **`main`:** merge and push only when the user asks, and only after the Definition of Done tests pass. Suggest a commit message when a feature or fix is done.
 
 ## Approval gates — STOP and ask the user before
 
@@ -55,7 +55,7 @@ When asking, always give: **what** will change, **why** it's needed, **affected 
 - Never do unrequested cleanup or refactors. List them under "Suggestions" in the final report instead.
 - Never edit a migration that has already been applied. Always create a new one.
 - Destructive schema changes use **expand-then-contract**: stop using the column in code first (ship), drop it in a later, separate, approved migration.
-- Never `git push`. Never run `flyway clean`.
+- Never force-push, delete remote branches, or push to `main` without the user asking. Never run `flyway clean`.
 
 ## Global Definition of Done (applies to every feature and bug)
 

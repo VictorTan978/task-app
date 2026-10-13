@@ -1,5 +1,13 @@
-import { FormControl } from '@angular/forms';
-import { emailTrimmed, fieldMessage, maxTrimmed, passwordLength, requiredTrimmed } from './auth-form';
+import { FormControl, FormGroup } from '@angular/forms';
+import {
+  confirmMatches,
+  confirmMessage,
+  emailTrimmed,
+  fieldMessage,
+  maxTrimmed,
+  passwordLength,
+  requiredTrimmed,
+} from './auth-form';
 
 describe('auth form validators', () => {
   const c = (value: string) => new FormControl(value);
@@ -29,6 +37,22 @@ describe('auth form validators', () => {
     expect(passwordLength(c('é'.repeat(36)))).toBeNull();
     expect(passwordLength(c('é'.repeat(37)))).toEqual({ PASSWORD_LENGTH: true });
     expect(passwordLength(c('   '))).toBeNull();
+  });
+
+  it('confirmMatches requires a non-empty, exactly equal confirm value', () => {
+    const group = (password: string, confirm: string) =>
+      new FormGroup(
+        { password: c(password), confirm: c(confirm) },
+        { validators: confirmMatches('password', 'confirm') },
+      );
+    expect(group('secret12', '').errors).toEqual({ CONFIRM_REQUIRED: true });
+    expect(group('secret12', 'secret13').errors).toEqual({ PASSWORD_MISMATCH: true });
+    expect(group('secret12', ' secret12').errors).toEqual({ PASSWORD_MISMATCH: true });
+    expect(group('secret12', 'secret12').errors).toBeNull();
+
+    expect(confirmMessage(group('a', ''), 'Confirm your password')).toBe('Confirm your password');
+    expect(confirmMessage(group('a', 'b'), 'x')).toBe('Passwords do not match');
+    expect(confirmMessage(group('a', 'a'), 'x')).toBeNull();
   });
 
   it('fieldMessage prefers REQUIRED and maps server codes', () => {

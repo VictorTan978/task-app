@@ -1,5 +1,9 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(git push -u origin feature/*)",
+      "Bash(git push origin feature/*)"
+    ],
     "ask": [
       "Edit(/backend/src/main/resources/db/migration/**)",
       "Edit(/backend/pom.xml)",
@@ -11,16 +15,23 @@
       "Edit(/frontend/src/app/**/payment/**)",
       "Bash(npm install:*)",
       "Bash(npm i:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push origin main*)",
+      "Bash(git push -u origin main*)"
     ],
     "deny": [
-      "Bash(git push:*)",
       "Bash(./mvnw flyway:clean:*)",
       "Bash(mvn flyway:clean:*)",
       "Bash(docker compose down -v:*)",
       "Bash(rm -rf:*)",
       "Read(./.env)",
-      "Read(./.env.*)"
+      "Read(./.env.*)",
+      "Bash(git push *--force*)",
+      "Bash(git push *-f*)",
+      "Bash(git push *+*)",
+      "Bash(git push *--delete*)",
+      "Bash(git push *--mirror*)",
+      "Bash(git push *--all*)"
     ]
   }
 }

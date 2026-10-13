@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard, guestGuard } from './core/auth/auth.guards';
+import { AccountPage } from './features/account/account-page/account-page';
 import { LoginPage } from './features/auth/login/login-page';
 import { RegisterPage } from './features/auth/register/register-page';
 import { TasksPage } from './features/tasks/tasks-page/tasks-page';
@@ -18,7 +19,10 @@ export const routes: Routes = [
     path: '',
     component: ShellLayout,
     canActivate: [authGuard],
-    children: [{ path: 'tasks', title: 'Tasks · Task App', component: TasksPage }],
+    children: [
+      { path: 'tasks', title: 'Tasks · Task App', component: TasksPage },
+      { path: 'account', title: 'Account · Task App', component: AccountPage },
+    ],
   },
   { path: '**', redirectTo: 'tasks' },
 ];

@@ -5,7 +5,7 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Rate-limit policy for login and register. Every limit decision goes through {@link #enforce}, the single
+ * Rate-limit policy for login, register and the current-password checks of the account endpoints. Every limit decision goes through {@link #enforce}, the single
  * place where a request is refused.
  */
 public class AuthRateLimiter {
@@ -13,6 +13,8 @@ public class AuthRateLimiter {
     private final SlidingWindowLimiter loginFailuresByEmail;
     private final SlidingWindowLimiter loginByIp;
     private final SlidingWindowLimiter registerByIp;
+    /** Keyed by user id; shared by change password and delete account. */
+    private final SlidingWindowLimiter passwordCheckFailuresByUser;
 
     public AuthRateLimiter(RateLimitProperties properties, Clock clock) {
         int maxKeys = properties.maxTrackedKeys();
@@ -22,6 +24,8 @@ public class AuthRateLimiter {
                 maxKeys, clock);
         this.registerByIp = new SlidingWindowLimiter(properties.registerPerIpPerHour(), Duration.ofHours(1),
                 maxKeys, clock);
+        this.passwordCheckFailuresByUser = new SlidingWindowLimiter(properties.passwordCheckFailuresPerUser(),
+                properties.passwordCheckFailureWindow(), maxKeys, clock);
     }
 
     /** Counts one login request from {@code clientIp}; throws if over the per-IP limit. */
@@ -45,6 +49,27 @@ public class AuthRateLimiter {
 
     public void recordLoginSuccess(String email) {
         loginFailuresByEmail.reset(email);
+    }
+
+    /**
+     * Throws if user {@code userId} has too many recent wrong current passwords. Records nothing.
+     * {@code email} is only for the security log.
+     */
+    public void checkPasswordCheckAllowed(long userId, String email) {
+        enforce(passwordCheckFailuresByUser.check(userKey(userId)), RateLimitedException.Limit.PASSWORD_CHECK_USER,
+                email);
+    }
+
+    public void recordPasswordCheckFailure(long userId) {
+        passwordCheckFailuresByUser.record(userKey(userId));
+    }
+
+    public void recordPasswordCheckSuccess(long userId) {
+        passwordCheckFailuresByUser.reset(userKey(userId));
+    }
+
+    private static String userKey(long userId) {
+        return Long.toString(userId);
     }
 
     private static void enforce(Optional<Duration> blockedFor, RateLimitedException.Limit limit, String email) {

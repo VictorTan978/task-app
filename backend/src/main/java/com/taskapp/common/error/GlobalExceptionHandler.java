@@ -22,9 +22,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.taskapp.auth.DisplayNameTakenException;
 import com.taskapp.auth.InvalidCredentialsException;
 import com.taskapp.auth.RegistrationConflictException;
 import com.taskapp.auth.UnauthenticatedException;
+import com.taskapp.auth.WrongPasswordException;
 import com.taskapp.security.audit.SecurityEvent;
 import com.taskapp.security.audit.SecurityEventLogger;
 import com.taskapp.security.ratelimit.RateLimitedException;
@@ -69,6 +71,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(Problems.of(HttpStatus.CONFLICT, top.code(), top.message(), errors));
     }
 
+    /** Display name change: same 409 body as a register conflict on the display name only. */
+    @ExceptionHandler(DisplayNameTakenException.class)
+    ResponseEntity<ProblemDetail> handleDisplayNameTaken(DisplayNameTakenException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Problems.of(HttpStatus.CONFLICT,
+                ErrorCode.DISPLAY_NAME_TAKEN, DISPLAY_NAME_TAKEN_MESSAGE, List.of(new ApiFieldError(
+                        "displayName", ErrorCode.DISPLAY_NAME_TAKEN, DISPLAY_NAME_TAKEN_MESSAGE))));
+    }
+
+    /** Wrong confirmation password on /api/account/*: 400 (never 401) with one field error. */
+    @ExceptionHandler(WrongPasswordException.class)
+    ResponseEntity<ProblemDetail> handleWrongPassword(WrongPasswordException ex, HttpServletRequest request) {
+        WrongPasswordException.Action action = ex.action();
+        SecurityEventLogger.log(SecurityEvent.PASSWORD_CHECK_FAILURE, "action", action.logValue(), request,
+                ex.email());
+        return ResponseEntity.badRequest().body(Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.WRONG_PASSWORD,
+                action.message(), List.of(new ApiFieldError(action.field(), ErrorCode.WRONG_PASSWORD,
+                        action.message()))));
+    }
+
     @ExceptionHandler(InvalidCredentialsException.class)
     ResponseEntity<ProblemDetail> handleInvalidCredentials(InvalidCredentialsException ex,
             HttpServletRequest request) {
@@ -78,7 +99,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 Problems.of(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_CREDENTIALS, "Invalid email or password"));
     }
 
-    /** Every rate-limit refusal (per-IP and per-email) ends up here. */
+    /** Every rate-limit refusal (per-IP, per-email and per-user) ends up here. */
     @ExceptionHandler(RateLimitedException.class)
     ResponseEntity<ProblemDetail> handleRateLimited(RateLimitedException ex, HttpServletRequest request) {
         SecurityEventLogger.log(SecurityEvent.RATE_LIMITED, "limit",

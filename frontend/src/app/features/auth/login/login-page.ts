@@ -5,7 +5,9 @@ import { finalize } from 'rxjs';
 import { FieldName } from '../../../core/auth/auth.models';
 import { AuthService } from '../../../core/auth/auth.service';
 import { hasProblemCode } from '../../../core/auth/problem';
+import { PasswordField } from '../../../shared/password-field/password-field';
 import {
+  ACCOUNT_DELETED_MESSAGE,
   applyServerFieldErrors,
   emailTrimmed,
   fieldMessage,
@@ -20,7 +22,7 @@ import {
 
 @Component({
   selector: 'app-login-page',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, PasswordField],
   templateUrl: './login-page.html',
 })
 export class LoginPage {
@@ -38,6 +40,8 @@ export class LoginPage {
   protected readonly banner = signal<string | null>(null);
   protected readonly sessionExpired = this.auth.sessionExpired;
   protected readonly sessionExpiredMessage = SESSION_EXPIRED_MESSAGE;
+  protected readonly accountDeleted = this.auth.accountDeleted;
+  protected readonly accountDeletedMessage = ACCOUNT_DELETED_MESSAGE;
 
   protected error(field: Extract<FieldName, 'email' | 'password'>): string | null {
     const control = this.form.controls[field];
@@ -55,6 +59,7 @@ export class LoginPage {
     this.formError.set(null);
     this.banner.set(null);
     this.auth.clearSessionExpired();
+    this.auth.clearAccountDeleted();
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;

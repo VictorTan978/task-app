@@ -92,4 +92,16 @@ class UserRepositoryTest {
                     assertThat(e.displayNameTaken()).isFalse();
                 });
     }
+
+    @Test
+    void existsByDisplayNameAndIdNotIgnoresTheGivenUserOnly() {
+        long joseId = repository.findByEmail("jose@example.com").orElseThrow().getId();
+        User other = repository.saveAndFlush(new User("other@example.com", HASH, "Other"));
+
+        assertThat(repository.existsByDisplayNameAndIdNot("jose", joseId)).isFalse();
+        assertThat(repository.existsByDisplayNameAndIdNot("JOSE", joseId)).isFalse();
+        assertThat(repository.existsByDisplayNameAndIdNot("jose", other.getId())).isTrue();
+        assertThat(repository.existsByDisplayNameAndIdNot("José", other.getId())).isTrue();
+        assertThat(repository.existsByDisplayNameAndIdNot("Josefina", other.getId())).isFalse();
+    }
 }

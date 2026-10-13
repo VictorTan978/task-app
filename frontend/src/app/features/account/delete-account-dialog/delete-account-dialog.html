@@ -1,0 +1,54 @@
+<dialog
+  #dialog
+  class="dialog dialog--narrow"
+  aria-labelledby="delete-account-heading"
+  aria-describedby="delete-account-text"
+  (cancel)="onCancel($event)"
+>
+  <h2 id="delete-account-heading" class="dialog__title">Delete your account?</h2>
+
+  <form class="account-form" [formGroup]="form" (ngSubmit)="confirm()" novalidate>
+    <p id="delete-account-text" class="delete-account-text">
+      Your account and all your tasks will be permanently deleted. This can't be undone. Enter your
+      password to confirm.
+    </p>
+
+    @if (banner(); as message) {
+      <p class="notice notice--error" role="alert">{{ message }}</p>
+    }
+
+    <div class="field">
+      <label for="delete-account-password">Password</label>
+      <app-password-field>
+        <input
+          id="delete-account-password"
+          type="password"
+          formControlName="password"
+          autocomplete="current-password"
+          [attr.aria-invalid]="error() ? true : null"
+          [attr.aria-describedby]="error() ? 'delete-account-password-error' : null"
+        />
+      </app-password-field>
+      @if (error(); as message) {
+        <p class="field-error" id="delete-account-password-error">{{ message }}</p>
+      }
+    </div>
+
+    <div class="dialog__actions">
+      <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
+        Cancel
+      </button>
+      <button
+        type="submit"
+        class="btn btn--danger"
+        [disabled]="pending()"
+        [attr.aria-busy]="pending()"
+      >
+        @if (pending()) {
+          <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+        }
+        Delete permanently
+      </button>
+    </div>
+  </form>
+</dialog>

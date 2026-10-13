@@ -57,6 +57,20 @@ public class SessionAuthenticator {
         rotateCsrfToken(request, response);
     }
 
+    /**
+     * Replaces the signed-in user held by the current session with {@code user} (e.g. after a display name
+     * change). Keeps the session id and the CSRF token; never creates a session or sets a cookie.
+     */
+    public void refreshPrincipal(UserResponse user, HttpServletRequest request, HttpServletResponse response) {
+        AuthenticatedUser principal = new AuthenticatedUser(user.id(), user.email(), user.displayName());
+        SecurityContext context = contextHolder.createEmptyContext();
+        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()));
+        contextHolder.setContext(context);
+        if (request.getSession(false) != null) {
+            securityContextRepository.saveContext(context, request, response);
+        }
+    }
+
     /** Idempotent: works without a session too. */
     public void signOut(HttpServletRequest request, HttpServletResponse response) {
         invalidateSession(request);

@@ -1,10 +1,11 @@
 import { Component, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { AuthService } from '../../core/auth/auth.service';
 
 @Component({
   selector: 'app-header',
+  imports: [RouterLink],
   templateUrl: './app-header.html',
   styleUrl: './app-header.scss',
 })

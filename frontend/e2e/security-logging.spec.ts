@@ -42,6 +42,7 @@ test('AC11/AC12: auth flow writes one SECURITY line per event and no secrets', a
   await page.locator('#register-display-name').fill(`Log QA ${RUN}`);
   await page.locator('#register-email').fill(email);
   await page.locator('#register-password').fill(PASSWORD);
+  await page.locator('#register-confirm-password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/tasks$/);
   const sessionCookies = (await context.cookies()).filter((c) => ['JSESSIONID', 'XSRF-TOKEN'].includes(c.name));

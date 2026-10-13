@@ -63,6 +63,29 @@ describe('LoginPage', () => {
     expect(el.querySelector('a')?.getAttribute('href')).toBe('/register');
   });
 
+  it('has a show/hide toggle on the password and no confirm field', async () => {
+    expect(el.querySelectorAll('input[type=password]').length).toBe(1);
+    const input = el.querySelector<HTMLInputElement>('#login-password')!;
+    const toggle = el.querySelector<HTMLButtonElement>('button[aria-controls=login-password]')!;
+    expect(input.type).toBe('password');
+    expect(toggle.type).toBe('button');
+    expect(toggle.getAttribute('aria-label')).toBe('Show password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    type('#login-password', 'secret12');
+    toggle.click();
+    await fixture.whenStable();
+    expect(input.type).toBe('text');
+    expect(toggle.getAttribute('aria-label')).toBe('Hide password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(el.querySelector('.field-error')).toBeNull();
+    http.expectNone('/api/auth/login');
+
+    toggle.click();
+    await fixture.whenStable();
+    expect(input.type).toBe('password');
+  });
+
   it('shows field errors and sends nothing when invalid', async () => {
     await submit('nope', '   ');
     expect(text()).toContain('Enter a valid email address');
@@ -176,6 +199,20 @@ describe('LoginPage', () => {
 
     await submit();
     expect(text()).not.toContain('Your session expired');
+    http.expectOne('/api/auth/login').flush(BOB);
+  });
+
+  it('shows "Your account has been deleted" and clears it on submit', async () => {
+    const auth = TestBed.inject(AuthService);
+    auth.handleAccountDeleted();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid=account-deleted]')?.textContent?.trim()).toBe(
+      'Your account has been deleted',
+    );
+    expect(text()).not.toContain('Your session expired');
+
+    await submit();
+    expect(el.querySelector('[data-testid=account-deleted]')).toBeNull();
     http.expectOne('/api/auth/login').flush(BOB);
   });
 });
