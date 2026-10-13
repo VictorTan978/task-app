@@ -78,6 +78,22 @@ describe('DeleteAccountDialog', () => {
     expect(confirmButton().classList).toContain('btn--danger');
   });
 
+  it('has a show/hide toggle on the password and no confirm field', async () => {
+    expect(el.querySelectorAll('input').length).toBe(1);
+    const toggle = el.querySelector<HTMLButtonElement>(
+      'button[aria-controls=delete-account-password]',
+    )!;
+    expect(toggle.type).toBe('button');
+    expect(toggle.getAttribute('aria-label')).toBe('Show password');
+    toggle.click();
+    await fixture.whenStable();
+    expect(password().type).toBe('text');
+    expect(toggle.getAttribute('aria-label')).toBe('Hide password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(closed).not.toHaveBeenCalled();
+    http.expectNone(URL);
+  });
+
   it('Cancel closes without a request', () => {
     cancelButton().click();
     expect(closed).toHaveBeenCalledTimes(1);

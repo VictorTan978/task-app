@@ -35,14 +35,16 @@
 
       <div class="field">
         <label for="login-password">Password</label>
-        <input
-          id="login-password"
-          type="password"
-          formControlName="password"
-          autocomplete="current-password"
-          [attr.aria-invalid]="error('password') ? true : null"
-          [attr.aria-describedby]="error('password') ? 'login-password-error' : null"
-        />
+        <app-password-field>
+          <input
+            id="login-password"
+            type="password"
+            formControlName="password"
+            autocomplete="current-password"
+            [attr.aria-invalid]="error('password') ? true : null"
+            [attr.aria-describedby]="error('password') ? 'login-password-error' : null"
+          />
+        </app-password-field>
         @if (error('password'); as message) {
           <p class="field-error" id="login-password-error">{{ message }}</p>
         }

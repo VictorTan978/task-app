@@ -10,13 +10,14 @@ import {
 } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { finalize, Subscription } from 'rxjs';
+import { PasswordField } from '../../../shared/password-field/password-field';
 import { fieldMessage, requiredTrimmed } from '../../auth/auth-form';
 import { accountErrorBanner } from '../account-form';
 import { AccountService } from '../account.service';
 
 @Component({
   selector: 'app-delete-account-dialog',
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, PasswordField],
   templateUrl: './delete-account-dialog.html',
   styleUrls: ['../../tasks/dialog.scss', '../account-form.scss'],
 })

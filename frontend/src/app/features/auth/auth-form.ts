@@ -98,6 +98,40 @@ export const passwordLength: ValidatorFn = (control): ValidationErrors | null =>
     : null;
 };
 
+export const CONFIRM_PASSWORD_MESSAGE = 'Confirm your password';
+export const CONFIRM_NEW_PASSWORD_MESSAGE = 'Confirm your new password';
+export const PASSWORDS_DO_NOT_MATCH_MESSAGE = 'Passwords do not match';
+
+/**
+ * Group validator for a browser-only "confirm password" control: it must be non-empty
+ * (`CONFIRM_REQUIRED`) and exactly equal to the password control (`PASSWORD_MISMATCH`).
+ * The confirm value is never sent to the API.
+ */
+export function confirmMatches(passwordKey: string, confirmKey: string): ValidatorFn {
+  return (group) => {
+    const password = group.get(passwordKey);
+    const confirm = group.get(confirmKey);
+    if (!password || !confirm) {
+      return null;
+    }
+    if (asString(confirm).length === 0) {
+      return { CONFIRM_REQUIRED: true };
+    }
+    return confirm.value === password.value ? null : { PASSWORD_MISMATCH: true };
+  };
+}
+
+/** The message to show under the confirm field (from `confirmMatches` errors), or null. */
+export function confirmMessage(group: AbstractControl, emptyMessage: string): string | null {
+  if (group.hasError('CONFIRM_REQUIRED')) {
+    return emptyMessage;
+  }
+  if (group.hasError('PASSWORD_MISMATCH')) {
+    return PASSWORDS_DO_NOT_MATCH_MESSAGE;
+  }
+  return null;
+}
+
 /** The message to show under a field, or null. */
 export function fieldMessage(field: FieldName, control: AbstractControl): string | null {
   const errors = control.errors;

@@ -36,6 +36,11 @@ describe('ChangePasswordForm', () => {
 
   const current = () => el.querySelector<HTMLInputElement>('#account-current-password')!;
   const next = () => el.querySelector<HTMLInputElement>('#account-new-password')!;
+  const confirm = () => el.querySelector<HTMLInputElement>('#account-confirm-password')!;
+  const toggleFor = (id: string) =>
+    el.querySelector<HTMLButtonElement>(`button[aria-controls=${id}]`)!;
+  const confirmError = () =>
+    el.querySelector('#account-confirm-password-error')?.textContent?.trim();
   const button = () => el.querySelector<HTMLButtonElement>('button[type=submit]')!;
   const currentError = () =>
     el.querySelector('#account-current-password-error')?.textContent?.trim();
@@ -43,19 +48,30 @@ describe('ChangePasswordForm', () => {
   const status = () => el.querySelector('[role=status]')?.textContent?.trim();
   const alert = () => el.querySelector('[role=alert]')?.textContent?.trim();
 
+  const ids = () => [
+    'account-current-password',
+    'account-new-password',
+    'account-confirm-password',
+  ];
+
   function type(input: HTMLInputElement, value: string) {
     input.value = value;
     input.dispatchEvent(new Event('input'));
   }
 
-  async function submit(currentPassword = 'old-pass', newPassword = 'new-pass-1') {
+  async function submit(
+    currentPassword = 'old-pass',
+    newPassword = 'new-pass-1',
+    confirmPassword = newPassword,
+  ) {
     type(current(), currentPassword);
     type(next(), newPassword);
+    type(confirm(), confirmPassword);
     el.querySelector('form')!.dispatchEvent(new Event('submit'));
     await fixture.whenStable();
   }
 
-  it('renders both fields and the button', () => {
+  it('renders all three fields and the button', () => {
     expect(el.querySelector('label[for=account-current-password]')?.textContent).toContain(
       'Current password',
     );
@@ -64,17 +80,63 @@ describe('ChangePasswordForm', () => {
     );
     expect(current().type).toBe('password');
     expect(next().type).toBe('password');
+    expect(el.querySelector('label[for=account-confirm-password]')?.textContent).toContain(
+      'Confirm new password',
+    );
+    expect(confirm().type).toBe('password');
+    const ids = [...el.querySelectorAll('input')].map((i) => i.id);
+    expect(ids).toEqual([
+      'account-current-password',
+      'account-new-password',
+      'account-confirm-password',
+    ]);
     expect(button().textContent).toContain('Change password');
+  });
+
+  it('has an independent show/hide toggle on each password field', async () => {
+    for (const id of ids()) {
+      expect(toggleFor(id).type).toBe('button');
+      expect(toggleFor(id).getAttribute('aria-label')).toBe('Show password');
+    }
+    toggleFor('account-new-password').click();
+    await fixture.whenStable();
+    expect(next().type).toBe('text');
+    expect(current().type).toBe('password');
+    expect(confirm().type).toBe('password');
+    expect(toggleFor('account-new-password').getAttribute('aria-pressed')).toBe('true');
+    http.expectNone(URL);
+  });
+
+  it('shows "Confirm your new password" when the confirm field is empty and sends nothing', async () => {
+    await submit('old-pass', 'new-pass-1', '');
+    expect(confirmError()).toBe('Confirm your new password');
+    expect(confirm().getAttribute('aria-invalid')).toBe('true');
+    expect(newError()).toBeUndefined();
+    http.expectNone(URL);
+  });
+
+  it('shows "Passwords do not match" when the confirm value differs and sends nothing', async () => {
+    await submit('old-pass', 'new-pass-1', 'new-pass-2');
+    expect(confirmError()).toBe('Passwords do not match');
+    expect(newError()).toBeUndefined();
+    http.expectNone(URL);
+
+    // Changing the new password to match clears the error.
+    type(next(), 'new-pass-2');
+    await fixture.whenStable();
+    expect(confirmError()).toBeUndefined();
   });
 
   it('sends the passwords untrimmed, then shows "Password changed" and clears the fields', async () => {
     await submit(' old-pass ', ' new-pass-1 ');
     const req = http.expectOne(URL);
     expect(req.request.method).toBe('PUT');
+    // Exactly the contract's ChangePasswordRequest: the confirm value is never sent.
     expect(req.request.body).toEqual({
       currentPassword: ' old-pass ',
       newPassword: ' new-pass-1 ',
     });
+    expect(Object.keys(req.request.body).sort()).toEqual(['currentPassword', 'newPassword']);
     expect(button().disabled).toBe(true);
     expect(button().getAttribute('aria-busy')).toBe('true');
     expect(el.querySelector('[data-testid=spinner]')).not.toBeNull();
@@ -84,9 +146,27 @@ describe('ChangePasswordForm', () => {
     expect(status()).toBe('Password changed');
     expect(current().value).toBe('');
     expect(next().value).toBe('');
+    expect(confirm().value).toBe('');
     expect(el.querySelector('.field-error')).toBeNull();
     expect(button().disabled).toBe(false);
     expect(auth.isSignedIn()).toBe(true);
+  });
+
+  it('hides shown passwords again after "Password changed"', async () => {
+    for (const id of ids()) {
+      toggleFor(id).click();
+    }
+    await fixture.whenStable();
+    expect(current().type).toBe('text');
+    await submit();
+    http.expectOne(URL).flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    expect(status()).toBe('Password changed');
+    for (const id of ids()) {
+      expect(el.querySelector<HTMLInputElement>(`#${id}`)!.type).toBe('password');
+      expect(toggleFor(id).getAttribute('aria-label')).toBe('Show password');
+      expect(toggleFor(id).getAttribute('aria-pressed')).toBe('false');
+    }
   });
 
   it('requires both fields', async () => {

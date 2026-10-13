@@ -1,8 +1,12 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal, viewChildren } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { finalize } from 'rxjs';
+import { PasswordField } from '../../../shared/password-field/password-field';
 import {
+  CONFIRM_NEW_PASSWORD_MESSAGE,
+  confirmMatches,
+  confirmMessage,
   fieldMessage,
   PASSWORD_MAX,
   PASSWORD_MIN,
@@ -14,7 +18,7 @@ import { AccountService } from '../account.service';
 
 @Component({
   selector: 'app-change-password-form',
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, PasswordField],
   templateUrl: './change-password-form.html',
   styleUrl: '../account-form.scss',
 })
@@ -22,10 +26,17 @@ export class ChangePasswordForm {
   private readonly account = inject(AccountService);
   private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly form = inject(NonNullableFormBuilder).group({
-    currentPassword: ['', [requiredTrimmed]],
-    newPassword: ['', [requiredTrimmed, passwordLength]],
-  });
+  protected readonly form = inject(NonNullableFormBuilder).group(
+    {
+      currentPassword: ['', [requiredTrimmed]],
+      newPassword: ['', [requiredTrimmed, passwordLength]],
+      // Browser-only check; never sent to the API.
+      confirmPassword: [''],
+    },
+    { validators: confirmMatches('newPassword', 'confirmPassword') },
+  );
+
+  private readonly passwordFields = viewChildren(PasswordField);
 
   protected readonly hint = `${PASSWORD_MIN} to ${PASSWORD_MAX} characters`;
   protected readonly pending = signal(false);
@@ -39,6 +50,13 @@ export class ChangePasswordForm {
       return null;
     }
     return fieldMessage(field, control);
+  }
+
+  protected confirmError(): string | null {
+    if (!this.submitted() && !this.form.controls.confirmPassword.touched) {
+      return null;
+    }
+    return confirmMessage(this.form, CONFIRM_NEW_PASSWORD_MESSAGE);
   }
 
   protected submit(): void {
@@ -65,6 +83,7 @@ export class ChangePasswordForm {
       .subscribe({
         next: () => {
           this.form.reset();
+          this.passwordFields().forEach((field) => field.hide());
           this.submitted.set(false);
           this.status.set(PASSWORD_CHANGED_MESSAGE);
         },

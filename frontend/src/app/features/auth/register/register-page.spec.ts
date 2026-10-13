@@ -45,10 +45,16 @@ describe('RegisterPage', () => {
     input.dispatchEvent(new Event('input'));
   }
 
-  async function submit(displayName = ' Bob ', email = 'Bob@Example.com', password = 'secret12') {
+  async function submit(
+    displayName = ' Bob ',
+    email = 'Bob@Example.com',
+    password = 'secret12',
+    confirmPassword = password,
+  ) {
     type('#register-display-name', displayName);
     type('#register-email', email);
     type('#register-password', password);
+    type('#register-confirm-password', confirmPassword);
     el.querySelector('form')!.dispatchEvent(new Event('submit'));
     await fixture.whenStable();
   }
@@ -60,6 +66,9 @@ describe('RegisterPage', () => {
     expect(el.querySelector('label[for=register-display-name]')).not.toBeNull();
     expect(el.querySelector('label[for=register-email]')).not.toBeNull();
     expect(el.querySelector('label[for=register-password]')).not.toBeNull();
+    expect(el.querySelector('label[for=register-confirm-password]')?.textContent).toContain(
+      'Confirm password',
+    );
     expect(button().textContent).toContain('Create account');
     expect(el.querySelector('a')?.getAttribute('href')).toBe('/login');
   });
@@ -70,6 +79,64 @@ describe('RegisterPage', () => {
     expect(errorOf('register-email')).toBe('Enter a valid email address');
     expect(errorOf('register-password')).toBe('Password must be 8 to 72 characters');
     http.expectNone('/api/auth/register');
+  });
+
+  it('places "Confirm password" below "Password", both with their own show/hide toggle', () => {
+    const ids = [...el.querySelectorAll('input')].map((i) => i.id);
+    expect(ids.indexOf('register-confirm-password')).toBe(ids.indexOf('register-password') + 1);
+    const confirm = el.querySelector<HTMLInputElement>('#register-confirm-password')!;
+    expect(confirm.type).toBe('password');
+    for (const id of ['register-password', 'register-confirm-password']) {
+      const toggle = el.querySelector<HTMLButtonElement>(`button[aria-controls=${id}]`)!;
+      expect(toggle.type).toBe('button');
+      expect(toggle.getAttribute('aria-label')).toBe('Show password');
+    }
+  });
+
+  it('toggles the password field without submitting', async () => {
+    el.querySelector<HTMLButtonElement>('button[aria-controls=register-password]')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector<HTMLInputElement>('#register-password')!.type).toBe('text');
+    expect(el.querySelector<HTMLInputElement>('#register-confirm-password')!.type).toBe(
+      'password',
+    );
+    expect(el.querySelector('.field-error')).toBeNull();
+    http.expectNone('/api/auth/register');
+  });
+
+  it('shows "Confirm your password" under the confirm field when it is empty and sends nothing', async () => {
+    await submit(' Bob ', 'Bob@Example.com', 'secret12', '');
+    expect(errorOf('register-confirm-password')).toBe('Confirm your password');
+    expect(
+      el.querySelector('#register-confirm-password')!.getAttribute('aria-describedby'),
+    ).toBe('register-confirm-password-error');
+    expect(el.querySelector('#register-confirm-password')!.getAttribute('aria-invalid')).toBe(
+      'true',
+    );
+    expect(errorOf('register-password')).toBeUndefined();
+    http.expectNone('/api/auth/register');
+  });
+
+  it('shows "Passwords do not match" under the confirm field and sends nothing', async () => {
+    await submit(' Bob ', 'Bob@Example.com', 'secret12', 'secret13');
+    expect(errorOf('register-confirm-password')).toBe('Passwords do not match');
+    expect(errorOf('register-password')).toBeUndefined();
+    http.expectNone('/api/auth/register');
+
+    // Fixing the confirm value clears the error and the next submit is sent.
+    type('#register-confirm-password', 'secret12');
+    await fixture.whenStable();
+    expect(errorOf('register-confirm-password')).toBeUndefined();
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    http.expectOne('/api/auth/register').flush(BOB, { status: 201, statusText: 'Created' });
+  });
+
+  it('shows no confirm error before submit or blur', async () => {
+    type('#register-password', 'secret12');
+    type('#register-confirm-password', 'x');
+    await fixture.whenStable();
+    expect(errorOf('register-confirm-password')).toBeUndefined();
   });
 
   it('rejects too-long values', async () => {
@@ -83,11 +150,13 @@ describe('RegisterPage', () => {
   it('sends trimmed values, shows pending state, then goes to /tasks', async () => {
     await submit();
     const req = http.expectOne('/api/auth/register');
+    // Exactly the contract's RegisterRequest: the confirm value is never sent.
     expect(req.request.body).toEqual({
       displayName: 'Bob',
       email: 'Bob@Example.com',
       password: 'secret12',
     });
+    expect(Object.keys(req.request.body).sort()).toEqual(['displayName', 'email', 'password']);
     expect(button().disabled).toBe(true);
     expect(el.querySelector('[data-testid=spinner]')).not.toBeNull();
     req.flush(BOB, { status: 201, statusText: 'Created' });

@@ -5,6 +5,7 @@ import { finalize } from 'rxjs';
 import { FieldName } from '../../../core/auth/auth.models';
 import { AuthService } from '../../../core/auth/auth.service';
 import { hasProblemCode } from '../../../core/auth/problem';
+import { PasswordField } from '../../../shared/password-field/password-field';
 import {
   ACCOUNT_DELETED_MESSAGE,
   applyServerFieldErrors,
@@ -21,7 +22,7 @@ import {
 
 @Component({
   selector: 'app-login-page',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, PasswordField],
   templateUrl: './login-page.html',
 })
 export class LoginPage {

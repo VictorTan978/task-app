@@ -19,14 +19,16 @@
 
     <div class="field">
       <label for="delete-account-password">Password</label>
-      <input
-        id="delete-account-password"
-        type="password"
-        formControlName="password"
-        autocomplete="current-password"
-        [attr.aria-invalid]="error() ? true : null"
-        [attr.aria-describedby]="error() ? 'delete-account-password-error' : null"
-      />
+      <app-password-field>
+        <input
+          id="delete-account-password"
+          type="password"
+          formControlName="password"
+          autocomplete="current-password"
+          [attr.aria-invalid]="error() ? true : null"
+          [attr.aria-describedby]="error() ? 'delete-account-password-error' : null"
+        />
+      </app-password-field>
       @if (error(); as message) {
         <p class="field-error" id="delete-account-password-error">{{ message }}</p>
       }
