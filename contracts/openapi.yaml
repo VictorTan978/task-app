@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     ## Authentication
     Session-cookie auth (Spring Security). A successful `register` or `login` creates a server-side
@@ -22,6 +22,67 @@ info:
     - User exists but `email` or `displayName` differ from what the session holds (e.g. the
       display name was changed in another session): the session's user is refreshed with the
       current values. `GET /api/auth/me` therefore always returns current data.
+    - The session was ended by "log out other sessions" or a password change on another device
+      (see `POST /api/account/logout-other-sessions`): treated like a deleted user, i.e. the
+      session is invalidated and the request continues as anonymous (then 401, unless a valid
+      remember-me cookie signs it in again, see below).
+
+    ## Session lifetime
+    Every session has two limits, both checked on every request before authorization:
+    - **Idle timeout**: 30 minutes without a request (unchanged).
+    - **Maximum length**, counted from the sign-in that created the session and NOT extended by
+      activity:
+      - normal session (login without `rememberMe`, or register): 12 hours
+        (server setting `SESSION_MAX_LENGTH`).
+      - remember-me session (login with `rememberMe: true`, or an automatic remember-me sign-in):
+        until its remember-me login expires (30 days from the original login, server setting
+        `REMEMBER_ME_LENGTH`). The 12-hour limit does not apply.
+
+    A session past either limit is invalidated and the request continues as anonymous: protected
+    endpoints answer **401 `UNAUTHENTICATED`**, the same response as today's idle expiry. Clients
+    need no new handling.
+
+    ## Remember me
+    `POST /api/auth/login` with `rememberMe: true` additionally sets the `remember-me` cookie
+    (see the `rememberMeCookie` security scheme for its attributes). It is a long-lived,
+    HttpOnly credential that clients never read or send manually; the browser sends it with
+    every `/api/**` request.
+
+    **Automatic sign-in.** When a request arrives with no valid session (none, idle-expired,
+    past its maximum length, or ended by "log out other sessions"), but with a valid
+    `remember-me` cookie, the server signs the user in **within that same request** and then
+    handles the request normally. This applies to **every** `/api/**` endpoint and method
+    (`GET /api/auth/me`, `GET /api/tasks`, `POST /api/tasks`, ...), except
+    `POST /api/auth/login`, `POST /api/auth/register` and `POST /api/auth/logout`, which handle the
+    cookie themselves. That response carries, via `Set-Cookie`:
+    - a new `JSESSIONID` (a new session, exactly like a password login),
+    - a rotated `XSRF-TOKEN` (exactly one `XSRF-TOKEN` Set-Cookie per response),
+    - a rotated `remember-me` cookie (new value, Max-Age = time left until the ORIGINAL 30-day
+      expiry; rotation never extends it).
+
+    The CSRF check runs before the automatic sign-in and only compares the `X-XSRF-TOKEN` header
+    with the `XSRF-TOKEN` cookie (the token is cookie-based, not tied to the session), so a
+    POST/PUT/PATCH/DELETE sent with an expired session and a valid `remember-me` cookie succeeds.
+    Subsequent requests must use the rotated `XSRF-TOKEN` (Angular HttpClient re-reads the cookie
+    automatically).
+
+    **Rejected cookie.** An unknown, expired, malformed or reused `remember-me` cookie never causes
+    an error by itself: the response expires it (`remember-me=; Max-Age=0`) and the request
+    continues as anonymous, so protected endpoints answer the usual **401 `UNAUTHENTICATED`** and
+    public endpoints answer normally. Reuse of an already-rotated cookie (stolen-cookie detection)
+    additionally ends ALL of that user's remember-me logins AND all of that user's sessions on
+    every device.
+
+    **Parallel requests.** Several requests sent at the same moment with the same (pre-rotation)
+    `remember-me` cookie all succeed: the previous cookie value is still accepted for 60 seconds
+    after a rotation. Those extra requests are signed in without rotating the cookie again (they
+    still get their own `JSESSIONID` and `XSRF-TOKEN`; the browser keeps the last ones it receives,
+    and every one of them is valid).
+
+    **Ending a remember-me login.** A device's remember-me login ends on: `POST /api/auth/logout`
+    on that device; a new `POST /api/auth/login` or `POST /api/auth/register` on that device
+    (which replaces it); expiry after 30 days; `POST /api/account/logout-other-sessions` or
+    `PUT /api/account/password` on ANOTHER device; account deletion; stolen-cookie detection.
 
     ## CSRF
     Every state-changing request (POST/PUT/PATCH/DELETE), **including register, login and logout**,
@@ -31,10 +92,12 @@ info:
       request did not carry one, and always on register/login/logout (rotation). An existing valid
       cookie is not re-sent on every response. The app should call `GET /api/auth/me` on startup to
       obtain it.
-    - The token **rotates** on login, register, logout and a successful account delete
-      (`POST /api/account/delete`); the new cookie is set on that same response, so the next
-      request just reads the cookie again (Angular HttpClient does this automatically). Changing
-      the display name or the password does NOT rotate it.
+    - The token **rotates** on login, register, logout, a successful account delete
+      (`POST /api/account/delete`) and an automatic remember-me sign-in (any endpoint, see
+      "Remember me"); the new cookie is set on that same response, so the next request just reads
+      the cookie again (Angular HttpClient does this automatically). Changing the display name or
+      the password, and `POST /api/account/logout-other-sessions`, do NOT rotate it (they change
+      only the session id).
     - The header value is the raw cookie value (no masking/encoding needed on the client).
     - Missing/invalid token: **403** problem with `code: CSRF_INVALID`.
 
@@ -72,6 +135,9 @@ info:
       do not check the limit. A correct password resets the counter. Other users are not
       affected. Configurable on the server (`RATE_LIMIT_PASSWORD_CHECK_FAILURES_PER_USER`,
       default 5; `RATE_LIMIT_PASSWORD_CHECK_FAILURE_WINDOW`, default 15m).
+
+    `POST /api/account/logout-other-sessions` is NOT rate limited (it needs a signed-in session
+    and a CSRF token, checks no password and is idempotent).
 
     Precedence (auth endpoints): 403 `CSRF_INVALID` > 429 (per-IP) > 400 `VALIDATION_FAILED` >
     429 (per-email) > 401 / 409.
@@ -112,15 +178,21 @@ paths:
       description: |
         Returns the user for the current session. Also sets the `XSRF-TOKEN` cookie
         (on both 200 and 401), so call this first on app startup.
+
+        If there is no valid session but a valid `remember-me` cookie, the user is signed in
+        automatically (see "Remember me"): 200 with a new `JSESSIONID`, a rotated `XSRF-TOKEN` and
+        a rotated `remember-me` cookie. If the `remember-me` cookie is rejected: 401 and the cookie
+        is expired. Nothing changes for clients: 200 = signed in, 401 = show the login page.
       operationId: getCurrentUser
       tags: [auth]
       security: []
       responses:
         '200':
-          description: Signed in
+          description: |
+            Signed in (with an existing session, or automatically from the `remember-me` cookie).
           headers:
             Set-Cookie:
-              $ref: '#/components/headers/SetXsrfCookie'
+              $ref: '#/components/headers/SetXsrfOrRememberMeSignInCookies'
           content:
             application/json:
               schema:
@@ -146,6 +218,11 @@ paths:
         - displayName: compared after trimming, ignoring letter case AND accents
           (`José` = `jose` = `JOSE` = ` José `).
         Both are checked on every request, so a 409 reports every taken field at once.
+
+        Register never sets a `remember-me` cookie and starts a normal session (12-hour maximum).
+        If the request carries a `remember-me` cookie (e.g. of another account on this browser), that
+        remember-me login is ended and the cookie expired on the 201 response, so the browser
+        can't later sign back in as the previous account.
       operationId: register
       tags: [auth]
       security:
@@ -248,6 +325,18 @@ paths:
         `jose@example.com`). Wrong password and
         unknown email return the identical 401 response. On success the session ID changes
         (session-fixation protection) and the `XSRF-TOKEN` rotates.
+
+        `rememberMe` (optional, default `false`):
+        - `true`: also creates a new remember-me login for this device (valid 30 days from now, not
+          extended by use) and sets the `remember-me` cookie. The session is a remember-me session
+          (no 12-hour maximum, see "Session lifetime").
+        - `false` or absent: a normal session (12-hour maximum), no `remember-me` cookie set.
+
+        Either way, a `remember-me` cookie the request already carries (an earlier remember-me
+        login on this device, possibly of another account) is ended and replaced: with
+        `rememberMe: false` it is expired (`Max-Age=0`) on this response. The response body is the
+        same `User` in all cases. A failed login (400/401/429) leaves any existing `remember-me`
+        cookie untouched.
       operationId: login
       tags: [auth]
       security:
@@ -258,15 +347,26 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
-            example:
-              email: BOB@example.com
-              password: correct-horse
+            examples:
+              normal:
+                summary: Normal sign-in (same as before 0.6.0)
+                value:
+                  email: BOB@example.com
+                  password: correct-horse
+              rememberMe:
+                summary: Sign in and remember this device for 30 days
+                value:
+                  email: BOB@example.com
+                  password: correct-horse
+                  rememberMe: true
       responses:
         '200':
-          description: Signed in. Sets `JSESSIONID` and a rotated `XSRF-TOKEN`.
+          description: |
+            Signed in. Sets `JSESSIONID` and a rotated `XSRF-TOKEN`; with `rememberMe: true` also
+            sets `remember-me`.
           headers:
             Set-Cookie:
-              $ref: '#/components/headers/SetSessionAndXsrfCookies'
+              $ref: '#/components/headers/SetLoginCookies'
           content:
             application/json:
               schema:
@@ -302,16 +402,22 @@ paths:
         Invalidates the session, expires the `JSESSIONID` cookie and sets a fresh `XSRF-TOKEN`.
         Idempotent: returns 204 even if there was no active session (still requires a valid
         CSRF token).
+
+        Also ends THIS device's remember-me login: its database entry is deleted (when the
+        `remember-me` cookie matches it, or the session was signed in with it) and the
+        `remember-me` cookie is always expired (`Max-Age=0`), even without a session. Remember-me
+        logins on other devices are NOT affected (use `POST /api/account/logout-other-sessions`
+        for that). Logout never signs anyone in automatically from the cookie.
       operationId: logout
       tags: [auth]
       security:
         - csrfHeader: []
       responses:
         '204':
-          description: Signed out
+          description: Signed out. Expires `JSESSIONID` and `remember-me`, sets a fresh `XSRF-TOKEN`.
           headers:
             Set-Cookie:
-              $ref: '#/components/headers/SetSessionAndXsrfCookies'
+              $ref: '#/components/headers/SetLogoutCookies'
         '403':
           $ref: '#/components/responses/CsrfInvalid'
 
@@ -419,9 +525,15 @@ paths:
       summary: Change my password
       description: |
         Checks `currentPassword` against the signed-in user's password, then stores `newPassword`
-        (BCrypt). The current session stays signed in: the session id and the `XSRF-TOKEN` do not
-        change and no cookies are set. Other sessions of the same user are not signed out (out of
-        scope, see specs/account-settings.md). After this, login works only with the new password.
+        (BCrypt). After this, login works only with the new password.
+
+        **Changed in 0.6.0:** on success, all OTHER sessions and remember-me logins of this user
+        are ended, exactly like `POST /api/account/logout-other-sessions`. This device stays
+        signed in: the session gets a **new session id** (`Set-Cookie: JSESSIONID=<new id>` on the
+        204), keeps its sign-in time (the 12-hour maximum is not reset) and keeps this device's
+        `remember-me` cookie and login. The `XSRF-TOKEN` does NOT change. Wait for this response
+        before sending other requests (a request still carrying the old session id would get 401,
+        or be signed in again from `remember-me`). A failed change (400/429) changes nothing.
 
         `newPassword` follows the register password rules. It may equal the current password.
 
@@ -445,7 +557,11 @@ paths:
               newPassword: battery-staple-42
       responses:
         '204':
-          description: Password changed. No body, no cookies.
+          description: |
+            Password changed and other sessions ended. No body. Sets a new `JSESSIONID` only.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRenewedSessionCookie'
         '400':
           description: |
             Either `VALIDATION_FAILED` or `WRONG_PASSWORD` (see `code`). Both carry `errors`.
@@ -506,7 +622,8 @@ paths:
         cookie is set on this 204 response**, so the client can call login/register next without
         first calling `GET /api/auth/me` (which would answer 401 and not re-send a cookie the
         client already has). Other sessions of the deleted account get 401 `UNAUTHENTICATED` on
-        their next request (see "Authentication").
+        their next request (see "Authentication"). All remember-me logins of the account are
+        deleted with it, and this response also expires the `remember-me` cookie (`Max-Age=0`).
 
         POST (not `DELETE /api/account`) because the request needs a body, and request bodies on
         DELETE are not reliably supported by proxies and HTTP clients.
@@ -529,10 +646,12 @@ paths:
               password: correct-horse
       responses:
         '204':
-          description: Account and tasks deleted, signed out. Expires `JSESSIONID` and sets a fresh `XSRF-TOKEN`.
+          description: |
+            Account and tasks deleted, signed out. Expires `JSESSIONID` and `remember-me`, sets a
+            fresh `XSRF-TOKEN`.
           headers:
             Set-Cookie:
-              $ref: '#/components/headers/SetSessionAndXsrfCookies'
+              $ref: '#/components/headers/SetLogoutCookies'
         '400':
           description: |
             Either `VALIDATION_FAILED` or `WRONG_PASSWORD` (see `code`). Both carry `errors`.
@@ -593,6 +712,48 @@ paths:
                 detail: Too many attempts. Please try again later.
                 instance: /api/account/delete
                 code: RATE_LIMITED
+
+  /api/account/logout-other-sessions:
+    post:
+      summary: Log out all my other sessions and devices
+      description: |
+        Ends every session and remember-me login of the signed-in user EXCEPT the caller's own:
+        - Other sessions (other browsers/devices, with or without "Remember me"): their next
+          request is treated as anonymous, so protected endpoints answer **401
+          `UNAUTHENTICATED`** (the normal "session expired" flow).
+        - Other devices' remember-me logins are deleted, so their `remember-me` cookie is rejected
+          (401, cookie expired) and reopening their browser does not sign them back in.
+        - This device stays signed in. Its session gets a **new session id**
+          (`Set-Cookie: JSESSIONID=<new id>`, so a copied old session id stops working too) and
+          keeps its sign-in time (the 12-hour maximum is not reset). This device's remember-me
+          login and `remember-me` cookie are kept unchanged. The `XSRF-TOKEN` does NOT change.
+          Other tabs of the same browser share the cookies and stay signed in.
+
+        Wait for this response before sending other requests from this tab (a request still
+        carrying the old session id would get 401, or be signed in again from `remember-me`).
+
+        No request body (a body, if sent, is ignored). Idempotent: calling it again, or with no
+        other sessions, returns 204. Not rate limited. The same thing happens automatically after
+        a successful `PUT /api/account/password`.
+
+        POST (not DELETE) because it is an action, not a resource deletion.
+      operationId: logoutOtherSessions
+      tags: [account]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - rememberMeCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Other sessions ended. No body. Sets a new `JSESSIONID` only.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetRenewedSessionCookie'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
 
   /api/tasks:
     get:
@@ -823,7 +984,30 @@ components:
       type: apiKey
       in: cookie
       name: JSESSIONID
-      description: HttpOnly session cookie set by register/login. 30-minute idle timeout.
+      description: |
+        HttpOnly session cookie set by register/login (and by an automatic remember-me sign-in).
+        30-minute idle timeout; 12-hour maximum for normal sessions (see "Session lifetime").
+    rememberMeCookie:
+      type: apiKey
+      in: cookie
+      name: remember-me
+      description: |
+        Long-lived remember-me credential. Never read, parsed or sent manually by clients; the
+        browser sends it automatically. When there is no valid session it signs the user in on
+        any `/api/**` request (see "Remember me").
+
+        `remember-me=<opaque value>; Path=/api; Max-Age=<seconds left>; HttpOnly; SameSite=Lax`
+        plus `Secure` when the server runs with `REQUIRE_HTTPS=true` (production default; without
+        it, Secure follows whether the request arrived over HTTPS). No `Domain` (host-only).
+        - Value: opaque, contains a random per-device series id and a random secret (256 bits
+          each). The server stores only SHA-256 hashes of both.
+        - Lifetime: 30 days (`REMEMBER_ME_LENGTH`) from the login with `rememberMe: true`. Every
+          rotation re-sends the cookie with `Max-Age` = the seconds LEFT until that original
+          expiry, so the lifetime is never extended.
+        - Set by: `POST /api/auth/login` with `rememberMe: true`; rotated on every automatic
+          sign-in.
+        - Expired (`Max-Age=0`) by: logout, account delete, login with `rememberMe: false` or
+          register when the request carried one, and any response that rejects it.
     csrfHeader:
       type: apiKey
       in: header
@@ -846,14 +1030,45 @@ components:
         example: 12
 
   headers:
-    SetXsrfCookie:
-      description: '`XSRF-TOKEN=<token>; Path=/; SameSite=Lax` (not HttpOnly)'
-      schema:
-        type: string
     SetSessionAndXsrfCookies:
       description: |
         `JSESSIONID=<id>; Path=/; HttpOnly; SameSite=Lax` (expired with Max-Age=0 on logout) and
+        `XSRF-TOKEN=<new token>; Path=/; SameSite=Lax`.
+        Register also expires a `remember-me` cookie the request carried
+        (`remember-me=; Path=/api; Max-Age=0`).
+      schema:
+        type: string
+    SetLoginCookies:
+      description: |
+        `JSESSIONID=<new id>; Path=/; HttpOnly; SameSite=Lax`,
+        `XSRF-TOKEN=<new token>; Path=/; SameSite=Lax`, and
+        - with `rememberMe: true`: `remember-me=<value>; Path=/api; Max-Age=2592000; HttpOnly; SameSite=Lax`
+          (+ `Secure`, see the `rememberMeCookie` scheme)
+        - with `rememberMe: false` and a `remember-me` cookie in the request:
+          `remember-me=; Path=/api; Max-Age=0`
+      schema:
+        type: string
+    SetLogoutCookies:
+      description: |
+        `JSESSIONID=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`,
+        `remember-me=; Path=/api; Max-Age=0; HttpOnly; SameSite=Lax` and
         `XSRF-TOKEN=<new token>; Path=/; SameSite=Lax`
+      schema:
+        type: string
+    SetXsrfOrRememberMeSignInCookies:
+      description: |
+        Normally only `XSRF-TOKEN=<token>; Path=/; SameSite=Lax`, when the request did not carry
+        one. After an automatic remember-me sign-in (on ANY endpoint, not only this one):
+        `JSESSIONID=<new id>; Path=/; HttpOnly; SameSite=Lax`,
+        `XSRF-TOKEN=<new token>; Path=/; SameSite=Lax` (exactly one) and
+        `remember-me=<rotated value>; Path=/api; Max-Age=<seconds left>; HttpOnly; SameSite=Lax`.
+        A rejected `remember-me` cookie is expired: `remember-me=; Path=/api; Max-Age=0`.
+      schema:
+        type: string
+    SetRenewedSessionCookie:
+      description: |
+        `JSESSIONID=<new id>; Path=/; HttpOnly; SameSite=Lax`. Same session (same user, same
+        sign-in time), new id. `XSRF-TOKEN` and `remember-me` are not changed.
       schema:
         type: string
     RetryAfter:
@@ -901,7 +1116,10 @@ components:
             instance: /api/account/password
             code: RATE_LIMITED
     Unauthenticated:
-      description: No session, session expired, or the session's account was deleted
+      description: |
+        Not signed in: no session, session expired (30-minute idle or maximum length), session
+        ended by "log out other sessions" or a password change on another device, or the
+        session's account was deleted; and no valid `remember-me` cookie. Always the same body.
       content:
         application/problem+json:
           schema:
@@ -1094,6 +1312,14 @@ components:
           format: password
           description: Must be non-blank. Length policy is NOT checked at login.
           example: correct-horse
+        rememberMe:
+          type: boolean
+          default: false
+          description: |
+            Optional. `true` keeps this device signed in for 30 days (see "Remember me").
+            Absent or `null` means `false`. A non-boolean value (e.g. `"maybe"`) returns 400
+            `MALFORMED_REQUEST` with no `errors` array.
+          example: true
 
     ChangeDisplayNameRequest:
       type: object
