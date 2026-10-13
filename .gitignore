@@ -1,0 +1,11 @@
+# System files
+.DS_Store
+Thumbs.db
+
+# Tester reports and screenshots (local evidence, regenerated each run)
+/test-results/
+
+# Local environment and personal Claude Code settings
+.env
+.env.*
+.claude/settings.local.json
