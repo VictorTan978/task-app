@@ -1,14 +1,32 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.6.0
+  version: 0.7.0
   description: |
+    ## Changes in 0.7.0 (email verification and password reset, specs/email-auth.md)
+    - `User` gains `emailVerified` (boolean, always present) in every response that returns a
+      `User`: `GET /api/auth/me`, `POST /api/auth/register`, `POST /api/auth/login`,
+      `PUT /api/account/display-name`. Added, nothing renamed.
+    - New public endpoints: `POST /api/auth/verify-email`, `POST /api/auth/forgot-password`,
+      `POST /api/auth/check-reset-token`, `POST /api/auth/reset-password`.
+    - New signed-in endpoint: `POST /api/account/resend-verification`.
+    - New error codes: `TOKEN_INVALID` (400), `ALREADY_VERIFIED` (409).
+    - Register now also sends a confirmation email (in the background; the 201 response is
+      unchanged and never fails because of email).
+
     ## Authentication
     Session-cookie auth (Spring Security). A successful `register` or `login` creates a server-side
     session and sets the `JSESSIONID` cookie (HttpOnly, Path=/, SameSite=Lax). Sessions expire after
     30 minutes of inactivity. All `/api/**` endpoints require a session except
-    `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login` and `GET /api/auth/me`
+    `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`,
+    `POST /api/auth/verify-email`, `POST /api/auth/forgot-password`,
+    `POST /api/auth/check-reset-token`, `POST /api/auth/reset-password` and `GET /api/auth/me`
     (which answers 401 when not signed in rather than being blocked).
+
+    **Public endpoints never answer 401**, whatever cookies the request carries: a stale,
+    expired or ended session, or a rejected `remember-me` cookie, simply makes the request
+    anonymous (a rejected `remember-me` cookie is expired on the response) and the endpoint
+    answers normally. They still require the CSRF header (403 `CSRF_INVALID` otherwise).
     Unauthenticated calls to protected endpoints return **401** `application/problem+json`.
     There are never redirects to an HTML login page.
 
@@ -53,8 +71,9 @@ info:
     `remember-me` cookie, the server signs the user in **within that same request** and then
     handles the request normally. This applies to **every** `/api/**` endpoint and method
     (`GET /api/auth/me`, `GET /api/tasks`, `POST /api/tasks`, ...), except
-    `POST /api/auth/login`, `POST /api/auth/register` and `POST /api/auth/logout`, which handle the
-    cookie themselves. That response carries, via `Set-Cookie`:
+    `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/logout` and
+    `POST /api/auth/reset-password`, which handle the cookie themselves. That response carries,
+    via `Set-Cookie`:
     - a new `JSESSIONID` (a new session, exactly like a password login),
     - a rotated `XSRF-TOKEN` (exactly one `XSRF-TOKEN` Set-Cookie per response),
     - a rotated `remember-me` cookie (new value, Max-Age = time left until the ORIGINAL 30-day
@@ -82,18 +101,51 @@ info:
     **Ending a remember-me login.** A device's remember-me login ends on: `POST /api/auth/logout`
     on that device; a new `POST /api/auth/login` or `POST /api/auth/register` on that device
     (which replaces it); expiry after 30 days; `POST /api/account/logout-other-sessions` or
-    `PUT /api/account/password` on ANOTHER device; account deletion; stolen-cookie detection.
+    `PUT /api/account/password` on ANOTHER device; account deletion; stolen-cookie detection;
+    a password reset (`POST /api/auth/reset-password`, ends ALL of the account's remember-me
+    logins on every device, including this one).
+
+    ## Email verification and password reset
+    The server sends two kinds of email, each with a single-use link to the frontend:
+    - "Confirm your email for Task App": `<APP_BASE_URL>/verify-email?token=<token>`, valid
+      24 hours. Sent after `POST /api/auth/register` and `POST /api/account/resend-verification`.
+    - "Reset your Task App password": `<APP_BASE_URL>/reset-password?token=<token>`, valid
+      1 hour. Sent after `POST /api/auth/forgot-password` for a registered email.
+
+    `<token>` is opaque to clients: read it from the `token` query parameter and send it back
+    unchanged in the JSON body. Today it is 43 URL-safe characters (256 random bits), but clients
+    must not validate its format. Tokens never appear in any API response or URL the API serves,
+    and every endpoint takes them in the request BODY (never the query string), so they do not
+    end up in access logs.
+
+    A token is invalid when it is unknown, malformed, missing, expired, already used, issued for
+    the other purpose (a confirmation token sent to the reset endpoints or vice versa), or
+    replaced: requesting a new email of the same purpose makes all older unused links of that
+    purpose for that account stop working. **Every one of these cases gives the same response:
+    400 `TOKEN_INVALID`**, detail "This link is invalid or has expired." The reason is only
+    written to the server's security log.
+
+    Emails are sent in the background, after the response. A mail server failure never changes
+    any response (it is only logged), so the user can retry with "Resend email" or a new
+    forgot-password request.
+
+    Accounts created before 0.7.0 have `emailVerified: false` until they confirm. An unconfirmed
+    account works exactly like a confirmed one (no endpoint checks `emailVerified`).
 
     ## CSRF
-    Every state-changing request (POST/PUT/PATCH/DELETE), **including register, login and logout**,
-    must send header `X-XSRF-TOKEN` with the value of the `XSRF-TOKEN` cookie.
+    Every state-changing request (POST/PUT/PATCH/DELETE), **including register, login, logout and
+    the public email endpoints (verify-email, forgot-password, check-reset-token,
+    reset-password)**, must send header `X-XSRF-TOKEN` with the value of the `XSRF-TOKEN` cookie.
+    On a fresh browser (e.g. a link opened from an email), call `GET /api/auth/me` first to get
+    the cookie (a 401 there is fine; it still sets `XSRF-TOKEN`).
     - `XSRF-TOKEN` cookie: NOT HttpOnly (JS-readable), Path=/, SameSite=Lax.
     - The server sets this cookie on any `/api/**` response (including 401 and 4xx) whenever the
       request did not carry one, and always on register/login/logout (rotation). An existing valid
       cookie is not re-sent on every response. The app should call `GET /api/auth/me` on startup to
       obtain it.
     - The token **rotates** on login, register, logout, a successful account delete
-      (`POST /api/account/delete`) and an automatic remember-me sign-in (any endpoint, see
+      (`POST /api/account/delete`), a successful password reset
+      (`POST /api/auth/reset-password`) and an automatic remember-me sign-in (any endpoint, see
       "Remember me"); the new cookie is set on that same response, so the next request just reads
       the cookie again (Angular HttpClient does this automatically). Changing the display name or
       the password, and `POST /api/account/logout-other-sessions`, do NOT rotate it (they change
@@ -139,8 +191,32 @@ info:
     `POST /api/account/logout-other-sessions` is NOT rate limited (it needs a signed-in session
     and a CSRF token, checks no password and is idempotent).
 
+    Email endpoints (new in 0.7.0). Same 429 response as above. Defaults:
+    - Forgot password, per client IP: 10 requests per 1 hour (429). Counted on every request
+      that passes the CSRF check, including ones that end in 400.
+      (`RATE_LIMIT_FORGOT_PASSWORD_PER_IP_PER_HOUR`)
+    - Forgot password, per account: at most 3 reset emails per 1 hour per account. **Silent**:
+      over this limit the response is still 202 (identical to every other well-formed request)
+      and no email is sent. Counted per account, so letter-case or accent variants of the same
+      address share one counter. (`RATE_LIMIT_RESET_EMAILS_PER_ACCOUNT_PER_HOUR`)
+    - Resend verification, per signed-in user: 3 requests per 1 hour (429). Counted only when
+      an email is actually queued (not on 401 / 409). The email sent by register does not count.
+      (`RATE_LIMIT_RESEND_VERIFICATION_PER_USER_PER_HOUR`)
+    - Verify email, per client IP: 30 requests per 1 hour (429).
+      (`RATE_LIMIT_VERIFY_EMAIL_PER_IP_PER_HOUR`)
+    - Check reset token, per client IP: 30 requests per 1 hour (429).
+      (`RATE_LIMIT_CHECK_RESET_TOKEN_PER_IP_PER_HOUR`)
+    - Reset password, per client IP: 20 requests per 1 hour (429).
+      (`RATE_LIMIT_RESET_PASSWORD_PER_IP_PER_HOUR`)
+    The per-IP counters of the email endpoints are counted on every request that passes the
+    CSRF check, including ones that end in 400.
+
     Precedence (auth endpoints): 403 `CSRF_INVALID` > 429 (per-IP) > 400 `VALIDATION_FAILED` >
     429 (per-email) > 401 / 409.
+
+    Precedence (public email endpoints): 403 `CSRF_INVALID` > 429 (per-IP) >
+    400 `MALFORMED_REQUEST` > 400 `TOKEN_INVALID` > 400 `VALIDATION_FAILED` > success.
+    Never 401.
 
     Precedence (account endpoints): 403 `CSRF_INVALID` > 401 `UNAUTHENTICATED` >
     400 `VALIDATION_FAILED` / `MALFORMED_REQUEST` > 429 (per-user password checks) >
@@ -201,6 +277,7 @@ paths:
                 id: 1
                 email: bob@example.com
                 displayName: Bob
+                emailVerified: true
         '401':
           $ref: '#/components/responses/Unauthenticated'
 
@@ -223,6 +300,10 @@ paths:
         If the request carries a `remember-me` cookie (e.g. of another account on this browser), that
         remember-me login is ended and the cookie expired on the 201 response, so the browser
         can't later sign back in as the previous account.
+
+        **New in 0.7.0:** the new account has `emailVerified: false`, and a confirmation email is
+        sent to it in the background (see "Email verification and password reset"). The response
+        does not wait for the email and is the same whether or not sending succeeds.
       operationId: register
       tags: [auth]
       security:
@@ -251,6 +332,7 @@ paths:
                 id: 1
                 email: bob@example.com
                 displayName: Bob
+                emailVerified: false
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '403':
@@ -375,6 +457,7 @@ paths:
                 id: 1
                 email: bob@example.com
                 displayName: Bob
+                emailVerified: true
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '401':
@@ -421,6 +504,307 @@ paths:
         '403':
           $ref: '#/components/responses/CsrfInvalid'
 
+  /api/auth/verify-email:
+    post:
+      summary: Confirm an email address with a link token
+      description: |
+        Consumes a confirmation token (from the link `<APP_BASE_URL>/verify-email?token=...`)
+        and marks its account's email as confirmed. Public: works signed in or not, in any
+        browser. The token may belong to a different account than the one signed in on this
+        browser; the session (if any) is never changed by this endpoint, and no cookie is set
+        (apart from the usual `XSRF-TOKEN` / automatic remember-me sign-in cookies, see
+        "Remember me"). If signed in, refetch `GET /api/auth/me` afterwards to get the updated
+        `emailVerified`.
+
+        The token is single-use: a second call with the same token is 400 `TOKEN_INVALID`
+        (even though the email stays confirmed).
+
+        Order: 403 `CSRF_INVALID` > 429 (per-IP) > 400 `MALFORMED_REQUEST` (body is not JSON) >
+        400 `TOKEN_INVALID` > 204. Never 401.
+      operationId: verifyEmail
+      tags: [auth]
+      security:
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+            example:
+              token: 3q2-7wWQkR0Yf1m4m0cR9pXzA8b6s1oVqWw2Jt5uLkE
+      responses:
+        '204':
+          description: Email confirmed. No body.
+        '400':
+          $ref: '#/components/responses/TokenInvalid'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/auth/forgot-password:
+    post:
+      summary: Request a password reset email
+      description: |
+        If the email belongs to an account (matched like login: trimmed, ignoring letter case
+        and accents), a reset email is sent to the account's stored address with a link valid
+        for 1 hour, and all older unused reset links of that account stop working.
+
+        **The response never reveals whether the account exists.** Every well-formed email gets
+        the identical 202 with no body: registered or not, over the silent per-account limit or
+        not, mail server up or down. The request does no database work and does not wait for the
+        email: the lookup, token creation and sending all happen in the background after the
+        response, so the response time is the same in every case.
+
+        Works signed in or not; the session (if any) is not changed.
+
+        Order: 403 `CSRF_INVALID` > 429 (per-IP limit only) > 400 `MALFORMED_REQUEST` /
+        `VALIDATION_FAILED` > 202. Never 401.
+      operationId: forgotPassword
+      tags: [auth]
+      security:
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+            example:
+              email: Bob@Example.com
+      responses:
+        '202':
+          description: |
+            Accepted. No body. Always the same for a well-formed email (the client shows "If an
+            account exists for that email, we've sent a link to reset your password.").
+        '400':
+          description: |
+            Validation failed (`code: VALIDATION_FAILED`). Possible entries:
+            - `email` / `REQUIRED` / "Email is required"
+            - `email` / `INVALID_EMAIL` / "Enter a valid email address"
+            - `email` / `TOO_LONG` / "Email must be at most 254 characters"
+
+            A body that is not valid JSON returns 400 `MALFORMED_REQUEST` with no `errors`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/auth/forgot-password
+                code: VALIDATION_FAILED
+                errors:
+                  - field: email
+                    code: INVALID_EMAIL
+                    message: Enter a valid email address
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '429':
+          description: |
+            Too many forgot-password requests from this IP (default 10 per hour, see "Rate
+            limiting"). The per-account email limit never gives 429.
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Too Many Requests
+                status: 429
+                detail: Too many attempts. Please try again later.
+                instance: /api/auth/forgot-password
+                code: RATE_LIMITED
+
+  /api/auth/check-reset-token:
+    post:
+      summary: Check a password reset token without using it
+      description: |
+        For the reset page: call it when `/reset-password?token=...` opens, to show either the
+        new-password form (204) or "This link is invalid or has expired" (400). It does NOT
+        consume the token and changes nothing. A 204 is not a guarantee for later: the token can
+        still expire or be replaced before `POST /api/auth/reset-password`, which checks again.
+
+        Only reset tokens pass; a confirmation (verify-email) token gives 400 `TOKEN_INVALID`.
+
+        Order: 403 `CSRF_INVALID` > 429 (per-IP) > 400 `MALFORMED_REQUEST` >
+        400 `TOKEN_INVALID` > 204. Never 401. POST (not GET) so the token stays out of URLs and
+        access logs.
+      operationId: checkResetToken
+      tags: [auth]
+      security:
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+            example:
+              token: Zr0b1y6p6eS4lJx3n9QhVt2Kc7aWm5dUo8fXg1iHsNk
+      responses:
+        '204':
+          description: The token is a valid, unused, unexpired reset token. No body.
+        '400':
+          $ref: '#/components/responses/TokenInvalid'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/auth/reset-password:
+    post:
+      summary: Set a new password with a reset token
+      description: |
+        Consumes the reset token and sets the account's password to `newPassword` (BCrypt). On
+        success, in one transaction:
+        - the password is changed; login works only with the new one;
+        - **every** session and remember-me login of the account ends, on every device, exactly
+          like the stolen-cookie response (`sessions_valid_after` = now, all remember-me logins
+          deleted): their next request is anonymous (401 on protected endpoints);
+        - the email counts as confirmed (`emailVerified: true`), since the user proved they read
+          it;
+        - the account's failed-login counter is reset, so a user locked out by wrong passwords
+          (429 on login) can sign in with the new password right away.
+
+        **This browser is always signed out**, whichever account (if any) it was signed in as:
+        the 204 expires `JSESSIONID` and `remember-me` and sets a fresh `XSRF-TOKEN`, exactly
+        like `POST /api/auth/logout`. There is no automatic sign-in: the user signs in again on
+        `/login`.
+
+        `newPassword` follows the register password rules. It may equal the old password.
+
+        Order: 403 `CSRF_INVALID` > 429 (per-IP) > 400 `MALFORMED_REQUEST` >
+        400 `TOKEN_INVALID` > 400 `VALIDATION_FAILED` (`newPassword`) > 204. So an invalid
+        link always shows the "invalid or expired" page, even with a bad password. A failed
+        request (any 4xx) changes nothing and does not use up the token. Never 401.
+      operationId: resetPassword
+      tags: [auth]
+      security:
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+            example:
+              token: Zr0b1y6p6eS4lJx3n9QhVt2Kc7aWm5dUo8fXg1iHsNk
+              newPassword: battery-staple-42
+      responses:
+        '204':
+          description: |
+            Password reset, all sessions ended, this browser signed out. No body. Expires
+            `JSESSIONID` and `remember-me`, sets a fresh `XSRF-TOKEN`.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetLogoutCookies'
+        '400':
+          description: |
+            Either `TOKEN_INVALID` (no `errors`, checked first) or `VALIDATION_FAILED`
+            (`errors`, only when the token is valid). `VALIDATION_FAILED` entries:
+            - `newPassword` / `REQUIRED` / "New password is required"
+            - `newPassword` / `PASSWORD_LENGTH` / "Password must be 8 to 72 characters"
+
+            A body that is not valid JSON returns 400 `MALFORMED_REQUEST` with no `errors`.
+            Nothing is changed and the session is kept.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                tokenInvalid:
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: This link is invalid or has expired.
+                    instance: /api/auth/reset-password
+                    code: TOKEN_INVALID
+                validation:
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: Validation failed
+                    instance: /api/auth/reset-password
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: newPassword
+                        code: PASSWORD_LENGTH
+                        message: Password must be 8 to 72 characters
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/account/resend-verification:
+    post:
+      summary: Send me a new confirmation email
+      description: |
+        Sends a new confirmation email to the signed-in user's address (link valid 24 hours) and
+        makes all older unused confirmation links of the account stop working. The email is sent
+        in the background: 204 means "queued", and a mail server failure is only logged.
+
+        No request body (a body, if sent, is ignored). Session and cookies are unchanged.
+
+        Already confirmed (e.g. confirmed in another tab): 409 `ALREADY_VERIFIED`, nothing sent,
+        not counted. The client should refetch `GET /api/auth/me` and hide the banner.
+
+        Order: 403 `CSRF_INVALID` > 401 `UNAUTHENTICATED` > 409 `ALREADY_VERIFIED` >
+        429 (per-user, default 3 per hour) > 204.
+      operationId: resendVerification
+      tags: [account]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - rememberMeCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: A new confirmation email is queued. No body.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '409':
+          description: The signed-in user's email is already confirmed. Nothing was sent.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: Your email address is already confirmed.
+                instance: /api/account/resend-verification
+                code: ALREADY_VERIFIED
+        '429':
+          description: |
+            Too many confirmation emails for this user (default 3 per hour). Wait `Retry-After`
+            seconds. No `errors` array.
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Too Many Requests
+                status: 429
+                detail: Too many attempts. Please try again later.
+                instance: /api/account/resend-verification
+                code: RATE_LIMITED
+
   /api/account/display-name:
     put:
       summary: Change my display name
@@ -459,6 +843,7 @@ paths:
                 id: 1
                 email: bob@example.com
                 displayName: Bobby
+                emailVerified: true
         '400':
           description: |
             Validation failed (`code: VALIDATION_FAILED`). Possible entries:
@@ -1118,7 +1503,8 @@ components:
     Unauthenticated:
       description: |
         Not signed in: no session, session expired (30-minute idle or maximum length), session
-        ended by "log out other sessions" or a password change on another device, or the
+        ended by "log out other sessions" or a password change on another device or a password
+        reset by email, or the
         session's account was deleted; and no valid `remember-me` cookie. Always the same body.
       content:
         application/problem+json:
@@ -1131,6 +1517,22 @@ components:
             detail: Authentication required
             instance: /api/auth/me
             code: UNAUTHENTICATED
+    TokenInvalid:
+      description: |
+        The link token is invalid: unknown, malformed, missing or blank, expired, already used,
+        replaced by a newer one, or for the other purpose. One response for every case (the
+        reason is only in the server's security log). No `errors` array. Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Bad Request
+            status: 400
+            detail: This link is invalid or has expired.
+            instance: /api/auth/verify-email
+            code: TOKEN_INVALID
     CsrfInvalid:
       description: Missing or invalid CSRF token
       content:
@@ -1251,7 +1653,7 @@ components:
     User:
       type: object
       description: Never contains the password or its hash.
-      required: [id, email, displayName]
+      required: [id, email, displayName, emailVerified]
       properties:
         id:
           type: integer
@@ -1265,6 +1667,59 @@ components:
         displayName:
           type: string
           example: Bob
+        emailVerified:
+          type: boolean
+          description: |
+            New in 0.7.0, always present. `true` once the user confirmed their email (link from
+            the confirmation email) or reset their password by email. `false` for new accounts
+            and for accounts created before 0.7.0 that have not confirmed yet.
+          example: true
+
+    TokenRequest:
+      type: object
+      description: |
+        Body of `POST /api/auth/verify-email` and `POST /api/auth/check-reset-token`. A missing,
+        null, blank or non-matching `token` gives 400 `TOKEN_INVALID` (never `VALIDATION_FAILED`).
+      properties:
+        token:
+          type: string
+          description: The `token` query parameter of the emailed link, unchanged. Opaque.
+          example: 3q2-7wWQkR0Yf1m4m0cR9pXzA8b6s1oVqWw2Jt5uLkE
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: |
+            Trimmed and lowercased; must be non-blank (`REQUIRED`), a valid email
+            (`INVALID_EMAIL`) and at most 254 characters (`TOO_LONG`), same rules as register.
+            Matched against accounts ignoring letter case and accents.
+          example: bob@example.com
+
+    ResetPasswordRequest:
+      type: object
+      required: [newPassword]
+      description: |
+        `token` is checked first: missing, null, blank or invalid gives 400 `TOKEN_INVALID`.
+        Only with a valid token is `newPassword` validated.
+      properties:
+        token:
+          type: string
+          description: The `token` query parameter of the emailed reset link, unchanged. Opaque.
+          example: Zr0b1y6p6eS4lJx3n9QhVt2Kc7aWm5dUo8fXg1iHsNk
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: |
+            Same rules as `RegisterRequest.password`: non-blank (`REQUIRED`), 8-72 characters
+            AND at most 72 UTF-8 bytes (`PASSWORD_LENGTH`), not trimmed.
+          example: battery-staple-42
 
     RegisterRequest:
       type: object
@@ -1491,6 +1946,7 @@ components:
             - INVALID_EMAIL: not a valid email address
             - TOO_LONG: displayName > 50, email > 254, title > 200 or description > 2000 characters
             - PASSWORD_LENGTH: password / newPassword not 8-72 characters, or over 72 UTF-8 bytes
+              (`newPassword` on `PUT /api/account/password` and `POST /api/auth/reset-password`)
             - EMAIL_TAKEN: (409 only, field `email`) email already registered, ignoring letter
               case and accents
             - DISPLAY_NAME_TAKEN: (409 only, field `displayName`) display name already used by
@@ -1537,11 +1993,16 @@ components:
             - NOT_FOUND
             - RATE_LIMITED
             - INTERNAL_ERROR
+            - TOKEN_INVALID
+            - ALREADY_VERIFIED
           description: |
             Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email
             is taken (even when the display name is taken too), otherwise `DISPLAY_NAME_TAKEN`.
             `WRONG_PASSWORD` (400) is only returned by `/api/account/*`: the password given to
             confirm the action is wrong. It is never 401.
+            `TOKEN_INVALID` (400, new in 0.7.0): an emailed link token is invalid for any reason
+            (verify-email, check-reset-token, reset-password). `ALREADY_VERIFIED` (409, new in
+            0.7.0): only from `POST /api/account/resend-verification`.
         errors:
           type: array
           description: |
