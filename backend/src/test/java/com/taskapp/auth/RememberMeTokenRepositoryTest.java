@@ -127,6 +127,18 @@ class RememberMeTokenRepositoryTest {
     }
 
     @Test
+    void deletesWithNothingToDeleteReturnZeroAndLockOwnerFindsOnlyExistingUsers() {
+        insert(1, alice, NOW.plus(Duration.ofDays(1)));
+
+        assertThat(tokens.deleteExpiredForUser(bob, NOW)).isZero();
+        assertThat(tokens.deleteAllForUser(bob)).isZero();
+        assertThat(tokens.deleteAllForUserExcept(alice, bytes(1))).isZero();
+        assertThat(count(alice)).isEqualTo(1);
+        assertThat(tokens.lockOwner(bob)).isTrue();
+        assertThat(tokens.lockOwner(-1)).isFalse();
+    }
+
+    @Test
     void createDeletesOnlyThatUsersExpiredLogins() {
         insert(1, bob, NOW);
         insert(2, bob, NOW.plusSeconds(1));

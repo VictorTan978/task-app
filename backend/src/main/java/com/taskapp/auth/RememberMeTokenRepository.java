@@ -4,6 +4,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -59,23 +63,57 @@ public class RememberMeTokenRepository {
         return jdbc.sql("DELETE FROM remember_me_tokens WHERE series_hash = ?").param(seriesHash).update();
     }
 
+    /**
+     * Locks the user's {@code users} row ({@code SELECT ... FOR UPDATE}); false if the user does not exist. Every
+     * transaction that writes several of a user's logins takes this lock FIRST, so they run one after another per
+     * user and always lock in the same order (users row, then token rows by primary key).
+     */
+    public boolean lockOwner(long userId) {
+        return jdbc.sql("SELECT id FROM users WHERE id = ? FOR UPDATE").param(userId).query(Long.class).optional()
+                .isPresent();
+    }
+
+    /*
+     * The multi-row deletes below never run a locking DELETE over ix_remember_me_tokens_user: under REPEATABLE READ
+     * that takes gap locks, and two transactions holding the same gap then deadlock on their INSERTs (bug B1). They
+     * read the series with a plain, non-locking SELECT and delete by primary key, and only if there is something to
+     * delete. Callers lock the owner first (lockOwner) and run READ COMMITTED, so the SELECT sees every committed
+     * login and new logins of the user wait for the owner lock.
+     */
+
     public int deleteExpiredForUser(long userId, Instant now) {
-        return jdbc.sql("DELETE FROM remember_me_tokens WHERE user_id = ? AND expires_at <= ?")
+        return deleteBySeriesHashes(jdbc.sql(
+                "SELECT series_hash FROM remember_me_tokens WHERE user_id = ? AND expires_at <= ? ORDER BY series_hash")
                 .params(userId, timestamp(now))
-                .update();
+                .query(byte[].class)
+                .list());
     }
 
     public int deleteAllForUser(long userId) {
-        return jdbc.sql("DELETE FROM remember_me_tokens WHERE user_id = ?").param(userId).update();
+        return deleteAllForUserExcept(userId, null);
     }
 
     /** Every login of the user except {@code keepSeriesHash} (null = all of them). */
     public int deleteAllForUserExcept(long userId, byte[] keepSeriesHash) {
-        if (keepSeriesHash == null) {
-            return deleteAllForUser(userId);
+        List<byte[]> series = jdbc.sql(
+                "SELECT series_hash FROM remember_me_tokens WHERE user_id = ? ORDER BY series_hash")
+                .param(userId)
+                .query(byte[].class)
+                .list()
+                .stream()
+                .filter(hash -> keepSeriesHash == null || !Arrays.equals(hash, keepSeriesHash))
+                .toList();
+        return deleteBySeriesHashes(series);
+    }
+
+    /** Primary-key delete in key order; no statement at all for an empty list. */
+    private int deleteBySeriesHashes(List<byte[]> seriesHashes) {
+        if (seriesHashes.isEmpty()) {
+            return 0;
         }
-        return jdbc.sql("DELETE FROM remember_me_tokens WHERE user_id = ? AND series_hash <> ?")
-                .params(userId, keepSeriesHash)
+        String placeholders = String.join(", ", Collections.nCopies(seriesHashes.size(), "?"));
+        return jdbc.sql("DELETE FROM remember_me_tokens WHERE series_hash IN (" + placeholders + ")")
+                .params(new ArrayList<Object>(seriesHashes))
                 .update();
     }
 

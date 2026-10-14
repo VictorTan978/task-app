@@ -3,6 +3,7 @@ package com.taskapp.auth;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.taskapp.auth.dto.ChangeDisplayNameRequest;
@@ -64,7 +65,7 @@ public class AccountService {
      * Returns the user (for the security log). The new password may equal the current one. On success all OTHER
      * sessions and remember-me logins of the user end, as with {@link #logoutOtherSessions}.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public UserResponse changePassword(long userId, ChangePasswordRequest request, SessionRenewal renewal) {
         User user = loadForRenewal(userId, renewal);
         verifyPassword(user, request.currentPassword(), WrongPasswordException.Action.CHANGE_PASSWORD);
@@ -78,13 +79,17 @@ public class AccountService {
      * {@code sessions_valid_after} to {@code renewal.now()} and deletes the other devices' remember-me logins.
      * Returns the user (for the security log). Idempotent.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public UserResponse logoutOtherSessions(long userId, SessionRenewal renewal) {
         User user = loadForRenewal(userId, renewal);
         endOtherSessions(user, renewal);
         return UserResponse.from(user);
     }
 
+    /**
+     * READ COMMITTED (callers) and the users row UPDATE before the token delete: the lock order of every multi-row
+     * remember-me write, so this cannot deadlock with parallel logins (bug B1). See RememberMeTokenRepository.
+     */
     private void endOtherSessions(User user, SessionRenewal renewal) {
         user.endSessionsBefore(renewal.now());
         userRepository.saveAndFlush(user);
