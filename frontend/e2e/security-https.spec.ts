@@ -58,7 +58,7 @@ test('AC10: dev over plain HTTP: register, logout, login, CSRF; cookies not Secu
   const noCsrf = await context.request.post('/api/tasks', { data: { title: 'x' } });
   expect(noCsrf.status()).toBe(403);
 
-  await page.getByRole('button', { name: 'Log out' }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page).toHaveURL(/\/login/);
   cookies = await context.cookies();
   expect(cookies.find((c) => c.name === 'JSESSIONID')).toBeFalsy();

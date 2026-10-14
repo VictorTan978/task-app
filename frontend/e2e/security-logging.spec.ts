@@ -47,7 +47,7 @@ test('AC11/AC12: auth flow writes one SECURITY line per event and no secrets', a
   await expect(page).toHaveURL(/\/tasks$/);
   const sessionCookies = (await context.cookies()).filter((c) => ['JSESSIONID', 'XSRF-TOKEN'].includes(c.name));
 
-  await page.getByRole('button', { name: 'Log out' }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page).toHaveURL(/\/login/);
 
   await login(page, email, `Wrong-${RUN}`);
@@ -59,7 +59,7 @@ test('AC11/AC12: auth flow writes one SECURITY line per event and no secrets', a
   await login(page, email, PASSWORD);
   await expect(page).toHaveURL(/\/tasks$/);
   sessionCookies.push(...(await context.cookies()).filter((c) => ['JSESSIONID', 'XSRF-TOKEN'].includes(c.name)));
-  await page.getByRole('button', { name: 'Log out' }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page).toHaveURL(/\/login/);
 
   expect(errors).toEqual([]);

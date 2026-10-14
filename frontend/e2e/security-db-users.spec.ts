@@ -89,7 +89,7 @@ test('AC16: full data path works through the UI with the restricted app user', a
   await page.reload();
   await expect(list.getByRole('listitem')).toHaveCount(1);
   await page.screenshot({ path: `${SHOTS}/ac16-tasks.png`, fullPage: true });
-  await page.getByRole('button', { name: 'Log out' }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page).toHaveURL(/\/login/);
   await page.locator('#login-email').fill(email);
   await page.locator('#login-password').fill(PASSWORD);

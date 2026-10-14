@@ -34,7 +34,7 @@ As a signed-in user, I want to stay signed in on my own device, have sessions en
 - [ ] AC15: The new endpoint returns 401 when not signed in and 403 without a valid CSRF token.
 
 ### States
-- [ ] AC16: While "Log out all other devices" is in progress, its button is disabled and shows a loading indicator. If the server is unreachable, the card shows "Something went wrong, please try again".
+- [ ] AC16: While "Log out all other devices" is in progress, its button is disabled and shows a loading indicator. If the server is unreachable, the confirmation dialog shows "Something went wrong, please try again" and can be retried.
 
 ## Out of scope
 - A list of active sessions or devices (with name, location or last seen) and logging out one chosen device. That needs a session store with device data; it could come later.
@@ -87,4 +87,6 @@ _Filled in by the PM during the build._
 | 2026-10-13 | A remember-me session ends at its token's expiry (caps busy sessions); log out others and password change rotate the session id but not the XSRF token; remember-me cookie `Path=/api`; register expires any remember-me cookie the request carries; log out others is not rate-limited | Backend design, contract 0.6.0 | PM |
 | 2026-10-13 | Contract agreed in round 1 (frontend ACCEPT), `contracts/openapi.yaml` 0.6.0. `POST /api/auth/login` gets optional `rememberMe`; new `POST /api/account/logout-other-sessions` (204/401/403). Remember-me sign-in can happen on any `/api/**` request; no new error codes. Frontend: a page-level busy lock on `/account` while password change or log out others is in flight; no interceptor, initializer or guard change | See contract | PM |
 | 2026-10-14 | Backend build notes: log out others and password change move this session's `validFrom` before the DB update (rolled back if it fails), so other tabs of this browser stay signed in; automatic sign-in issues exactly one XSRF-TOKEN; the token table uses plain JDBC (BINARY(32) key, conditional UPDATE for rotation) | Backend BUILD | PM |
+| 2026-10-14 | AC16 wording: the error shows in the confirmation dialog (where the request is made), not on the card | Tester note; matches the build | PM |
+| 2026-10-14 | Test round 1: AC1–AC16 PASS, but bug B1: parallel remember-me logins can deadlock on `remember_me_tokens` (gap locks from the expired-row DELETE before the INSERT), giving 500. Sent to backend (fix round 1 of 3) | Contract allows only 200/400/401/403/429 on login | PM |
 
