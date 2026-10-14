@@ -1,6 +1,6 @@
 # Feature: Sign in with Google
 
-**Status:** DRAFT 2026-10-15 (waiting for user approval). **Depends on:** `specs/auth.md`, `specs/account-settings.md`, `specs/sessions.md`, `specs/email-auth.md` (all DONE). **Branch:** `feature/google-sign-in`
+**Status:** APPROVED 2026-10-15, in build. **Depends on:** `specs/auth.md`, `specs/account-settings.md`, `specs/sessions.md`, `specs/email-auth.md` (all DONE). **Branch:** `feature/google-sign-in`
 
 ## Why
 Many people would rather not create another password. Signing in with a Google account is faster, and Google has already checked that the email address is theirs.
@@ -96,11 +96,7 @@ As a visitor or user, I want to sign in with my Google account, so that I don't 
 5. Before going public, publish the consent screen (Google may ask for a short review).
 
 ## Open questions
-1. **Linking by email (AC5):** should an existing password account be linked automatically when Google says the email is verified (draft: yes), or should the user first sign in with their password to link it?
-2. **Display name (AC4):** if the Google name is taken, add a number automatically (draft: yes), or show a page to choose a name?
-3. **Deleting an account without a password (AC10):** is typing your email address enough (draft: yes), or should the app send you back to Google to confirm?
-4. **Connect and disconnect on `/account` (AC11–AC15):** include them in this part (draft: yes), or only sign-in with Google for now?
-5. **Remember me (AC7):** should Google sign-in ignore "Remember me" (draft: yes), or should the checkbox also apply to it?
+None. All answered 2026-10-15 (see Decisions log).
 
 ---
 
@@ -109,3 +105,10 @@ _Filled in by the PM during the build._
 
 | Date | Decision | Why | Approved by |
 |---|---|---|---|
+| 2026-10-15 | Spec approved, including: new dependency `spring-boot-starter-oauth2-client`; migration V7 (connected-providers table + `users.password_hash` nullable); the auth/security changes (OAuth2 flow, login-CSRF protection, linking by verified email, accounts without a password); a fake OpenID Connect provider in docker-compose and Testcontainers (dev/test, localhost only). Any other dependency still needs a separate approval | Approval gates | User |
+| 2026-10-15 | An existing password account is linked automatically when Google says the email is verified | Open question 1 | User |
+| 2026-10-15 | A taken Google display name gets a number added automatically | Open question 2 | User |
+| 2026-10-15 | Accounts without a password confirm deletion by typing their email | Open question 3 | User |
+| 2026-10-15 | Connect and disconnect on `/account` are part of A4 | Open question 4 | User |
+| 2026-10-15 | Google sign-in ignores "Remember me" (normal session) | Open question 5 | User |
+
