@@ -1,6 +1,6 @@
 # Feature: Sessions (remember me, maximum session length, log out other devices)
 
-**Status:** APPROVED 2026-10-13, in build. **Depends on:** `specs/auth.md`, `specs/account-settings.md` (both DONE). **Branch:** `feature/sessions`
+**Status:** DONE 2026-10-14. **Depends on:** `specs/auth.md`, `specs/account-settings.md` (both DONE). **Branch:** `feature/sessions`
 
 ## Why
 Today every sign-in is a 30-minute idle session that is gone when the browser closes, so people who use the app daily sign in again and again. Users can't end a session they left signed in on another computer, and a session kept busy never ends at all. A changed password also leaves old sessions on other devices signed in (A1 deferred this to this part).
@@ -11,30 +11,30 @@ As a signed-in user, I want to stay signed in on my own device, have sessions en
 ## Acceptance criteria
 
 ### Remember me
-- [ ] AC1: Given I am on `/login`, there is a "Remember me" checkbox below the password field. It is unchecked by default.
-- [ ] AC2: Given I sign in with "Remember me" checked, when I close the browser (or my 30-minute idle session expires) and open the app again within 30 days, then I am signed in automatically and land on `/tasks`. I don't see the login page or the "session expired" message.
-- [ ] AC3: Given I sign in without "Remember me", when I close the browser and open the app again, then I land on `/login` (today's behaviour is unchanged).
-- [ ] AC4: Given I signed in with "Remember me" more than 30 days ago, when I open the app, then I land on `/login`. The remember-me period is counted from that sign-in and isn't extended by use.
-- [ ] AC5: Given I signed in with "Remember me", when I click "Log out", then I land on `/login`. Reopening the browser does not sign me back in on that device.
-- [ ] AC6: Given someone copies an old remember-me cookie that has already been used (stolen cookie reuse), when it is used, then it is rejected, all of that user's remember-me logins are ended, and a security event is logged.
+- [x] AC1: Given I am on `/login`, there is a "Remember me" checkbox below the password field. It is unchecked by default.
+- [x] AC2: Given I sign in with "Remember me" checked, when I close the browser (or my 30-minute idle session expires) and open the app again within 30 days, then I am signed in automatically and land on `/tasks`. I don't see the login page or the "session expired" message.
+- [x] AC3: Given I sign in without "Remember me", when I close the browser and open the app again, then I land on `/login` (today's behaviour is unchanged).
+- [x] AC4: Given I signed in with "Remember me" more than 30 days ago, when I open the app, then I land on `/login`. The remember-me period is counted from that sign-in and isn't extended by use.
+- [x] AC5: Given I signed in with "Remember me", when I click "Log out", then I land on `/login`. Reopening the browser does not sign me back in on that device.
+- [x] AC6: Given someone copies an old remember-me cookie that has already been used (stolen cookie reuse), when it is used, then it is rejected, all of that user's remember-me logins are ended, and a security event is logged.
 
 ### Maximum session length
-- [ ] AC7: Given I signed in without "Remember me", when 12 hours have passed since I signed in, then my next API call is treated as signed out, even if I was active the whole time. The app shows the existing "Your session expired, please sign in again" flow.
-- [ ] AC8: The 30-minute idle timeout stays as it is. Both limits are settings: idle stays at 30m; the maximum session length defaults to 12h (`SESSION_MAX_LENGTH`); the remember-me length defaults to 30d (`REMEMBER_ME_LENGTH`).
+- [x] AC7: Given I signed in without "Remember me", when 12 hours have passed since I signed in, then my next API call is treated as signed out, even if I was active the whole time. The app shows the existing "Your session expired, please sign in again" flow.
+- [x] AC8: The 30-minute idle timeout stays as it is. Both limits are settings: idle stays at 30m; the maximum session length defaults to 12h (`SESSION_MAX_LENGTH`); the remember-me length defaults to 30d (`REMEMBER_ME_LENGTH`).
 
 ### Log out other devices
-- [ ] AC9: Given I am on `/account`, there is a "Sessions" card with a "Log out all other devices" button and a short explanation.
-- [ ] AC10: Given I am signed in on devices A and B (with or without "Remember me"), when I click "Log out all other devices" on A and confirm, then I see "You've been logged out on all other devices" and I stay signed in on A. On B, the next API call follows the "session expired" flow, and reopening B's browser does not sign it back in.
-- [ ] AC11: Given I change my password on device A (A1, AC7), then all my other sessions and remember-me logins are ended, the same as AC10, and A stays signed in. The session on A gets a new session id.
+- [x] AC9: Given I am on `/account`, there is a "Sessions" card with a "Log out all other devices" button and a short explanation.
+- [x] AC10: Given I am signed in on devices A and B (with or without "Remember me"), when I click "Log out all other devices" on A and confirm, then I see "You've been logged out on all other devices" and I stay signed in on A. On B, the next API call follows the "session expired" flow, and reopening B's browser does not sign it back in.
+- [x] AC11: Given I change my password on device A (A1, AC7), then all my other sessions and remember-me logins are ended, the same as AC10, and A stays signed in. The session on A gets a new session id.
 
 ### Security
-- [ ] AC12: The remember-me cookie is HttpOnly, SameSite=Lax and Secure outside dev. Only a hash of its secret is stored in the database, and each use replaces the token (rotation).
-- [ ] AC13: Deleting the account (A1) also removes all its remember-me logins.
-- [ ] AC14: Security events go to the `security.audit` log: `REMEMBER_ME_LOGIN`, `REMEMBER_ME_REJECTED` (expired, unknown or reused cookie; reuse at WARN), `SESSION_MAX_LENGTH_REACHED`, and `OTHER_SESSIONS_LOGGED_OUT` (with the trigger: the button or a password change). No token or cookie value is ever logged.
-- [ ] AC15: The new endpoint returns 401 when not signed in and 403 without a valid CSRF token.
+- [x] AC12: The remember-me cookie is HttpOnly, SameSite=Lax and Secure outside dev. Only a hash of its secret is stored in the database, and each use replaces the token (rotation).
+- [x] AC13: Deleting the account (A1) also removes all its remember-me logins.
+- [x] AC14: Security events go to the `security.audit` log: `REMEMBER_ME_LOGIN`, `REMEMBER_ME_REJECTED` (expired, unknown or reused cookie; reuse at WARN), `SESSION_MAX_LENGTH_REACHED`, and `OTHER_SESSIONS_LOGGED_OUT` (with the trigger: the button or a password change). No token or cookie value is ever logged.
+- [x] AC15: The new endpoint returns 401 when not signed in and 403 without a valid CSRF token.
 
 ### States
-- [ ] AC16: While "Log out all other devices" is in progress, its button is disabled and shows a loading indicator. If the server is unreachable, the confirmation dialog shows "Something went wrong, please try again" and can be retried.
+- [x] AC16: While "Log out all other devices" is in progress, its button is disabled and shows a loading indicator. If the server is unreachable, the confirmation dialog shows "Something went wrong, please try again" and can be retried.
 
 ## Out of scope
 - A list of active sessions or devices (with name, location or last seen) and logging out one chosen device. That needs a session store with device data; it could come later.
@@ -91,4 +91,5 @@ _Filled in by the PM during the build._
 | 2026-10-14 | Test round 1: AC1–AC16 PASS, but bug B1: parallel remember-me logins can deadlock on `remember_me_tokens` (gap locks from the expired-row DELETE before the INSERT), giving 500. Sent to backend (fix round 1 of 3) | Contract allows only 200/400/401/403/429 on login | PM |
 | 2026-10-14 | B1 fix: (1) multi-row token deletes now SELECT and then delete by primary key, so empty ranges take no gap locks; (2) one lock order everywhere: the `users` row (`SELECT … FOR UPDATE`) first, then tokens by primary key; (3) READ COMMITTED for token and session-ending transactions; (4) a single plain-code retry on lock conflict as a safety net (it never fired in tests). New `RememberMeConcurrencyIntegrationTest`: 9/15 failed before the fix, 15/15 passed (x3) after | Root cause, not just a retry; no schema or dependency change | PM |
 | 2026-10-14 | Production MySQL must keep binlog_format ROW (the 8.4 default), because READ COMMITTED doesn't work with STATEMENT | Backend note | PM |
+| 2026-10-14 | Re-test after the B1 fix: PASS. 8,448 concurrent token-path requests, 0 5xx, 0 deadlocks, 0 retries. AC1–AC16 PASS; backend 336, unit 229, lint, build; full e2e 117 passed plus the gated short-limit (4/4), rate-limit (5/5) and logging (1/1) specs. Closed in 1 fix round | Definition of Done | PM |
 
