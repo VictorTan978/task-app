@@ -10,14 +10,26 @@ public record LoginRequest(
         String email,
 
         @NotBlank(message = "Password is required")
-        String password) {
+        String password,
+
+        /** Optional; absent or null means false. */
+        Boolean rememberMe) {
 
     public LoginRequest {
         email = Normalize.email(email);
     }
 
+    public LoginRequest(String email, String password) {
+        this(email, password, null);
+    }
+
+    /** Whether to create a remember-me login. */
+    public boolean remember() {
+        return Boolean.TRUE.equals(rememberMe);
+    }
+
     @Override
     public String toString() {
-        return "LoginRequest[email=" + email + ", password=****]";
+        return "LoginRequest[email=" + email + ", password=****, rememberMe=" + rememberMe + "]";
     }
 }

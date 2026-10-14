@@ -1,8 +1,12 @@
 package com.taskapp.auth;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Lookups compare with the column collation (utf8mb4_0900_ai_ci, see V4): case- and accent-insensitive,
@@ -20,4 +24,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** Whether a user OTHER than {@code id} has this display name (same collation rules). Must be trimmed. */
     boolean existsByDisplayNameAndIdNot(String displayName, Long id);
+
+    /** Sets {@code sessions_valid_after} without loading the user (stolen-cookie detection). */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update User u set u.sessionsValidAfter = :cutoff where u.id = :id")
+    int endSessionsBefore(@Param("id") long id, @Param("cutoff") Instant cutoff);
 }

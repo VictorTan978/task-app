@@ -51,6 +51,8 @@ server:
       internal-proxies: '${TRUSTED_PROXIES:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|100\.6[4-9]{1}\.\d{1,3}\.\d{1,3}|100\.[7-9]{1}\d{1}\.\d{1,3}\.\d{1,3}|100\.1[0-1]{1}\d{1}\.\d{1,3}\.\d{1,3}|100\.12[0-7]{1}\.\d{1,3}\.\d{1,3}|172\.1[6-9]{1}\.\d{1,3}\.\d{1,3}|172\.2[0-9]{1}\.\d{1,3}\.\d{1,3}|172\.3[0-1]{1}\.\d{1,3}\.\d{1,3}|0:0:0:0:0:0:0:1|::1|fe[89ab]\p{XDigit}:.*|f[cd]\p{XDigit}{2}+:.*}'
   servlet:
     session:
+      # Idle timeout (specs/sessions.md AC8). Env override: SERVER_SERVLET_SESSION_TIMEOUT (e.g. 2m; Tomcat
+      # rounds to whole minutes, minimum 1m). The maximum session length is app.session.max-length below.
       timeout: 30m
       tracking-modes: cookie
       cookie:
@@ -69,6 +71,15 @@ app:
     # Independent of this flag, Spring Security sends Strict-Transport-Security on every HTTPS response
     # (including requests the trusted proxy marks with X-Forwarded-Proto: https).
     require-https: ${REQUIRE_HTTPS:true}
+  # Session lifetime (specs/sessions.md). Durations like 30s, 2m, 12h, 30d.
+  session:
+    # SESSION_MAX_LENGTH: a normal session (login without "remember me", or register) ends this long after its
+    # sign-in, even if it was active the whole time (default 12h).
+    max-length: ${SESSION_MAX_LENGTH:12h}
+  remember-me:
+    # REMEMBER_ME_LENGTH: a "remember me" login (and any session it signs in) lasts this long from the login with
+    # rememberMe: true; never extended by use (default 30d).
+    length: ${REMEMBER_ME_LENGTH:30d}
   # Swagger UI + /v3/api-docs are off by default (on by default in the dev profile).
   # When enabled they are public. Never enable in production.
   api-docs-enabled: ${API_DOCS_ENABLED:false}

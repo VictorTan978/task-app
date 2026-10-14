@@ -9,6 +9,8 @@ import com.taskapp.auth.dto.ChangeDisplayNameRequest;
 import com.taskapp.auth.dto.ChangePasswordRequest;
 import com.taskapp.auth.dto.DeleteAccountRequest;
 import com.taskapp.auth.dto.UserResponse;
+import com.taskapp.security.HashedRememberMeServices;
+import com.taskapp.security.SessionRenewal;
 import com.taskapp.security.ratelimit.AuthRateLimiter;
 
 /**
@@ -21,12 +23,14 @@ public class AccountService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthRateLimiter rateLimiter;
+    private final RememberMeTokenRepository rememberMeTokens;
 
     public AccountService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-            AuthRateLimiter rateLimiter) {
+            AuthRateLimiter rateLimiter, RememberMeTokenRepository rememberMeTokens) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.rateLimiter = rateLimiter;
+        this.rememberMeTokens = rememberMeTokens;
     }
 
     /**
@@ -56,18 +60,53 @@ public class AccountService {
         return new DisplayNameChange(UserResponse.from(user), true);
     }
 
-    /** Returns the user (for the security log). The new password may equal the current one. */
+    /**
+     * Returns the user (for the security log). The new password may equal the current one. On success all OTHER
+     * sessions and remember-me logins of the user end, as with {@link #logoutOtherSessions}.
+     */
     @Transactional
-    public UserResponse changePassword(long userId, ChangePasswordRequest request) {
-        User user = load(userId);
+    public UserResponse changePassword(long userId, ChangePasswordRequest request, SessionRenewal renewal) {
+        User user = loadForRenewal(userId, renewal);
         verifyPassword(user, request.currentPassword(), WrongPasswordException.Action.CHANGE_PASSWORD);
         user.changePasswordHash(passwordEncoder.encode(request.newPassword()));
-        userRepository.saveAndFlush(user);
+        endOtherSessions(user, renewal);
         return UserResponse.from(user);
     }
 
     /**
-     * Hard-deletes the user; the database deletes their tasks ({@code fk_tasks_owner ON DELETE CASCADE}).
+     * Ends every session and remember-me login of the user except the caller's ({@code renewal}): sets
+     * {@code sessions_valid_after} to {@code renewal.now()} and deletes the other devices' remember-me logins.
+     * Returns the user (for the security log). Idempotent.
+     */
+    @Transactional
+    public UserResponse logoutOtherSessions(long userId, SessionRenewal renewal) {
+        User user = loadForRenewal(userId, renewal);
+        endOtherSessions(user, renewal);
+        return UserResponse.from(user);
+    }
+
+    private void endOtherSessions(User user, SessionRenewal renewal) {
+        user.endSessionsBefore(renewal.now());
+        userRepository.saveAndFlush(user);
+        rememberMeTokens.deleteAllForUserExcept(user.getId(),
+                HashedRememberMeServices.decodeSeriesId(renewal.keepSeries()));
+    }
+
+    /**
+     * Like {@link #load}, and also 401 if the caller's session was itself ended by a cutoff set after its last
+     * check (e.g. "log out other sessions" on another device a moment ago): it must not outlive that by renewing.
+     */
+    private User loadForRenewal(long userId, SessionRenewal renewal) {
+        User user = load(userId);
+        if (user.getSessionsValidAfter() != null && renewal.previousValidFrom().isBefore(user.getSessionsValidAfter())) {
+            throw new UnauthenticatedException();
+        }
+        return user;
+    }
+
+    /**
+     * Hard-deletes the user; the database deletes their tasks ({@code fk_tasks_owner ON DELETE CASCADE}) and
+     * remember-me logins ({@code fk_remember_me_tokens_user ON DELETE CASCADE}).
      * Returns the deleted user (for the security log).
      */
     @Transactional

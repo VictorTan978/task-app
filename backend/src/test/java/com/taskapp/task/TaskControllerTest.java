@@ -9,7 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static com.taskapp.security.TestSessions.signedInSession;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -62,7 +62,7 @@ class TaskControllerTest {
 
     private static RequestPostProcessor signedIn() {
         var principal = new AuthenticatedUser(OWNER, "alice@example.com", "Alice");
-        return authentication(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()));
+        return signedInSession(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()));
     }
 
     private static MockHttpServletRequestBuilder json(MockHttpServletRequestBuilder builder, String body) {

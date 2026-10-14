@@ -44,7 +44,7 @@ public class AuthController {
     public UserResponse register(@Valid @RequestBody RegisterRequest body, HttpServletRequest request,
             HttpServletResponse response) {
         UserResponse user = authService.register(body);
-        sessionAuthenticator.signIn(user, request, response);
+        sessionAuthenticator.signIn(user, false, request, response);
         SecurityEventLogger.log(SecurityEvent.REGISTER_SUCCESS, request, user.email());
         return user;
     }
@@ -53,7 +53,7 @@ public class AuthController {
     public UserResponse login(@Valid @RequestBody LoginRequest body, HttpServletRequest request,
             HttpServletResponse response) {
         UserResponse user = authService.login(body);
-        sessionAuthenticator.signIn(user, request, response);
+        sessionAuthenticator.signIn(user, body.remember(), request, response);
         SecurityEventLogger.log(SecurityEvent.LOGIN_SUCCESS, request, user.email());
         return user;
     }

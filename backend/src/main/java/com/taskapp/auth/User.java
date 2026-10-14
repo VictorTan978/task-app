@@ -29,6 +29,10 @@ public class User {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /** Sessions valid from before this time are ended on their next request; null = no cutoff. */
+    @Column(name = "sessions_valid_after")
+    private Instant sessionsValidAfter;
+
     protected User() {
     }
 
@@ -57,6 +61,15 @@ public class User {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getSessionsValidAfter() {
+        return sessionsValidAfter;
+    }
+
+    /** Ends every session of this user that became valid before {@code cutoff} (see SessionUserRefreshFilter). */
+    public void endSessionsBefore(Instant cutoff) {
+        this.sessionsValidAfter = cutoff;
     }
 
     /** {@code displayName} must already be trimmed and validated. */
