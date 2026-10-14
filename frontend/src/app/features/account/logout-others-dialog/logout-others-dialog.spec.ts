@@ -5,7 +5,7 @@ import { provideRouter } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { LogoutOthersDialog } from './logout-others-dialog';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob' };
+const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
 const URL = '/api/account/logout-other-sessions';
 
 function problem(status: number, code: string) {

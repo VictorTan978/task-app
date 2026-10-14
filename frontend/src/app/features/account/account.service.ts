@@ -67,6 +67,14 @@ export class AccountService {
     );
   }
 
+  /**
+   * POST /api/account/resend-verification (no body). 204 means a new confirmation email is
+   * queued. 409 ALREADY_VERIFIED and 429 surface as errors; the caller decides what to show.
+   */
+  resendVerification(): Observable<void> {
+    return this.http.post<unknown>(ACCOUNT_API.resendVerification, null).pipe(map(() => undefined));
+  }
+
   /** Marks `sessionRenewing` while the request runs (from subscribe until it ends). */
   private renewingSession<T>(request: Observable<T>): Observable<T> {
     return defer(() => {

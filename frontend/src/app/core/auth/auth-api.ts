@@ -4,4 +4,8 @@ export const AUTH_API = {
   register: '/api/auth/register',
   login: '/api/auth/login',
   logout: '/api/auth/logout',
+  verifyEmail: '/api/auth/verify-email',
+  forgotPassword: '/api/auth/forgot-password',
+  checkResetToken: '/api/auth/check-reset-token',
+  resetPassword: '/api/auth/reset-password',
 } as const;

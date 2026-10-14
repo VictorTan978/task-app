@@ -1,0 +1,21 @@
+<button
+  id="resend-verification"
+  type="button"
+  class="btn btn--secondary"
+  [disabled]="pending()"
+  [attr.aria-busy]="pending()"
+  (click)="resend()"
+>
+  @if (pending()) {
+    <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+  }
+  Resend email
+</button>
+<span class="resend-verification__message" role="status" data-testid="resend-status">{{
+  status()
+}}</span>
+@if (error(); as message) {
+  <span class="resend-verification__message resend-verification__message--error" role="alert">{{
+    message
+  }}</span>
+}

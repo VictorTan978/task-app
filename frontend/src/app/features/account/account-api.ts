@@ -4,4 +4,5 @@ export const ACCOUNT_API = {
   password: '/api/account/password',
   delete: '/api/account/delete',
   logoutOtherSessions: '/api/account/logout-other-sessions',
+  resendVerification: '/api/account/resend-verification',
 } as const;

@@ -4,7 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RegisterPage } from './register-page';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob' };
+const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
 
 function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };

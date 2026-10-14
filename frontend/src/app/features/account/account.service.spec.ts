@@ -6,7 +6,7 @@ import { User } from '../../core/auth/auth.models';
 import { AuthService } from '../../core/auth/auth.service';
 import { AccountService } from './account.service';
 
-const BOB: User = { id: 1, email: 'bob@example.com', displayName: 'Bob' };
+const BOB: User = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
 
 function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };
@@ -147,5 +147,29 @@ describe('AccountService', () => {
     service.changeDisplayName({ displayName: 'Bobby' }).subscribe();
     expect(service.sessionRenewing()).toBe(false);
     http.expectOne('/api/account/display-name').flush(BOB);
+  });
+
+  it('resendVerification sends POST with no body and completes on 204', async () => {
+    const result = firstValueFrom(service.resendVerification(), { defaultValue: 'none' });
+    const req = http.expectOne('/api/account/resend-verification');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toBeNull();
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    expect(await result).toBeUndefined();
+    expect(auth.currentUser()).toEqual(BOB);
+    expect(service.sessionRenewing()).toBe(false);
+  });
+
+  it.each([
+    [409, 'ALREADY_VERIFIED'],
+    [429, 'RATE_LIMITED'],
+  ])('resendVerification surfaces %s %s as an error without retrying', async (status, code) => {
+    const result = firstValueFrom(service.resendVerification());
+    http
+      .expectOne('/api/account/resend-verification')
+      .flush(problem(status, code), { status, statusText: 'x' });
+    await expect(result).rejects.toMatchObject({ status });
+    http.expectNone('/api/account/resend-verification');
+    http.expectNone('/api/auth/me');
   });
 });

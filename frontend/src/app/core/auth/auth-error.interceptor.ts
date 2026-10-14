@@ -6,10 +6,22 @@ import { AUTH_API } from './auth-api';
 import { AuthService } from './auth.service';
 import { readProblem } from './problem';
 
-const IGNORED_URLS: readonly string[] = [AUTH_API.login, AUTH_API.register, AUTH_API.me];
+/**
+ * Public endpoints whose 401 (never expected; the contract says they never answer 401) must not
+ * be treated as "session lost". Resend verification is a signed-in endpoint and is NOT listed.
+ */
+const IGNORED_URLS: readonly string[] = [
+  AUTH_API.login,
+  AUTH_API.register,
+  AUTH_API.me,
+  AUTH_API.verifyEmail,
+  AUTH_API.forgotPassword,
+  AUTH_API.checkResetToken,
+  AUTH_API.resetPassword,
+];
 
 /**
- * When any API call (other than login/register/me) returns 401 UNAUTHENTICATED,
+ * When any API call (other than the public auth endpoints above) returns 401 UNAUTHENTICATED,
  * the session is gone: clear the user and go to /login. The error is re-thrown.
  */
 export const authErrorInterceptor: HttpInterceptorFn = (req, next) => {

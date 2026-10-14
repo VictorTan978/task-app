@@ -7,6 +7,11 @@
         {{ accountDeletedMessage }}
       </p>
     }
+    @if (passwordReset()) {
+      <p class="notice notice--info" role="status" data-testid="password-reset">
+        {{ passwordResetMessage }}
+      </p>
+    }
     @if (sessionExpired()) {
       <p class="notice notice--info" role="status">{{ sessionExpiredMessage }}</p>
     }
@@ -48,6 +53,7 @@
         @if (error('password'); as message) {
           <p class="field-error" id="login-password-error">{{ message }}</p>
         }
+        <a class="field-link" routerLink="/forgot-password">Forgot password?</a>
       </div>
 
       <div class="field field--checkbox">

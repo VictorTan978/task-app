@@ -46,10 +46,25 @@ describe('authErrorInterceptor', () => {
     expect(error).toMatchObject({ status: 401 });
   });
 
-  it.each(['/api/auth/me', '/api/auth/login', '/api/auth/register'])('ignores 401 from %s', (url) => {
+  it.each([
+    '/api/auth/me',
+    '/api/auth/login',
+    '/api/auth/register',
+    '/api/auth/verify-email',
+    '/api/auth/forgot-password',
+    '/api/auth/check-reset-token',
+    '/api/auth/reset-password',
+  ])('ignores 401 from %s', (url) => {
     call(url, 401, 'UNAUTHENTICATED');
     expect(handleSessionLost).not.toHaveBeenCalled();
     expect(navigateByUrl).not.toHaveBeenCalled();
+  });
+
+  it('treats 401 UNAUTHENTICATED from resend-verification as signed out', () => {
+    const error = call('/api/account/resend-verification', 401, 'UNAUTHENTICATED');
+    expect(handleSessionLost).toHaveBeenCalledTimes(1);
+    expect(navigateByUrl).toHaveBeenCalledWith('/login');
+    expect(error).toMatchObject({ status: 401 });
   });
 
   it.each(['/api/auth/login', '/api/auth/register', '/api/tasks'])(

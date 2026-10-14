@@ -9,7 +9,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { LoginPage } from '../../auth/login/login-page';
 import { AccountPage } from './account-page';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob' };
+const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
 
 describe('AccountPage', () => {
   let harness: RouterTestingHarness;

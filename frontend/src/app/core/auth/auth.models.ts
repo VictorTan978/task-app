@@ -4,6 +4,8 @@ export interface User {
   id: number;
   email: string;
   displayName: string;
+  /** True once the user confirmed their email (or reset their password by email). */
+  emailVerified: boolean;
 }
 
 export interface RegisterRequest {
@@ -17,6 +19,23 @@ export interface LoginRequest {
   password: string;
   /** Optional, default false. True keeps this device signed in for 30 days. */
   rememberMe?: boolean;
+}
+
+/**
+ * Body of `POST /api/auth/verify-email` and `POST /api/auth/check-reset-token`.
+ * `token` is the opaque `token` query parameter of the emailed link, unchanged.
+ */
+export interface TokenRequest {
+  token?: string;
+}
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token?: string;
+  newPassword: string;
 }
 
 export type FieldName = 'displayName' | 'email' | 'password' | 'currentPassword' | 'newPassword';
@@ -48,7 +67,9 @@ export type ProblemCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'RATE_LIMITED'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  | 'TOKEN_INVALID'
+  | 'ALREADY_VERIFIED';
 
 export interface Problem {
   type: string;
