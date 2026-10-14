@@ -6,7 +6,14 @@ import { User } from '../../core/auth/auth.models';
 import { AuthService } from '../../core/auth/auth.service';
 import { AccountService } from './account.service';
 
-const BOB: User = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
+const BOB: User = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: true,
+  hasPassword: true,
+  connections: [],
+};
 
 function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };
@@ -171,5 +178,48 @@ describe('AccountService', () => {
     await expect(result).rejects.toMatchObject({ status });
     http.expectNone('/api/account/resend-verification');
     http.expectNone('/api/auth/me');
+  });
+
+  describe('disconnectGoogle', () => {
+    const URL = '/api/account/connections/google';
+
+    it('sends DELETE with no body and updates the signed-in user', async () => {
+      auth.updateCurrentUser({
+        ...BOB,
+        connections: [{ provider: 'google', email: 'b@gmail.com' }],
+      });
+      const result = firstValueFrom(service.disconnectGoogle());
+      const req = http.expectOne(URL);
+      expect(req.request.method).toBe('DELETE');
+      expect(req.request.body).toBeNull();
+      req.flush(BOB);
+      expect(await result).toEqual(BOB);
+      expect(auth.currentUser()?.connections).toEqual([]);
+    });
+
+    it.each([
+      [404, 'NOT_FOUND'],
+      [409, 'PASSWORD_REQUIRED'],
+    ])('surfaces %s %s as an error and keeps the user', async (status, code) => {
+      const before = {
+        ...BOB,
+        connections: [{ provider: 'google' as const, email: 'b@gmail.com' }],
+      };
+      auth.updateCurrentUser(before);
+      const result = firstValueFrom(service.disconnectGoogle());
+      http.expectOne(URL).flush(problem(status, code), { status, statusText: 'x' });
+      await expect(result).rejects.toMatchObject({ status });
+      expect(auth.currentUser()).toEqual(before);
+    });
+  });
+
+  it('deleteAccount sends { email } for accounts without a password', async () => {
+    const result = firstValueFrom(service.deleteAccount({ email: 'bob@gmail.com' }));
+    const req = http.expectOne('/api/account/delete');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ email: 'bob@gmail.com' });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await result;
+    expect(auth.isSignedIn()).toBe(false);
   });
 });

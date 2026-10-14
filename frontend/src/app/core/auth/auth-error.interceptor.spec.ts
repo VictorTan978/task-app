@@ -54,10 +54,24 @@ describe('authErrorInterceptor', () => {
     '/api/auth/forgot-password',
     '/api/auth/check-reset-token',
     '/api/auth/reset-password',
+    '/api/auth/providers',
   ])('ignores 401 from %s', (url) => {
     call(url, 401, 'UNAUTHENTICATED');
     expect(handleSessionLost).not.toHaveBeenCalled();
     expect(navigateByUrl).not.toHaveBeenCalled();
+  });
+
+  it('treats 401 UNAUTHENTICATED from the Google disconnect as signed out', () => {
+    let received: unknown;
+    http
+      .delete('/api/account/connections/google')
+      .subscribe({ error: (e: unknown) => (received = e) });
+    controller
+      .expectOne('/api/account/connections/google')
+      .flush(problem(401, 'UNAUTHENTICATED'), { status: 401, statusText: 'x' });
+    expect(handleSessionLost).toHaveBeenCalledTimes(1);
+    expect(navigateByUrl).toHaveBeenCalledWith('/login');
+    expect(received).toMatchObject({ status: 401 });
   });
 
   it('treats 401 UNAUTHENTICATED from resend-verification as signed out', () => {

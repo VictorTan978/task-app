@@ -14,11 +14,27 @@ export const ACCOUNT_RATE_LIMITED_MESSAGE = 'Too many attempts, please try again
 export const DISPLAY_NAME_UPDATED_MESSAGE = 'Display name updated';
 export const PASSWORD_CHANGED_MESSAGE = 'Password changed';
 export const LOGGED_OUT_OTHERS_MESSAGE = "You've been logged out on all other devices";
+/** "Password" card for accounts without a password (spec AC9). */
+export const NO_PASSWORD_MESSAGE =
+  "You sign in with Google. To also sign in with a password, set one with 'Forgot password?' on the sign-in page.";
+export const GOOGLE_CONNECTED_MESSAGE = 'Google connected';
+export const GOOGLE_DISCONNECTED_MESSAGE = 'Google disconnected';
+export const GOOGLE_IN_USE_MESSAGE = 'This Google account is already connected to another account.';
+export const GOOGLE_CONNECT_FAILED_MESSAGE = "Couldn't connect Google. Please try again.";
+/** Disconnect hint for accounts without a password (AC15) and the 409 PASSWORD_REQUIRED text. */
+export const SET_PASSWORD_FIRST_MESSAGE =
+  "Set a password first so you don't lose access to your account.";
 
-/** Field-level problem: 400 VALIDATION_FAILED, 409 DISPLAY_NAME_TAKEN or 400 WRONG_PASSWORD. */
+/**
+ * Field-level problem: 400 VALIDATION_FAILED, 409 DISPLAY_NAME_TAKEN, 400 WRONG_PASSWORD or
+ * 400 EMAIL_MISMATCH.
+ */
 function accountFieldProblem(error: unknown): Problem | null {
   const problem = readProblem(error);
-  if (problem?.status === 400 && problem.code === 'WRONG_PASSWORD') {
+  if (
+    problem?.status === 400 &&
+    (problem.code === 'WRONG_PASSWORD' || problem.code === 'EMAIL_MISMATCH')
+  ) {
     return problem.errors?.length ? problem : null;
   }
   return fieldProblem(error);

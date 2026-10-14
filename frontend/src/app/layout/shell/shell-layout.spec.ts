@@ -13,9 +13,14 @@ describe('ShellLayout', () => {
     });
     const http = TestBed.inject(HttpTestingController);
     TestBed.inject(AuthService).loadMe().subscribe();
-    http
-      .expectOne('/api/auth/me')
-      .flush({ id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: false });
+    http.expectOne('/api/auth/me').flush({
+      id: 1,
+      email: 'bob@example.com',
+      displayName: 'Bob',
+      emailVerified: false,
+      hasPassword: true,
+      connections: [],
+    });
 
     const fixture = TestBed.createComponent(ShellLayout);
     await fixture.whenStable();

@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { finalize, Subscription } from 'rxjs';
+import { AuthService } from '../../../core/auth/auth.service';
 import { PasswordField } from '../../../shared/password-field/password-field';
 import { fieldMessage, requiredTrimmed } from '../../auth/auth-form';
 import { accountErrorBanner } from '../account-form';
@@ -29,8 +30,15 @@ export class DeleteAccountDialog {
   readonly deleted = output<void>();
   readonly closed = output<void>();
 
+  /**
+   * Accounts without a password (created with Google) confirm with their email instead
+   * (`DeleteAccountRequest.email`). Fixed for the dialog's lifetime.
+   */
+  protected readonly usesEmail = inject(AuthService).currentUser()?.hasPassword === false;
+
   protected readonly form = inject(NonNullableFormBuilder).group({
-    password: ['', [requiredTrimmed]],
+    password: ['', this.usesEmail ? [] : [requiredTrimmed]],
+    email: ['', this.usesEmail ? [requiredTrimmed] : []],
   });
 
   protected readonly pending = signal(false);
@@ -45,11 +53,12 @@ export class DeleteAccountDialog {
   }
 
   protected error(): string | null {
-    const control = this.form.controls.password;
+    const field = this.usesEmail ? 'email' : 'password';
+    const control = this.form.controls[field];
     if (!this.submitted() && !control.touched) {
       return null;
     }
-    return fieldMessage('password', control);
+    return fieldMessage(field, control);
   }
 
   /** Escape key: close unless a delete is running. */
@@ -75,10 +84,10 @@ export class DeleteAccountDialog {
       return;
     }
 
-    const { password } = this.form.getRawValue();
+    const { password, email } = this.form.getRawValue();
     this.pending.set(true);
     this.sub = this.account
-      .deleteAccount({ password })
+      .deleteAccount(this.usesEmail ? { email: email.trim() } : { password })
       .pipe(finalize(() => this.pending.set(false)))
       .subscribe({
         next: () => this.deleted.emit(),

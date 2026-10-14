@@ -2,10 +2,18 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { AuthService } from '../../../core/auth/auth.service';
 import { LoginPage } from './login-page';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
+const BOB = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: true,
+  hasPassword: true,
+  connections: [],
+};
 
 function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };
@@ -35,6 +43,7 @@ describe('LoginPage', () => {
     navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
     fixture = TestBed.createComponent(LoginPage);
     el = fixture.nativeElement;
+    http.expectOne('/api/auth/providers').flush({ google: false });
     await fixture.whenStable();
   });
 
@@ -275,5 +284,86 @@ describe('LoginPage', () => {
     await submit();
     expect(el.querySelector('[data-testid=password-reset]')).toBeNull();
     http.expectOne('/api/auth/login').flush(BOB);
+  });
+});
+
+describe('LoginPage Google', () => {
+  let http: HttpTestingController;
+  let harness: RouterTestingHarness;
+
+  async function open(url: string, google = false): Promise<HTMLElement> {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([{ path: 'login', component: LoginPage }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl(url, LoginPage);
+    http.expectOne('/api/auth/providers').flush({ google });
+    await harness.fixture.whenStable();
+    return harness.routeNativeElement!;
+  }
+
+  afterEach(() => http.verify());
+
+  const notice = (el: HTMLElement) => el.querySelector('[data-testid=oauth-notice]');
+
+  it.each([
+    ['google_failed', 'Google sign-in was cancelled or failed. Please try again.'],
+    [
+      'google_unverified',
+      "Google hasn't confirmed this email address, or it belongs to an account that isn't connected yet. Sign in with your email and password, or create an account.",
+    ],
+  ])('shows the %s notice once and removes the oauth parameter', async (code, message) => {
+    const el = await open(`/login?oauth=${code}`);
+    expect(notice(el)?.textContent?.trim()).toBe(message);
+    expect(notice(el)?.getAttribute('role')).toBe('alert');
+    expect(TestBed.inject(Router).url).toBe('/login');
+  });
+
+  it('keeps other query parameters when removing oauth', async () => {
+    await open('/login?x=1&oauth=google_failed');
+    expect(TestBed.inject(Router).url).toBe('/login?x=1');
+  });
+
+  it.each(['google_connected', 'something_else', ''])(
+    'ignores the unknown or misplaced code "%s" (no notice) and still removes it',
+    async (code) => {
+      const el = await open(`/login?oauth=${code}`);
+      expect(notice(el)).toBeNull();
+      expect(TestBed.inject(Router).url).toBe('/login');
+    },
+  );
+
+  it('shows no notice and does not navigate without the parameter', async () => {
+    const el = await open('/login');
+    expect(notice(el)).toBeNull();
+    expect(TestBed.inject(Router).url).toBe('/login');
+  });
+
+  it('clears the notice on submit', async () => {
+    const el = await open('/login?oauth=google_failed');
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await harness.fixture.whenStable();
+    expect(notice(el)).toBeNull();
+  });
+
+  it('shows "Continue with Google" below the form when Google is configured', async () => {
+    const el = await open('/login', true);
+    const google = el.querySelector('[data-testid=google-button]')!;
+    expect(google.textContent?.trim()).toBe('Continue with Google');
+    const form = el.querySelector('form')!;
+    expect(Boolean(form.compareDocumentPosition(google) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
+    expect(form.contains(google)).toBe(false);
+  });
+
+  it('hides the Google button when Google is not configured', async () => {
+    const el = await open('/login', false);
+    expect(el.querySelector('[data-testid=google-button]')).toBeNull();
   });
 });

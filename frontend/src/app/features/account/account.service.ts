@@ -75,6 +75,17 @@ export class AccountService {
     return this.http.post<unknown>(ACCOUNT_API.resendVerification, null).pipe(map(() => undefined));
   }
 
+  /**
+   * DELETE /api/account/connections/google (no body). On 200 the signed-in user is replaced with
+   * the response (`connections` no longer lists Google). Session and XSRF-TOKEN are unchanged.
+   * 404 NOT_FOUND and 409 PASSWORD_REQUIRED surface as errors; the caller decides what to show.
+   */
+  disconnectGoogle(): Observable<User> {
+    return this.http
+      .delete<User>(ACCOUNT_API.googleConnection)
+      .pipe(tap((user) => this.auth.updateCurrentUser(user)));
+  }
+
   /** Marks `sessionRenewing` while the request runs (from subscribe until it ends). */
   private renewingSession<T>(request: Observable<T>): Observable<T> {
     return defer(() => {

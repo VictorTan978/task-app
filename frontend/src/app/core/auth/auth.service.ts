@@ -1,10 +1,11 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { catchError, map, Observable, of, switchMap, tap, throwError } from 'rxjs';
 import { AUTH_API } from './auth-api';
 import {
   ForgotPasswordRequest,
   LoginRequest,
+  Providers,
   RegisterRequest,
   ResetPasswordRequest,
   TokenRequest,
@@ -59,6 +60,37 @@ export class AuthService {
     return this.http.get<User>(AUTH_API.me).pipe(
       tap((user) => this.updateCurrentUser(user)),
       catchError(() => of(null)),
+    );
+  }
+
+  /**
+   * GET /api/auth/providers: which external sign-in providers are configured. Never errors: any
+   * failure counts as "not configured" (`google: false`), so the Google buttons stay hidden.
+   */
+  providers(): Observable<Providers> {
+    return this.http.get<Providers>(AUTH_API.providers).pipe(
+      map((providers) => ({ google: providers?.google === true })),
+      catchError(() => of({ google: false })),
+    );
+  }
+
+  /**
+   * Checks the session right before a Google connect (GET /api/auth/me also restores an expired
+   * session from the remember-me cookie). Emits true when signed in (the user is refreshed),
+   * false on 401 (the tab is signed out via `handleSessionLost`; the caller goes to /login).
+   * Any other failure (network, 5xx) is re-thrown.
+   */
+  confirmSession(): Observable<boolean> {
+    return this.http.get<User>(AUTH_API.me).pipe(
+      tap((user) => this.updateCurrentUser(user)),
+      map(() => true),
+      catchError((error: unknown) => {
+        if (error instanceof HttpErrorResponse && error.status === 401) {
+          this.handleSessionLost();
+          return of(false);
+        }
+        return throwError(() => error);
+      }),
     );
   }
 

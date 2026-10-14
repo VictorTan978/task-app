@@ -5,6 +5,7 @@ import { finalize } from 'rxjs';
 import { FieldName } from '../../../core/auth/auth.models';
 import { AuthService } from '../../../core/auth/auth.service';
 import { hasProblemCode } from '../../../core/auth/problem';
+import { OAuthResult } from '../../../core/auth/auth.models';
 import { PasswordField } from '../../../shared/password-field/password-field';
 import {
   ACCOUNT_DELETED_MESSAGE,
@@ -13,6 +14,8 @@ import {
   fieldMessage,
   fieldProblem,
   GENERIC_ERROR,
+  GOOGLE_FAILED_MESSAGE,
+  GOOGLE_UNVERIFIED_MESSAGE,
   INVALID_CREDENTIALS_MESSAGE,
   isRateLimited,
   PASSWORD_RESET_MESSAGE,
@@ -20,10 +23,18 @@ import {
   requiredTrimmed,
   SESSION_EXPIRED_MESSAGE,
 } from '../auth-form';
+import { GoogleButton } from '../google-button/google-button';
+import { takeOAuthResult } from '../oauth-result';
+
+/** `oauth` codes the server sends to /login after a Google round trip, and their notices. */
+const LOGIN_OAUTH_NOTICES: Partial<Record<OAuthResult, string>> = {
+  google_failed: GOOGLE_FAILED_MESSAGE,
+  google_unverified: GOOGLE_UNVERIFIED_MESSAGE,
+};
 
 @Component({
   selector: 'app-login-page',
-  imports: [ReactiveFormsModule, RouterLink, PasswordField],
+  imports: [ReactiveFormsModule, RouterLink, PasswordField, GoogleButton],
   templateUrl: './login-page.html',
   styleUrl: './login-page.scss',
 })
@@ -47,6 +58,8 @@ export class LoginPage {
   protected readonly accountDeletedMessage = ACCOUNT_DELETED_MESSAGE;
   protected readonly passwordReset = this.auth.passwordReset;
   protected readonly passwordResetMessage = PASSWORD_RESET_MESSAGE;
+  /** Shown once after a Google round trip; the `oauth` parameter is removed from the URL. */
+  protected readonly oauthNotice = signal<string | null>(this.takeOAuthNotice());
 
   protected error(field: Extract<FieldName, 'email' | 'password'>): string | null {
     const control = this.form.controls[field];
@@ -66,6 +79,7 @@ export class LoginPage {
     this.auth.clearSessionExpired();
     this.auth.clearAccountDeleted();
     this.auth.clearPasswordReset();
+    this.oauthNotice.set(null);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;
@@ -80,6 +94,11 @@ export class LoginPage {
         next: () => void this.router.navigateByUrl('/tasks'),
         error: (error: unknown) => this.handleError(error),
       });
+  }
+
+  private takeOAuthNotice(): string | null {
+    const code = takeOAuthResult(['google_failed', 'google_unverified']);
+    return code ? (LOGIN_OAUTH_NOTICES[code] ?? null) : null;
   }
 
   private handleError(error: unknown): void {

@@ -12,6 +12,9 @@
         {{ passwordResetMessage }}
       </p>
     }
+    @if (oauthNotice(); as message) {
+      <p class="notice notice--error" role="alert" data-testid="oauth-notice">{{ message }}</p>
+    }
     @if (sessionExpired()) {
       <p class="notice notice--info" role="status">{{ sessionExpiredMessage }}</p>
     }
@@ -68,6 +71,8 @@
         Sign in
       </button>
     </form>
+
+    <app-google-button />
 
     <p class="auth-switch">No account yet? <a routerLink="/register">Create an account</a></p>
   </section>

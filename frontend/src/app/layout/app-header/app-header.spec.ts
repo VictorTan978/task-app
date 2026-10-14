@@ -21,9 +21,14 @@ describe('AppHeader', () => {
     auth = TestBed.inject(AuthService);
     navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
     auth.loadMe().subscribe();
-    http
-      .expectOne('/api/auth/me')
-      .flush({ id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true });
+    http.expectOne('/api/auth/me').flush({
+      id: 1,
+      email: 'bob@example.com',
+      displayName: 'Bob',
+      emailVerified: true,
+      hasPassword: true,
+      connections: [],
+    });
     fixture = TestBed.createComponent(AppHeader);
     el = fixture.nativeElement;
     await fixture.whenStable();
@@ -51,6 +56,8 @@ describe('AppHeader', () => {
       email: 'bob@example.com',
       displayName: 'Bobby',
       emailVerified: true,
+      hasPassword: true,
+      connections: [],
     });
     await fixture.whenStable();
     expect(greeting()?.textContent?.trim()).toBe('Hi, Bobby');

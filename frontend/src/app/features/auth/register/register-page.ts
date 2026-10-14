@@ -22,10 +22,11 @@ import {
   RATE_LIMITED_MESSAGE,
   requiredTrimmed,
 } from '../auth-form';
+import { GoogleButton } from '../google-button/google-button';
 
 @Component({
   selector: 'app-register-page',
-  imports: [ReactiveFormsModule, RouterLink, PasswordField],
+  imports: [ReactiveFormsModule, RouterLink, PasswordField, GoogleButton],
   templateUrl: './register-page.html',
 })
 export class RegisterPage {

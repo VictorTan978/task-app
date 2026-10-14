@@ -5,4 +5,5 @@ export const ACCOUNT_API = {
   delete: '/api/account/delete',
   logoutOtherSessions: '/api/account/logout-other-sessions',
   resendVerification: '/api/account/resend-verification',
+  googleConnection: '/api/account/connections/google',
 } as const;

@@ -6,7 +6,14 @@ import { User } from '../../../core/auth/auth.models';
 import { AuthService } from '../../../core/auth/auth.service';
 import { VerifyEmailPage } from './verify-email-page';
 
-const BOB: User = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: false };
+const BOB: User = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: false,
+  hasPassword: true,
+  connections: [],
+};
 const URL = '/api/auth/verify-email';
 
 function problem(status: number, code: string) {

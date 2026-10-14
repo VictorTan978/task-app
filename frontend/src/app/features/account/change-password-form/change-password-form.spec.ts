@@ -5,7 +5,14 @@ import { provideRouter } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { ChangePasswordForm } from './change-password-form';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
+const BOB = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: true,
+  hasPassword: true,
+  connections: [],
+};
 const URL = '/api/account/password';
 
 function problem(status: number, code: string, errors?: unknown[]) {

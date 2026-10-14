@@ -9,6 +9,11 @@ export interface ChangePasswordRequest {
   newPassword: string;
 }
 
+/**
+ * Accounts with a password send `password`; accounts without one (`User.hasPassword: false`)
+ * send `email` instead. The server ignores the other field.
+ */
 export interface DeleteAccountRequest {
-  password: string;
+  password?: string;
+  email?: string;
 }

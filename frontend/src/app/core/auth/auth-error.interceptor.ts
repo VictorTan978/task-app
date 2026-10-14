@@ -18,6 +18,7 @@ const IGNORED_URLS: readonly string[] = [
   AUTH_API.forgotPassword,
   AUTH_API.checkResetToken,
   AUTH_API.resetPassword,
+  AUTH_API.providers,
 ];
 
 /**

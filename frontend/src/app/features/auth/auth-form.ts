@@ -18,6 +18,11 @@ export const EMAIL_CONFIRMED_MESSAGE = 'Your email is confirmed';
 export const EMAIL_SENT_MESSAGE = 'Email sent';
 export const RESET_LINK_SENT_MESSAGE =
   "If an account exists for that email, we've sent a link to reset your password.";
+/** `/login?oauth=google_failed`. */
+export const GOOGLE_FAILED_MESSAGE = 'Google sign-in was cancelled or failed. Please try again.';
+/** `/login?oauth=google_unverified` (spec AC5). */
+export const GOOGLE_UNVERIFIED_MESSAGE =
+  "Google hasn't confirmed this email address, or it belongs to an account that isn't connected yet. Sign in with your email and password, or create an account.";
 
 export const DISPLAY_NAME_MAX = 50;
 export const EMAIL_MAX = 254;
@@ -36,6 +41,7 @@ export const FIELD_MESSAGES: Record<FieldName, Partial<Record<FieldErrorCode, st
     INVALID_EMAIL: 'Enter a valid email address',
     TOO_LONG: `Email must be at most ${EMAIL_MAX} characters`,
     EMAIL_TAKEN: 'An account with this email already exists',
+    EMAIL_MISMATCH: "Email doesn't match",
   },
   password: {
     REQUIRED: 'Enter your password',

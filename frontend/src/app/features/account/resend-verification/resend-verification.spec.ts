@@ -6,7 +6,14 @@ import { authErrorInterceptor } from '../../../core/auth/auth-error.interceptor'
 import { AuthService } from '../../../core/auth/auth.service';
 import { ResendVerification } from './resend-verification';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: false };
+const BOB = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: false,
+  hasPassword: true,
+  connections: [],
+};
 const URL = '/api/account/resend-verification';
 
 function problem(status: number, code: string) {

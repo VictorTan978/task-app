@@ -5,7 +5,14 @@ import { provideRouter } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { DeleteAccountDialog } from './delete-account-dialog';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
+const BOB = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: true,
+  hasPassword: true,
+  connections: [],
+};
 const URL = '/api/account/delete';
 
 function problem(status: number, code: string, errors?: unknown[]) {
@@ -189,5 +196,127 @@ describe('DeleteAccountDialog', () => {
     await fixture.whenStable();
     expect(alert()).toBe('Something went wrong, please try again');
     expect(auth.isSignedIn()).toBe(true);
+  });
+});
+
+describe('DeleteAccountDialog (account without a password)', () => {
+  const GOOGLE_ONLY = {
+    id: 1,
+    email: 'bob@gmail.com',
+    displayName: 'Bob',
+    emailVerified: true,
+    hasPassword: false,
+    connections: [{ provider: 'google', email: 'bob@gmail.com' }],
+  };
+  let fixture: ComponentFixture<DeleteAccountDialog>;
+  let el: HTMLElement;
+  let http: HttpTestingController;
+  let auth: AuthService;
+  let deleted: ReturnType<typeof vi.fn<() => void>>;
+
+  beforeAll(() => {
+    HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+  });
+
+  beforeEach(async () => {
+    TestBed.configureTestingModule({
+      imports: [DeleteAccountDialog],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    });
+    http = TestBed.inject(HttpTestingController);
+    auth = TestBed.inject(AuthService);
+    auth.loadMe().subscribe();
+    http.expectOne('/api/auth/me').flush(GOOGLE_ONLY);
+    fixture = TestBed.createComponent(DeleteAccountDialog);
+    deleted = vi.fn<() => void>();
+    fixture.componentInstance.deleted.subscribe(() => deleted());
+    el = fixture.nativeElement;
+    await fixture.whenStable();
+  });
+
+  afterEach(() => http.verify());
+
+  const email = () => el.querySelector<HTMLInputElement>('#delete-account-email')!;
+  const fieldError = () => el.querySelector('#delete-account-email-error')?.textContent?.trim();
+  const alert = () => el.querySelector('[role=alert]')?.textContent?.trim();
+
+  async function confirm(value = 'bob@gmail.com') {
+    email().value = value;
+    email().dispatchEvent(new Event('input'));
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+  }
+
+  it('asks for the email address instead of the password', () => {
+    expect(el.querySelector('#delete-account-password')).toBeNull();
+    expect(el.querySelectorAll('input').length).toBe(1);
+    expect(email().type).toBe('email');
+    expect(el.querySelector('label[for=delete-account-email]')?.textContent?.trim()).toBe(
+      'Email address',
+    );
+    expect(el.querySelector('#delete-account-text')?.textContent).toContain(
+      'Enter your email address to confirm.',
+    );
+    expect(el.querySelector('#delete-account-text')?.textContent).not.toContain('password');
+  });
+
+  it('requires the email', async () => {
+    await confirm('   ');
+    expect(fieldError()).toBe('Enter your email');
+    http.expectNone(URL);
+  });
+
+  it('sends { email } (trimmed) and emits deleted on 204', async () => {
+    await confirm('  Bob@Gmail.com ');
+    const req = http.expectOne(URL);
+    expect(req.request.body).toEqual({ email: 'Bob@Gmail.com' });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    expect(deleted).toHaveBeenCalledTimes(1);
+    expect(auth.accountDeleted()).toBe(true);
+  });
+
+  it('shows "Email doesn\'t match" under the field on EMAIL_MISMATCH', async () => {
+    await confirm('someone@else.com');
+    http
+      .expectOne(URL)
+      .flush(
+        problem(400, 'EMAIL_MISMATCH', [
+          { field: 'email', code: 'EMAIL_MISMATCH', message: "Email doesn't match" },
+        ]),
+        { status: 400, statusText: 'Bad Request' },
+      );
+    await fixture.whenStable();
+    expect(fieldError()).toBe("Email doesn't match");
+    expect(email().getAttribute('aria-invalid')).toBe('true');
+    expect(alert()).toBeUndefined();
+    expect(deleted).not.toHaveBeenCalled();
+    expect(auth.isSignedIn()).toBe(true);
+  });
+
+  it('shows "Enter your email" on a server REQUIRED error', async () => {
+    await confirm();
+    http
+      .expectOne(URL)
+      .flush(
+        problem(400, 'VALIDATION_FAILED', [
+          { field: 'email', code: 'REQUIRED', message: 'Email is required' },
+        ]),
+        { status: 400, statusText: 'Bad Request' },
+      );
+    await fixture.whenStable();
+    expect(fieldError()).toBe('Enter your email');
+  });
+
+  it('shows the account rate-limit text on 429', async () => {
+    await confirm();
+    http
+      .expectOne(URL)
+      .flush(problem(429, 'RATE_LIMITED'), { status: 429, statusText: 'Too Many Requests' });
+    await fixture.whenStable();
+    expect(alert()).toBe('Too many attempts, please try again later');
+    expect(fieldError()).toBeUndefined();
   });
 });

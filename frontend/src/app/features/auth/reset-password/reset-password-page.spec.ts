@@ -7,7 +7,14 @@ import { ResetPasswordPage } from './reset-password-page';
 
 const CHECK = '/api/auth/check-reset-token';
 const RESET = '/api/auth/reset-password';
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
+const BOB = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: true,
+  hasPassword: true,
+  connections: [],
+};
 
 function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };

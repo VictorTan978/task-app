@@ -28,6 +28,18 @@
     color: var(--color-muted);
   }
 
+  &__text--last {
+    margin-bottom: 0;
+  }
+
+  &__hint {
+    margin-top: 0.5rem;
+  }
+
+  &__notice {
+    margin: 1rem 0 0;
+  }
+
   &__actions {
     display: flex;
     flex-wrap: wrap;

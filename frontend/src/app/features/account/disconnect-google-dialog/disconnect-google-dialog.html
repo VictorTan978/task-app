@@ -1,0 +1,39 @@
+<dialog
+  #dialog
+  class="dialog dialog--narrow"
+  aria-labelledby="disconnect-google-heading"
+  aria-describedby="disconnect-google-text"
+  (cancel)="onCancel($event)"
+>
+  <h2 id="disconnect-google-heading" class="dialog__title">Disconnect Google?</h2>
+
+  <div class="account-form">
+    <p id="disconnect-google-text">
+      You won't be able to sign in with this Google account anymore. You can still sign in with your
+      email and password, and connect Google again later.
+    </p>
+
+    @if (banner(); as message) {
+      <p class="notice notice--error" role="alert">{{ message }}</p>
+    }
+
+    <div class="dialog__actions">
+      <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
+        Cancel
+      </button>
+      <button
+        id="disconnect-google-confirm"
+        type="button"
+        class="btn btn--danger"
+        [disabled]="pending()"
+        [attr.aria-busy]="pending()"
+        (click)="confirm()"
+      >
+        @if (pending()) {
+          <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+        }
+        Disconnect
+      </button>
+    </div>
+  </div>
+</dialog>

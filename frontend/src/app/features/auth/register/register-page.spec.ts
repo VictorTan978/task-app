@@ -4,7 +4,14 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RegisterPage } from './register-page';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
+const BOB = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: true,
+  hasPassword: true,
+  connections: [],
+};
 
 function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };
@@ -34,6 +41,7 @@ describe('RegisterPage', () => {
     navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
     fixture = TestBed.createComponent(RegisterPage);
     el = fixture.nativeElement;
+    http.expectOne('/api/auth/providers').flush({ google: false });
     await fixture.whenStable();
   });
 
@@ -292,5 +300,36 @@ describe('RegisterPage', () => {
     await fixture.whenStable();
     expect(el.querySelector('[role=alert]')).toBeNull();
     http.expectOne('/api/auth/register').flush(BOB, { status: 201, statusText: 'Created' });
+  });
+});
+
+describe('RegisterPage Google', () => {
+  let http: HttpTestingController;
+
+  async function render(google: boolean): Promise<HTMLElement> {
+    TestBed.configureTestingModule({
+      imports: [RegisterPage],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    });
+    http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(RegisterPage);
+    http.expectOne('/api/auth/providers').flush({ google });
+    await fixture.whenStable();
+    return fixture.nativeElement;
+  }
+
+  afterEach(() => http.verify());
+
+  it('shows the "or" divider and "Continue with Google" below the form when configured', async () => {
+    const el = await render(true);
+    const google = el.querySelector('[data-testid=google-button]')!;
+    expect(google.textContent?.trim()).toBe('Continue with Google');
+    expect(el.querySelector('form')!.contains(google)).toBe(false);
+    expect(el.textContent).toContain('or');
+  });
+
+  it('hides the Google button when not configured', async () => {
+    const el = await render(false);
+    expect(el.querySelector('[data-testid=google-button]')).toBeNull();
   });
 });

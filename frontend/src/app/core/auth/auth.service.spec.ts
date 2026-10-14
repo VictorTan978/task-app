@@ -5,7 +5,14 @@ import { firstValueFrom } from 'rxjs';
 import { User } from './auth.models';
 import { AuthService } from './auth.service';
 
-const BOB: User = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
+const BOB: User = {
+  id: 1,
+  email: 'bob@example.com',
+  displayName: 'Bob',
+  emailVerified: true,
+  hasPassword: true,
+  connections: [],
+};
 
 function problem(status: number, code: string) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code };
@@ -303,5 +310,85 @@ describe('AuthService', () => {
     http.expectOne('/api/auth/me').error(new ProgressEvent('error'));
     expect(await result).toBeNull();
     expect(service.currentUser()).toEqual({ ...BOB, emailVerified: false });
+  });
+
+  describe('providers', () => {
+    it.each([true, false])(
+      'returns { google: %s } from GET /api/auth/providers',
+      async (google) => {
+        const result = firstValueFrom(service.providers());
+        const req = http.expectOne('/api/auth/providers');
+        expect(req.request.method).toBe('GET');
+        req.flush({ google });
+        expect(await result).toEqual({ google });
+      },
+    );
+
+    it.each([
+      ['network error', 0],
+      ['server error', 500],
+      ['not found', 404],
+    ])('counts a %s as google: false', async (_label, status) => {
+      const result = firstValueFrom(service.providers());
+      const req = http.expectOne('/api/auth/providers');
+      if (status === 0) {
+        req.error(new ProgressEvent('error'));
+      } else {
+        req.flush(problem(status, 'INTERNAL_ERROR'), { status, statusText: 'x' });
+      }
+      expect(await result).toEqual({ google: false });
+    });
+
+    it('counts a malformed body as google: false', async () => {
+      const result = firstValueFrom(service.providers());
+      http.expectOne('/api/auth/providers').flush({});
+      expect(await result).toEqual({ google: false });
+    });
+  });
+
+  describe('confirmSession', () => {
+    beforeEach(() => {
+      service.loadMe().subscribe();
+      http.expectOne('/api/auth/me').flush(BOB);
+    });
+
+    it('emits true on 200 and refreshes the signed-in user', async () => {
+      const result = firstValueFrom(service.confirmSession());
+      const req = http.expectOne('/api/auth/me');
+      expect(req.request.method).toBe('GET');
+      const updated = {
+        ...BOB,
+        connections: [{ provider: 'google' as const, email: 'b@gmail.com' }],
+      };
+      req.flush(updated);
+      expect(await result).toBe(true);
+      expect(service.currentUser()).toEqual(updated);
+    });
+
+    it('emits false on 401 and signs the tab out (session expired)', async () => {
+      const result = firstValueFrom(service.confirmSession());
+      http
+        .expectOne('/api/auth/me')
+        .flush(problem(401, 'UNAUTHENTICATED'), { status: 401, statusText: 'Unauthorized' });
+      expect(await result).toBe(false);
+      expect(service.isSignedIn()).toBe(false);
+      expect(service.sessionExpired()).toBe(true);
+    });
+
+    it.each([
+      ['network error', 0],
+      ['server error', 500],
+    ])('re-throws a %s and keeps the user', async (_label, status) => {
+      const result = firstValueFrom(service.confirmSession());
+      const req = http.expectOne('/api/auth/me');
+      if (status === 0) {
+        req.error(new ProgressEvent('error'));
+      } else {
+        req.flush(problem(500, 'INTERNAL_ERROR'), { status, statusText: 'x' });
+      }
+      await expect(result).rejects.toMatchObject({ status });
+      expect(service.currentUser()).toEqual(BOB);
+      expect(service.sessionExpired()).toBe(false);
+    });
   });
 });

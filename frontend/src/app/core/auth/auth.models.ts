@@ -6,7 +6,36 @@ export interface User {
   displayName: string;
   /** True once the user confirmed their email (or reset their password by email). */
   emailVerified: boolean;
+  /** False for accounts created with Google that have not set a password yet. */
+  hasPassword: boolean;
+  /** External sign-in accounts connected to this user (empty when none). */
+  connections: Connection[];
 }
+
+export type ConnectionProvider = 'google';
+
+/** An external sign-in account connected to this user. */
+export interface Connection {
+  provider: ConnectionProvider;
+  /** The provider account's email, for display only. May differ from `User.email`. */
+  email: string;
+}
+
+/** `GET /api/auth/providers`: which external sign-in providers are configured. */
+export interface Providers {
+  google: boolean;
+}
+
+/** `intent` form field of `POST /api/auth/oauth2/authorization/google`. */
+export type GoogleIntent = 'login' | 'connect';
+
+/** Value of the `oauth` query parameter after a Google round trip. */
+export type OAuthResult =
+  | 'google_failed'
+  | 'google_unverified'
+  | 'google_connected'
+  | 'google_in_use'
+  | 'google_connect_failed';
 
 export interface RegisterRequest {
   displayName: string;
@@ -47,7 +76,8 @@ export type FieldErrorCode =
   | 'PASSWORD_LENGTH'
   | 'EMAIL_TAKEN'
   | 'DISPLAY_NAME_TAKEN'
-  | 'WRONG_PASSWORD';
+  | 'WRONG_PASSWORD'
+  | 'EMAIL_MISMATCH';
 
 export interface FieldError {
   field: FieldName;
@@ -69,7 +99,9 @@ export type ProblemCode =
   | 'RATE_LIMITED'
   | 'INTERNAL_ERROR'
   | 'TOKEN_INVALID'
-  | 'ALREADY_VERIFIED';
+  | 'ALREADY_VERIFIED'
+  | 'PASSWORD_REQUIRED'
+  | 'EMAIL_MISMATCH';
 
 export interface Problem {
   type: string;

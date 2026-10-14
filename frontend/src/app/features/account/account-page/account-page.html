@@ -1,6 +1,18 @@
 <div class="account-page">
   <h1>Account</h1>
 
+  @if (oauthNotice(); as notice) {
+    @if (notice.error) {
+      <p class="notice notice--error" role="alert" data-testid="oauth-notice">
+        {{ notice.message }}
+      </p>
+    } @else {
+      <p class="notice notice--info" role="status" data-testid="oauth-notice">
+        {{ notice.message }}
+      </p>
+    }
+  }
+
   <section class="account-card" aria-labelledby="account-email-heading">
     <h2 id="account-email-heading">Email</h2>
     <div class="field">
@@ -14,10 +26,21 @@
     <app-display-name-form />
   </section>
 
-  <section class="account-card" aria-labelledby="account-password-heading">
-    <h2 id="account-password-heading">Change password</h2>
-    <app-change-password-form />
-  </section>
+  @if (hasPassword()) {
+    <section class="account-card" aria-labelledby="account-password-heading">
+      <h2 id="account-password-heading">Change password</h2>
+      <app-change-password-form />
+    </section>
+  } @else {
+    <section
+      class="account-card"
+      aria-labelledby="account-password-heading"
+      data-testid="password-card"
+    >
+      <h2 id="account-password-heading">Password</h2>
+      <p class="account-card__text account-card__text--last">{{ noPasswordMessage }}</p>
+    </section>
+  }
 
   <section class="account-card" aria-labelledby="account-sessions-heading">
     <h2 id="account-sessions-heading">Sessions</h2>
@@ -40,6 +63,67 @@
     </div>
   </section>
 
+  @if (showConnections()) {
+    <section
+      class="account-card"
+      aria-labelledby="account-connections-heading"
+      data-testid="connected-accounts"
+    >
+      <h2 id="account-connections-heading">Connected accounts</h2>
+      @if (googleConnection(); as connection) {
+        <p class="account-card__text" data-testid="google-connection-status">
+          Google: connected as <strong>{{ connection.email }}</strong>
+        </p>
+        @if (googleEnabled()) {
+          <div class="account-card__actions">
+            <button
+              id="account-disconnect-google"
+              type="button"
+              class="btn btn--secondary"
+              [disabled]="locked() || connecting() || !hasPassword()"
+              [attr.aria-describedby]="hasPassword() ? null : 'account-disconnect-google-hint'"
+              (click)="openDisconnectGoogle()"
+            >
+              Disconnect
+            </button>
+          </div>
+          @if (!hasPassword()) {
+            <p class="field-hint account-card__hint" id="account-disconnect-google-hint">
+              {{ setPasswordFirstMessage }}
+            </p>
+          }
+        }
+      } @else {
+        <p class="account-card__text" data-testid="google-connection-status">
+          Google: not connected
+        </p>
+        @if (googleEnabled()) {
+          <div class="account-card__actions">
+            <button
+              id="account-connect-google"
+              type="button"
+              class="btn btn--secondary"
+              [disabled]="locked() || connecting()"
+              [attr.aria-busy]="connecting()"
+              (click)="connectGoogle()"
+            >
+              @if (connecting()) {
+                <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+              }
+              Connect Google
+            </button>
+          </div>
+        }
+      }
+      @if (connectionsError(); as message) {
+        <p class="notice notice--error account-card__notice" role="alert">{{ message }}</p>
+      }
+      <p class="account-card__status" id="account-connections-status" role="status">
+        {{ connectionsStatus() }}
+      </p>
+    </section>
+  }
+
   <section class="account-card account-card--danger" aria-labelledby="account-delete-heading">
     <h2 id="account-delete-heading">Delete account</h2>
     <p class="account-card__text">
@@ -59,6 +143,12 @@
 
 @if (deleting()) {
   <app-delete-account-dialog (deleted)="onDeleted()" (closed)="deleting.set(false)" />
+}
+@if (disconnectingGoogle()) {
+  <app-disconnect-google-dialog
+    (disconnected)="onGoogleDisconnected()"
+    (closed)="disconnectingGoogle.set(false)"
+  />
 }
 @if (loggingOutOthers()) {
   <app-logout-others-dialog

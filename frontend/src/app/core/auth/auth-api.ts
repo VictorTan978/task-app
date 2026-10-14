@@ -8,4 +8,7 @@ export const AUTH_API = {
   forgotPassword: '/api/auth/forgot-password',
   checkResetToken: '/api/auth/check-reset-token',
   resetPassword: '/api/auth/reset-password',
+  providers: '/api/auth/providers',
+  /** Started by a top-level HTML form POST (never HttpClient). */
+  googleStart: '/api/auth/oauth2/authorization/google',
 } as const;
