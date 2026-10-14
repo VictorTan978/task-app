@@ -92,7 +92,7 @@ As a visitor or user, I want to sign in with my Google account, so that I don't 
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID:**
    - Application type: "Web application".
    - Authorized redirect URI: `http://localhost:4200/api/auth/oauth2/callback/google`. Add your production address later, e.g. `https://yourdomain/api/auth/oauth2/callback/google`.
-4. Copy the client ID and client secret. Set them as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` when you start the backend. Never commit them.
+4. Copy the client ID and client secret. Set them as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` when you start the backend. Never commit them. With the `dev` profile, also set `GOOGLE_ISSUER_URI=https://accounts.google.com`: dev otherwise uses the fake Google (`docker compose up -d oidc`, http://localhost:8090).
 5. Before going public, publish the consent screen (Google may ask for a short review).
 
 ## Open questions
@@ -113,4 +113,11 @@ _Filled in by the PM during the build._
 | 2026-10-15 | Google sign-in ignores "Remember me" (normal session) | Open question 5 | User |
 | 2026-10-15 | Redirect results use one query param `oauth` with a fixed set of codes (`google_failed`, `google_unverified`, `google_connected`, `google_in_use`, `google_connect_failed`); the frontend strips it right away, so a refresh doesn't repeat the message. Failed-connect text: "Couldn't connect Google. Please try again." | Frontend NEEDS | PM |
 | 2026-10-15 | Disconnect returns 200 with the updated User. When Google is turned off, existing connections stay in `User` and the card is read-only | Frontend NEEDS | PM |
+| 2026-10-15 | The Google flow starts with a top-level form POST carrying the CSRF token, not a GET | A GET start would let any website force a sign-in, sign-up or connect (login CSRF, AC16) | PM (within the approved security scope) |
+| 2026-10-15 | V7 SQL accepted as within the approved scope: `users.password_hash` nullable + `user_connections` (id PK, user FK cascade, provider + provider_subject unique, one connection per user and provider, CHECK provider IN ('google'), `sub` as ascii_bin so ids are matched exactly, provider_email NOT NULL) | Same table and column the user approved; the extras are structural | PM (within the user's approval) |
+| 2026-10-15 | A Google email that isn't verified never creates an account (`google_unverified`) | Otherwise anyone could claim someone else's email address | PM |
+| 2026-10-15 | The dev profile points at the fake Google (`oidc` docker-compose service, `ghcr.io/navikt/mock-oauth2-server:6.0.3`, 127.0.0.1:8090); real Google in dev needs `GOOGLE_ISSUER_URI` | Like Mailpit; setup step 4 updated | PM |
+| 2026-10-15 | Start and callback rate limits answer with the failure redirect, not a 429 (they're browser navigations); a password-less login compares against the dummy hash (no timing leak); half-configured Google settings or a non-https issuer with REQUIRE_HTTPS fail startup | Backend CONTRACT, contract 0.8.0 | PM |
+| 2026-10-15 | Contract agreed in round 1 (frontend ACCEPT), `contracts/openapi.yaml` 0.8.0. Frontend: hidden form POST with `_csrf` read at submit time (Angular's `HttpXsrfTokenExtractor`); `/me` before a connect submit (a new AuthService method tells a 401 apart); reset the button spinner on `pageshow`. Backend to align the `OAuthResult` descriptions with the PM texts | See contract | PM |
+| 2026-10-15 | Known limitation: if the app starts already signed in on `/login?oauth=…` (rare: a failed connect restored by remember-me, or another tab signed in), `guestGuard` sends the user to `/tasks` and the notice isn't shown. Nothing changed on the server; no guard change | Fixing it needs a new notice channel; low value | PM |
 

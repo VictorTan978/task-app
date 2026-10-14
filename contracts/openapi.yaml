@@ -1,8 +1,26 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.7.0
+  version: 0.8.0
   description: |
+    ## Changes in 0.8.0 (sign in with Google, specs/google-sign-in.md)
+    - `User` gains `hasPassword` (boolean) and `connections` (array of `Connection`), always
+      present in every response that returns a `User`: `GET /api/auth/me`,
+      `POST /api/auth/register`, `POST /api/auth/login`, `PUT /api/account/display-name` and the
+      new `DELETE /api/account/connections/google`. Added, nothing renamed.
+    - New public endpoints: `GET /api/auth/providers`,
+      `POST /api/auth/oauth2/authorization/google` (starts the Google flow; a browser form
+      submission, not an XHR) and `GET /api/auth/oauth2/callback/google` (Google redirects the
+      browser here). See "Sign in with Google".
+    - New signed-in endpoint: `DELETE /api/account/connections/google` (200 with the updated
+      `User`).
+    - `POST /api/account/delete`: accounts without a password confirm with `email` instead of
+      `password` (see `DeleteAccountRequest`).
+    - `PUT /api/account/password`: 409 `PASSWORD_REQUIRED` for accounts without a password.
+    - `POST /api/auth/login`: accounts without a password always get the usual 401
+      `INVALID_CREDENTIALS` (same body and timing as a wrong password).
+    - New error codes: `PASSWORD_REQUIRED` (409), `EMAIL_MISMATCH` (400, also a field code).
+
     ## Changes in 0.7.0 (email verification and password reset, specs/email-auth.md)
     - `User` gains `emailVerified` (boolean, always present) in every response that returns a
       `User`: `GET /api/auth/me`, `POST /api/auth/register`, `POST /api/auth/login`,
@@ -20,8 +38,12 @@ info:
     30 minutes of inactivity. All `/api/**` endpoints require a session except
     `GET /api/health`, `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`,
     `POST /api/auth/verify-email`, `POST /api/auth/forgot-password`,
-    `POST /api/auth/check-reset-token`, `POST /api/auth/reset-password` and `GET /api/auth/me`
+    `POST /api/auth/check-reset-token`, `POST /api/auth/reset-password`,
+    `GET /api/auth/providers`, `POST /api/auth/oauth2/authorization/google`,
+    `GET /api/auth/oauth2/callback/google` and `GET /api/auth/me`
     (which answers 401 when not signed in rather than being blocked).
+    A successful Google sign-in (see "Sign in with Google") creates the same kind of session as
+    a password login without `rememberMe`.
 
     **Public endpoints never answer 401**, whatever cookies the request carries: a stale,
     expired or ended session, or a rejected `remember-me` cookie, simply makes the request
@@ -132,6 +154,99 @@ info:
     Accounts created before 0.7.0 have `emailVerified: false` until they confirm. An unconfirmed
     account works exactly like a confirmed one (no endpoint checks `emailVerified`).
 
+    **Accounts without a password (0.8.0).** Forgot password and reset password work for them
+    exactly as for other accounts; a successful reset gives the account a password
+    (`hasPassword: true`), after which both sign-in methods work.
+
+    ## Sign in with Google
+    Standard OpenID Connect authorization code flow with `state`, `nonce` and PKCE (S256),
+    scopes `openid email profile`, run entirely by Spring Security's OAuth2 client. The server
+    trusts only the ID token it receives from Google's token endpoint (signature, issuer,
+    audience, expiry and nonce checked); it never accepts an email or id sent by the browser.
+    No Google access, refresh or ID token is stored or ever sent to the browser.
+
+    Check `GET /api/auth/providers` first: when `google` is `false` the feature is off, the two
+    flow endpoints answer 404 and the "Continue with Google" / "Connect Google" buttons must be
+    hidden (existing connections are still listed in `User.connections`).
+
+    **Starting.** The frontend submits a regular HTML form (a top-level navigation, not
+    `HttpClient`):
+    ```
+    <form method="post" action="/api/auth/oauth2/authorization/google">
+      <input type="hidden" name="intent" value="login">   <!-- or "connect" -->
+      <input type="hidden" name="_csrf" value="<current XSRF-TOKEN cookie value>">
+    </form>
+    ```
+    The server answers 302 to Google (or straight to a frontend route below, without visiting
+    Google, when the request can't start a flow). For `intent=connect`, call
+    `GET /api/auth/me` right before submitting: it refreshes an expired session from the
+    `remember-me` cookie (the start endpoint itself never does), and on 401 the client goes to
+    `/login` instead.
+
+    **Finishing.** Google redirects the browser to `GET /api/auth/oauth2/callback/google`,
+    which ALWAYS answers **302 to a frontend route** (never JSON, never an error page, except
+    404 when the feature is off). The route carries at most one query parameter, `oauth`, from
+    a fixed list. No token, code, email or id ever appears in the frontend URL.
+
+    | Situation | 302 to |
+    |---|---|
+    | Login OK (existing account, new account, or account linked by verified email) | `/tasks` |
+    | Login cancelled at Google, Google error, missing/unknown/tampered/expired `state`, invalid ID token, Google unreachable, rate limited, any server error | `/login?oauth=google_failed` |
+    | Login: no account uses this Google account, an account exists for its email, and it can't be linked automatically (Google says the email is not verified, or the account's own email isn't confirmed yet, or that account is already connected to a different Google account) | `/login?oauth=google_unverified` |
+    | Login: no account exists for the Google email and Google says the email is not verified (nothing is created) | `/login?oauth=google_unverified` |
+    | Connect OK (also when this Google account was already connected to this user) | `/account?oauth=google_connected` |
+    | Connect: this Google account is connected to another user | `/account?oauth=google_in_use` |
+    | Connect cancelled, Google error, invalid ID token, rate limited, this user already has a different Google account connected, any server error | `/account?oauth=google_connect_failed` |
+    | Connect without a valid session (at the start, or the session ended before the callback) | `/login?oauth=google_failed` |
+    | Login intent while already signed in (any account) | the session is replaced by the Google account's user, then `/tasks` |
+
+    When the callback can't find the pending request (unknown `state`, session gone) it can't
+    know the intent, so it uses the login row (`/login?oauth=google_failed`). Starting a second
+    Google flow in the same browser before finishing the first makes the first one fail
+    (one pending request per browser). The frontend should remove the `oauth` parameter from the
+    address bar after showing its notice.
+
+    **Account matching (login intent)**, from the verified ID token:
+    1. A connection with this Google account id (`sub`) exists: sign in to its user, whatever
+       the Google email is now (the stored Google email is updated if it changed).
+    2. Otherwise an account exists whose email equals the Google email ignoring letter case and
+       accents (same rule as login), Google says `email_verified: true`, the account's own email
+       is already confirmed (`emailVerified: true`) and the account has no Google connection
+       yet: connect Google to it and sign in. Any other case with a matching account: nothing
+       changes, `google_unverified` (the user signs in with their password, or uses "Forgot
+       password?", and can then connect Google from `/account`).
+    3. Otherwise, if Google says `email_verified: true`: create an account (email = the Google
+       email, normalized; `emailVerified: true`; `hasPassword: false`; display name from the
+       Google `name`, see below), connect Google and sign in. If not verified: nothing is
+       created, `google_unverified`.
+
+    New-account display name: the Google `name` trimmed (or, when empty, the part of the email
+    before `@`), cut to 50 characters; if another account already has that name (ignoring case
+    and accents), ` 2`, ` 3`, ... is appended (the name is cut further so the result stays
+    within 50 characters). The user can change it later.
+
+    **Connect intent**: connects the Google account to the signed-in user, whatever its email
+    and `email_verified` say (the user proved control of both accounts). If the Google email
+    equals the account email (ignoring case and accents) and Google says it is verified, the
+    account's email also becomes confirmed; otherwise `emailVerified` is unchanged. A user has
+    at most one Google connection; a Google account belongs to at most one user.
+
+    **Session after a Google login** (the 302 to `/tasks`): exactly like a password login
+    without `rememberMe`: new `JSESSIONID`, rotated `XSRF-TOKEN`, 12-hour maximum and 30-minute
+    idle timeout, no `remember-me` cookie. A `remember-me` cookie the browser carries (of any
+    account) is ended and expired (`Max-Age=0`) on that 302. Connect keeps the current session,
+    cookies and `XSRF-TOKEN` unchanged.
+
+    **Login CSRF.** The pending request (`state`, `nonce`, PKCE verifier, intent) is stored in
+    the server-side session of the browser that started the flow, identified by its HttpOnly
+    `JSESSIONID` cookie. The callback is accepted only if its `state` matches the request stored
+    in the session of the browser that delivers it. A callback URL produced by someone else's
+    flow (e.g. an attacker who signed in to Google and makes the victim's browser open it) finds
+    no matching request: `google_failed`, nothing signed in. Starting a flow requires the CSRF
+    token (form field `_csrf`), so another site can't start a sign-in or connect in the user's
+    browser either. Starting a login creates a short-lived anonymous session if the browser has
+    none (it holds only the pending request; a failed callback invalidates it).
+
     ## CSRF
     Every state-changing request (POST/PUT/PATCH/DELETE), **including register, login, logout and
     the public email endpoints (verify-email, forgot-password, check-reset-token,
@@ -151,6 +266,11 @@ info:
       the password, and `POST /api/account/logout-other-sessions`, do NOT rotate it (they change
       only the session id).
     - The header value is the raw cookie value (no masking/encoding needed on the client).
+    - `POST /api/auth/oauth2/authorization/google` is a form submission and can't send headers:
+      it sends the same raw cookie value as the form field `_csrf` instead (0.8.0).
+      `GET /api/auth/oauth2/callback/google` needs no token (it is protected by `state`).
+    - A successful Google login rotates the token too (on its 302 to `/tasks`); Google connect
+      and disconnect do not.
     - Missing/invalid token: **403** problem with `code: CSRF_INVALID`.
 
     ## Errors
@@ -211,6 +331,20 @@ info:
     The per-IP counters of the email endpoints are counted on every request that passes the
     CSRF check, including ones that end in 400.
 
+    Google endpoints (new in 0.8.0). These are browser navigations, so over a limit they answer
+    the flow's failure **302** (`/login?oauth=google_failed`, or
+    `/account?oauth=google_connect_failed` when the pending request is a connect), not a 429.
+    The refusal is logged like any other (`RATE_LIMITED`). Defaults:
+    - Start, per client IP: 20 requests per 1 minute, counted on every request that passes the
+      CSRF check. (`RATE_LIMIT_GOOGLE_START_PER_IP_PER_MINUTE`)
+    - Callback, per client IP: 20 requests per 1 minute.
+      (`RATE_LIMIT_GOOGLE_CALLBACK_PER_IP_PER_MINUTE`)
+    `GET /api/auth/providers` and `DELETE /api/account/connections/google` are not rate
+    limited (no secret is checked).
+
+    Delete account without a password (0.8.0): the `email` confirmation shares the per-user
+    password-check counter above (a wrong `email` counts one failure, the right one resets it).
+
     Precedence (auth endpoints): 403 `CSRF_INVALID` > 429 (per-IP) > 400 `VALIDATION_FAILED` >
     429 (per-email) > 401 / 409.
 
@@ -219,8 +353,9 @@ info:
     Never 401.
 
     Precedence (account endpoints): 403 `CSRF_INVALID` > 401 `UNAUTHENTICATED` >
-    400 `VALIDATION_FAILED` / `MALFORMED_REQUEST` > 429 (per-user password checks) >
-    400 `WRONG_PASSWORD` / 409 `DISPLAY_NAME_TAKEN`.
+    400 `VALIDATION_FAILED` / `MALFORMED_REQUEST` > 409 `PASSWORD_REQUIRED` >
+    429 (per-user password checks) > 400 `WRONG_PASSWORD` / `EMAIL_MISMATCH` /
+    409 `DISPLAY_NAME_TAKEN`.
 
     ## Request bodies
     Unknown properties in a JSON request body are ignored (never an error). In particular any
@@ -278,6 +413,8 @@ paths:
                 email: bob@example.com
                 displayName: Bob
                 emailVerified: true
+                hasPassword: true
+                connections: []
         '401':
           $ref: '#/components/responses/Unauthenticated'
 
@@ -333,6 +470,8 @@ paths:
                 email: bob@example.com
                 displayName: Bob
                 emailVerified: false
+                hasPassword: true
+                connections: []
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '403':
@@ -419,6 +558,11 @@ paths:
         `rememberMe: false` it is expired (`Max-Age=0`) on this response. The response body is the
         same `User` in all cases. A failed login (400/401/429) leaves any existing `remember-me`
         cookie untouched.
+
+        **0.8.0:** an account without a password (created with Google) never signs in here: any
+        password gives the same 401 `INVALID_CREDENTIALS` as a wrong password, with the same
+        timing, and counts as a failed login for the per-email limit. Nothing reveals that the
+        account exists or how it signs in.
       operationId: login
       tags: [auth]
       security:
@@ -458,6 +602,10 @@ paths:
                 email: bob@example.com
                 displayName: Bob
                 emailVerified: true
+                hasPassword: true
+                connections:
+                  - provider: google
+                    email: bob@gmail.com
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '401':
@@ -503,6 +651,149 @@ paths:
               $ref: '#/components/headers/SetLogoutCookies'
         '403':
           $ref: '#/components/responses/CsrfInvalid'
+
+  /api/auth/providers:
+    get:
+      summary: Which external sign-in providers are available
+      description: |
+        New in 0.8.0. Public; never 401 (a stale session or rejected `remember-me` cookie just
+        makes the request anonymous); GET, so no CSRF token needed. Not rate limited.
+
+        `google` is `true` when the server has Google sign-in configured (`GOOGLE_CLIENT_ID` and
+        `GOOGLE_CLIENT_SECRET` set). When `false`: hide "Continue with Google" on `/login` and
+        `/register`, and show the "Connected accounts" card read-only (no Connect / Disconnect);
+        the flow endpoints and `DELETE /api/account/connections/google` answer 404. `true` does
+        not guarantee Google is reachable right now: a flow can still end in
+        `oauth=google_failed`.
+
+        The value only changes when the server restarts with different settings, so clients may
+        fetch it once per page load.
+      operationId: getProviders
+      tags: [auth]
+      security: []
+      responses:
+        '200':
+          description: Available providers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Providers'
+              examples:
+                on:
+                  value:
+                    google: true
+                off:
+                  value:
+                    google: false
+
+  /api/auth/oauth2/authorization/google:
+    post:
+      summary: Start signing in with, or connecting, Google (browser form submission)
+      description: |
+        New in 0.8.0. Submitted as a regular HTML form (top-level navigation, NOT `HttpClient`),
+        see "Sign in with Google". Body `application/x-www-form-urlencoded` with `intent` and
+        `_csrf` (the raw `XSRF-TOKEN` cookie value; the `X-XSRF-TOKEN` header works too but a
+        form can't send it).
+
+        Responses, in order:
+        1. Missing/invalid `_csrf`: 403 `CSRF_INVALID` (problem+json, shown as-is by the
+           browser; does not happen when the frontend reads the cookie at submit time).
+        2. Google sign-in not configured: 404 `NOT_FOUND` (problem+json).
+        3. Otherwise ALWAYS a 302:
+           - over the per-IP limit: to the failure route of the intent;
+           - `intent` not `login`/`connect` (absent = `login`): `/login?oauth=google_failed`;
+           - `intent=connect` without a valid signed-in session: `/login?oauth=google_failed`
+             (the `remember-me` cookie is NOT used here; call `GET /api/auth/me` before
+             submitting);
+           - Google's configuration can't be loaded (Google unreachable): the failure route of
+             the intent;
+           - otherwise: **to Google's authorization endpoint**, with `response_type=code`,
+             `client_id`, `scope=openid email profile`, `state`, `nonce`, `code_challenge`,
+             `code_challenge_method=S256` and
+             `redirect_uri=<APP_BASE_URL>/api/auth/oauth2/callback/google`. The pending request
+             is stored in this browser's session (a new anonymous session, with a
+             `JSESSIONID` cookie, if there is none; a signed-in session is kept as it is).
+
+        GET is not supported (405): a link on another site can't start a flow.
+      operationId: startGoogleFlow
+      tags: [auth]
+      security:
+        - csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GoogleStartForm'
+            example:
+              intent: login
+              _csrf: 0f1c6a8e-2d4b-4e55-9a8e-6b1f7c3d2a90
+      responses:
+        '302':
+          description: |
+            To Google (`Location: https://accounts.google.com/o/oauth2/v2/auth?...`), or to a
+            frontend failure route (`Location: <APP_BASE_URL>/login?oauth=google_failed` or
+            `<APP_BASE_URL>/account?oauth=google_connect_failed`). May set `JSESSIONID`.
+          headers:
+            Location:
+              schema:
+                type: string
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/ProviderNotFound'
+
+  /api/auth/oauth2/callback/google:
+    get:
+      summary: Google redirects the browser here after the user approved or cancelled
+      description: |
+        New in 0.8.0. Never called by frontend code; Google sends the browser here with
+        `code` and `state` (or `error` and `state`). This is the redirect URI registered at
+        Google: `<APP_BASE_URL>/api/auth/oauth2/callback/google`.
+
+        Google sign-in not configured: 404 `NOT_FOUND` (problem+json). Otherwise ALWAYS a 302
+        to a frontend route from the table in "Sign in with Google", whatever happens (including
+        rate limiting and server errors). `Location` is absolute: `<APP_BASE_URL>/<route>`.
+
+        On a successful login the 302 also carries the new session (see `SetLoginCookies`,
+        without `remember-me`; an existing `remember-me` cookie is expired). On a successful
+        connect, cookies are unchanged. On failure the session is not signed in; an anonymous
+        session created only for this flow is invalidated.
+      operationId: googleCallback
+      tags: [auth]
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          description: Set by Google instead of `code`, e.g. `access_denied` when the user cancels.
+          schema:
+            type: string
+      responses:
+        '302':
+          description: |
+            `Location` is one of `<APP_BASE_URL>/tasks`, `/login?oauth=google_failed`,
+            `/login?oauth=google_unverified`, `/account?oauth=google_connected`,
+            `/account?oauth=google_in_use`, `/account?oauth=google_connect_failed` (see the
+            `OAuthResult` schema).
+          headers:
+            Location:
+              schema:
+                type: string
+            Set-Cookie:
+              $ref: '#/components/headers/SetGoogleLoginCookies'
+        '404':
+          $ref: '#/components/responses/ProviderNotFound'
 
   /api/auth/verify-email:
     post:
@@ -844,6 +1135,8 @@ paths:
                 email: bob@example.com
                 displayName: Bobby
                 emailVerified: true
+                hasPassword: true
+                connections: []
         '400':
           description: |
             Validation failed (`code: VALIDATION_FAILED`). Possible entries:
@@ -926,6 +1219,11 @@ paths:
         checked and nothing is counted) > per-user password-check limit (429) > current password
         (400 `WRONG_PASSWORD`, counted as one failure). A correct current password resets the
         per-user failure counter (see "Rate limiting").
+
+        **0.8.0:** an account without a password (`hasPassword: false`) gets 409
+        `PASSWORD_REQUIRED` after body validation, before the rate limit; nothing is changed or
+        counted. Such accounts set a password with "Forgot password?" instead (the UI hides this
+        form for them).
       operationId: changePassword
       tags: [account]
       security:
@@ -991,6 +1289,19 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/CsrfInvalid'
+        '409':
+          description: "The account has no password (`hasPassword: false`). Nothing changed."
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: "Your account has no password. Set one with 'Forgot password?' on the sign-in page."
+                instance: /api/account/password
+                code: PASSWORD_REQUIRED
         '429':
           $ref: '#/components/responses/PasswordCheckRateLimited'
 
@@ -1016,6 +1327,12 @@ paths:
         Order of checks: body validation (400 `VALIDATION_FAILED`, nothing counted) > per-user
         password-check limit (429, shared with `PUT /api/account/password`) > password
         (400 `WRONG_PASSWORD`, counted as one failure, nothing deleted).
+
+        **0.8.0, accounts without a password** (`hasPassword: false`): confirm with `email`
+        instead of `password` (see `DeleteAccountRequest`). The same order applies, with the
+        email check in place of the password check: 400 `VALIDATION_FAILED` (`email` /
+        `REQUIRED`) > 429 (same shared counter) > 400 `EMAIL_MISMATCH` (counted as one failure).
+        The account's Google connection is deleted with it.
       operationId: deleteAccount
       tags: [account]
       security:
@@ -1027,8 +1344,15 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/DeleteAccountRequest'
-            example:
-              password: correct-horse
+            examples:
+              withPassword:
+                summary: Account with a password (unchanged)
+                value:
+                  password: correct-horse
+              withoutPassword:
+                summary: Account without a password (hasPassword false)
+                value:
+                  email: Bob@Gmail.com
       responses:
         '204':
           description: |
@@ -1039,9 +1363,14 @@ paths:
               $ref: '#/components/headers/SetLogoutCookies'
         '400':
           description: |
-            Either `VALIDATION_FAILED` or `WRONG_PASSWORD` (see `code`). Both carry `errors`.
-            - `VALIDATION_FAILED`: `password` / `REQUIRED` / "Password is required"
-            - `WRONG_PASSWORD`: `password` / `WRONG_PASSWORD` / "Password is incorrect"
+            `VALIDATION_FAILED`, `WRONG_PASSWORD` or `EMAIL_MISMATCH` (see `code`). All carry
+            `errors` with exactly one entry.
+            - Account with a password:
+              - `VALIDATION_FAILED`: `password` / `REQUIRED` / "Password is required"
+              - `WRONG_PASSWORD`: `password` / `WRONG_PASSWORD` / "Password is incorrect"
+            - Account without a password:
+              - `VALIDATION_FAILED`: `email` / `REQUIRED` / "Email is required"
+              - `EMAIL_MISMATCH`: `email` / `EMAIL_MISMATCH` / "Email doesn't match"
 
             A body that is not valid JSON returns 400 `MALFORMED_REQUEST` with no `errors`.
             Nothing is deleted and the session is kept.
@@ -1074,6 +1403,19 @@ paths:
                       - field: password
                         code: WRONG_PASSWORD
                         message: Password is incorrect
+                emailMismatch:
+                  summary: Account without a password, wrong email
+                  value:
+                    type: about:blank
+                    title: Bad Request
+                    status: 400
+                    detail: Email doesn't match
+                    instance: /api/account/delete
+                    code: EMAIL_MISMATCH
+                    errors:
+                      - field: email
+                        code: EMAIL_MISMATCH
+                        message: Email doesn't match
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1081,7 +1423,8 @@ paths:
         '429':
           description: |
             Too many wrong passwords for this user on `PUT /api/account/password` and
-            `POST /api/account/delete` combined (one shared per-user counter, see "Rate limiting").
+            `POST /api/account/delete` combined (one shared per-user counter, see "Rate limiting";
+            wrong `email` confirmations of accounts without a password count too).
             Wait `Retry-After` seconds. No `errors` array. Nothing was deleted and the session is kept.
           headers:
             Retry-After:
@@ -1097,6 +1440,73 @@ paths:
                 detail: Too many attempts. Please try again later.
                 instance: /api/account/delete
                 code: RATE_LIMITED
+
+  /api/account/connections/google:
+    delete:
+      summary: Disconnect my Google account
+      description: |
+        New in 0.8.0. Removes the signed-in user's Google connection and returns the updated
+        `User` (`connections` no longer contains `google`). Afterwards, continuing with that
+        Google account follows the normal login rules again (it may create a new account or be
+        refused, see "Sign in with Google"). Session, cookies and `XSRF-TOKEN` are unchanged; no
+        other session is ended. No request body. Not rate limited.
+
+        Order: 403 `CSRF_INVALID` > 401 `UNAUTHENTICATED` > 404 `NOT_FOUND` (Google sign-in not
+        configured, or no Google connection) > 409 `PASSWORD_REQUIRED` (the account has no
+        password, so it would lose its only way to sign in; the UI disables the button) > 200.
+      operationId: disconnectGoogle
+      tags: [account]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - rememberMeCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: Disconnected. The body is the updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                email: bob@example.com
+                displayName: Bob
+                emailVerified: true
+                hasPassword: true
+                connections: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          description: |
+            Google sign-in is not configured on the server, or the user has no Google
+            connection (e.g. already disconnected in another tab: refetch `GET /api/auth/me`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: No Google account is connected
+                instance: /api/account/connections/google
+                code: NOT_FOUND
+        '409':
+          description: The account has no password. Nothing changed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: Set a password first so you don't lose access to your account.
+                instance: /api/account/connections/google
+                code: PASSWORD_REQUIRED
 
   /api/account/logout-other-sessions:
     post:
@@ -1450,6 +1860,17 @@ components:
         A rejected `remember-me` cookie is expired: `remember-me=; Path=/api; Max-Age=0`.
       schema:
         type: string
+    SetGoogleLoginCookies:
+      description: |
+        Only on a successful Google login (302 to `/tasks`):
+        `JSESSIONID=<new id>; Path=/; HttpOnly; SameSite=Lax`,
+        `XSRF-TOKEN=<new token>; Path=/; SameSite=Lax`, and, when the request carried one,
+        `remember-me=; Path=/api; Max-Age=0`. Never sets a `remember-me` cookie.
+        On every other outcome no session or `remember-me` cookie is set (an anonymous session
+        created only for the flow is invalidated server-side); `XSRF-TOKEN` only when the request
+        had none.
+      schema:
+        type: string
     SetRenewedSessionCookie:
       description: |
         `JSESSIONID=<new id>; Path=/; HttpOnly; SameSite=Lax`. Same session (same user, same
@@ -1533,6 +1954,21 @@ components:
             detail: This link is invalid or has expired.
             instance: /api/auth/verify-email
             code: TOKEN_INVALID
+    ProviderNotFound:
+      description: |
+        Google sign-in is not configured on this server (`GET /api/auth/providers` says
+        `google: false`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Not Found
+            status: 404
+            detail: Not found
+            instance: /api/auth/oauth2/callback/google
+            code: NOT_FOUND
     CsrfInvalid:
       description: Missing or invalid CSRF token
       content:
@@ -1652,8 +2088,8 @@ components:
 
     User:
       type: object
-      description: Never contains the password or its hash.
-      required: [id, email, displayName, emailVerified]
+      description: Never contains the password or its hash, nor any Google token or id.
+      required: [id, email, displayName, emailVerified, hasPassword, connections]
       properties:
         id:
           type: integer
@@ -1673,7 +2109,83 @@ components:
             New in 0.7.0, always present. `true` once the user confirmed their email (link from
             the confirmation email) or reset their password by email. `false` for new accounts
             and for accounts created before 0.7.0 that have not confirmed yet.
+            0.8.0: always `true` for accounts created with Google; also set by connecting a
+            Google account whose verified email equals the account email.
           example: true
+        hasPassword:
+          type: boolean
+          description: |
+            New in 0.8.0, always present. `false` for accounts created with Google that have not
+            set a password yet (via "Forgot password?"). Such accounts can't sign in with a
+            password, get 409 `PASSWORD_REQUIRED` on `PUT /api/account/password` and on
+            disconnecting Google, and confirm `POST /api/account/delete` with `email`.
+          example: true
+        connections:
+          type: array
+          description: |
+            New in 0.8.0, always present (empty array when none). At most one entry per
+            provider. Listed even when the provider is currently not configured on the server.
+          items:
+            $ref: '#/components/schemas/Connection'
+
+    Connection:
+      type: object
+      description: An external sign-in account connected to this user.
+      required: [provider, email]
+      properties:
+        provider:
+          type: string
+          enum: [google]
+          example: google
+        email:
+          type: string
+          format: email
+          description: |
+            The provider account's email as of its latest sign-in or connect (lowercased). May
+            differ from the user's own `email`. For display only ("Google: connected as ...").
+          example: bob@gmail.com
+
+    Providers:
+      type: object
+      required: [google]
+      properties:
+        google:
+          type: boolean
+          description: Whether "Sign in with Google" is configured on the server.
+          example: true
+
+    GoogleStartForm:
+      type: object
+      description: Form fields of `POST /api/auth/oauth2/authorization/google`.
+      required: [_csrf]
+      properties:
+        intent:
+          type: string
+          enum: [login, connect]
+          default: login
+          description: |
+            `login`: sign in or sign up (from `/login` and `/register`). `connect`: connect
+            Google to the signed-in account (from `/account`). Any other value fails the flow
+            (`/login?oauth=google_failed`) without visiting Google.
+        _csrf:
+          type: string
+          description: The current raw `XSRF-TOKEN` cookie value.
+
+    OAuthResult:
+      type: string
+      description: |
+        Value of the `oauth` query parameter the callback appends to the frontend route (see
+        "Sign in with Google"). A successful login goes to `/tasks` with no parameter.
+        - `google_failed` (on `/login`): "Google sign-in was cancelled or failed. Please try
+          again."
+        - `google_unverified` (on `/login`): "We couldn't sign you in with Google. Please sign
+          in with your email and password."
+        - `google_connected` (on `/account`): "Google connected"
+        - `google_in_use` (on `/account`): "This Google account is already connected to another
+          account."
+        - `google_connect_failed` (on `/account`): "Something went wrong, please try again"
+        Unknown values must be ignored by the frontend.
+      enum: [google_failed, google_unverified, google_connected, google_in_use, google_connect_failed]
 
     TokenRequest:
       type: object
@@ -1813,15 +2325,30 @@ components:
 
     DeleteAccountRequest:
       type: object
-      required: [password]
+      description: |
+        Which field is used depends on the signed-in account (`User.hasPassword`); the other
+        field is ignored if sent.
+        - `hasPassword: true`: `password` is required. Sending only `email` gives 400
+          `VALIDATION_FAILED` `password` / `REQUIRED` (unchanged behaviour).
+        - `hasPassword: false`: `email` is required. Sending only `password` gives 400
+          `VALIDATION_FAILED` `email` / `REQUIRED`.
+        No field is required by the schema itself, since the server decides per account.
       properties:
         password:
           type: string
           format: password
           description: |
-            The signed-in user's current password. Must be non-blank (`REQUIRED`). Not trimmed; the
-            length policy is NOT checked. A wrong value is 400 `WRONG_PASSWORD`.
+            Accounts with a password: the current password. Must be non-blank (`REQUIRED`). Not
+            trimmed; the length policy is NOT checked. A wrong value is 400 `WRONG_PASSWORD`.
           example: correct-horse
+        email:
+          type: string
+          description: |
+            New in 0.8.0. Accounts without a password: the account's email (the `User.email`
+            shown on `/account`). Trimmed; must be non-blank (`REQUIRED`). Compared like login:
+            ignoring letter case and accents. Anything else is 400 `EMAIL_MISMATCH` (no format
+            check, so a malformed value is simply a mismatch).
+          example: bob@gmail.com
 
     Task:
       type: object
@@ -1939,7 +2466,7 @@ components:
           description: Name of the request field (exactly as in the request body).
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH]
           description: |
             Stable machine-readable reason.
             - REQUIRED: missing, null, empty or blank
@@ -1954,6 +2481,9 @@ components:
             - WRONG_PASSWORD: (400 `WRONG_PASSWORD` only, field `currentPassword` on
               `PUT /api/account/password`, `password` on `POST /api/account/delete`) the password
               does not match the signed-in user's password
+            - EMAIL_MISMATCH: (400 `EMAIL_MISMATCH` only, field `email` on
+              `POST /api/account/delete` for accounts without a password, new in 0.8.0) the email
+              does not match the signed-in user's email
         message:
           type: string
           description: Human-readable English message, safe to display.
@@ -1995,6 +2525,8 @@ components:
             - INTERNAL_ERROR
             - TOKEN_INVALID
             - ALREADY_VERIFIED
+            - PASSWORD_REQUIRED
+            - EMAIL_MISMATCH
           description: |
             Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email
             is taken (even when the display name is taken too), otherwise `DISPLAY_NAME_TAKEN`.
@@ -2003,13 +2535,17 @@ components:
             `TOKEN_INVALID` (400, new in 0.7.0): an emailed link token is invalid for any reason
             (verify-email, check-reset-token, reset-password). `ALREADY_VERIFIED` (409, new in
             0.7.0): only from `POST /api/account/resend-verification`.
+            `PASSWORD_REQUIRED` (409, new in 0.8.0): the account has no password, from
+            `PUT /api/account/password` and `DELETE /api/account/connections/google`.
+            `EMAIL_MISMATCH` (400, new in 0.8.0): only from `POST /api/account/delete` for
+            accounts without a password.
         errors:
           type: array
           description: |
-            Present for VALIDATION_FAILED (400), WRONG_PASSWORD (400), EMAIL_TAKEN (409) and
-            DISPLAY_NAME_TAKEN (409) only. On a register 409 it has one entry per taken field, so
+            Present for VALIDATION_FAILED (400), WRONG_PASSWORD (400), EMAIL_MISMATCH (400),
+            EMAIL_TAKEN (409) and DISPLAY_NAME_TAKEN (409) only. On a register 409 it has one entry per taken field, so
             EMAIL_TAKEN may also carry a `displayName` / `DISPLAY_NAME_TAKEN` entry. WRONG_PASSWORD
-            has exactly one entry.
+            has exactly one entry, and so has EMAIL_MISMATCH.
           items:
             $ref: '#/components/schemas/FieldError'
 
