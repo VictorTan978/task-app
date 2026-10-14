@@ -2,7 +2,8 @@
 #   e.g. cd backend && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
 # Never activate this profile in production: it contains the docker-compose dev password.
 # Without a profile the app uses production settings (application.yml) and requires
-# DB_URL, DB_USERNAME, DB_PASSWORD, DB_MIGRATION_USERNAME and DB_MIGRATION_PASSWORD to be set.
+# DB_URL, DB_USERNAME, DB_PASSWORD, DB_MIGRATION_USERNAME, DB_MIGRATION_PASSWORD, MAIL_HOST, MAIL_FROM and
+# APP_BASE_URL to be set.
 spring:
   datasource:
     # Matches the "db" service in ../docker-compose.yml. Env vars still override these defaults.
@@ -14,8 +15,21 @@ spring:
     # Migration user = MYSQL_USER of the "db" service (ALL on taskapp.*). Used only by Flyway.
     user: ${DB_MIGRATION_USERNAME:taskapp}
     password: ${DB_MIGRATION_PASSWORD:taskapp}
+  # Mailpit, the "mail" service in ../docker-compose.yml (docker compose up -d mail): catches every email, nothing
+  # reaches real addresses. Read them at http://localhost:8025.
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    properties:
+      "[mail.smtp.auth]": ${MAIL_SMTP_AUTH:false}
+      "[mail.smtp.starttls.enable]": ${MAIL_SMTP_STARTTLS:false}
+      "[mail.smtp.starttls.required]": ${MAIL_SMTP_STARTTLS:false}
 
 app:
+  email:
+    # The Angular dev server (npm start).
+    base-url: ${APP_BASE_URL:http://localhost:4200}
+    from: '${MAIL_FROM:Task App <no-reply@taskapp.local>}'
   # Swagger UI + /v3/api-docs on by default in dev (set API_DOCS_ENABLED=false to turn them off).
   api-docs-enabled: ${API_DOCS_ENABLED:true}
   security:

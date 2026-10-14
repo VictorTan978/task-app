@@ -26,20 +26,23 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthRateLimiter rateLimiter;
+    private final EmailJobs emailJobs;
     /** Compared against when the email is unknown so both failure paths cost one BCrypt check. */
     private final String dummyHash;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-            AuthRateLimiter rateLimiter) {
+            AuthRateLimiter rateLimiter, EmailJobs emailJobs) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.rateLimiter = rateLimiter;
+        this.emailJobs = emailJobs;
         this.dummyHash = passwordEncoder.encode("timing-equalizer-not-a-real-password");
     }
 
     /**
      * Request fields are already normalized by {@link RegisterRequest}. Both uniqueness checks run so the
      * caller can report every taken field at once; the DB unique keys still catch concurrent registrations.
+     * The new account is unconfirmed; a confirmation email is queued (sent after the response, never fails this).
      */
     public UserResponse register(RegisterRequest request) {
         boolean emailTaken = userRepository.existsByEmail(request.email());
@@ -48,12 +51,15 @@ public class AuthService {
             throw new RegistrationConflictException(emailTaken, displayNameTaken);
         }
         User user = new User(request.email(), passwordEncoder.encode(request.password()), request.displayName());
+        UserResponse created;
         try {
-            return UserResponse.from(userRepository.saveAndFlush(user));
+            created = UserResponse.from(userRepository.saveAndFlush(user));
         } catch (DataIntegrityViolationException e) {
             // A concurrent registration won the race; the violated unique key tells which field.
             throw conflictFor(e);
         }
+        emailJobs.sendVerification(created.id(), created.email(), EmailJobs.Trigger.REGISTER);
+        return created;
     }
 
     /** Maps a unique-key violation on {@code users} by constraint name; anything else is rethrown as is. */

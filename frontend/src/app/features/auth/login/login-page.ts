@@ -15,6 +15,7 @@ import {
   GENERIC_ERROR,
   INVALID_CREDENTIALS_MESSAGE,
   isRateLimited,
+  PASSWORD_RESET_MESSAGE,
   RATE_LIMITED_MESSAGE,
   requiredTrimmed,
   SESSION_EXPIRED_MESSAGE,
@@ -44,6 +45,8 @@ export class LoginPage {
   protected readonly sessionExpiredMessage = SESSION_EXPIRED_MESSAGE;
   protected readonly accountDeleted = this.auth.accountDeleted;
   protected readonly accountDeletedMessage = ACCOUNT_DELETED_MESSAGE;
+  protected readonly passwordReset = this.auth.passwordReset;
+  protected readonly passwordResetMessage = PASSWORD_RESET_MESSAGE;
 
   protected error(field: Extract<FieldName, 'email' | 'password'>): string | null {
     const control = this.form.controls[field];
@@ -62,6 +65,7 @@ export class LoginPage {
     this.banner.set(null);
     this.auth.clearSessionExpired();
     this.auth.clearAccountDeleted();
+    this.auth.clearPasswordReset();
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;

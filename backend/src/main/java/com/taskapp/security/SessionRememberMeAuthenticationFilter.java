@@ -29,15 +29,17 @@ import jakarta.servlet.http.HttpServletResponse;
  * valid session, including POST/PUT/PATCH/DELETE (the CSRF check has already passed by then). The new session is
  * set up like a password login by the {@link SessionAuthenticator} (session strategy).
  * <p>
- * Skipped for {@code POST /api/auth/login}, {@code /register} and {@code /logout}, which handle the cookie
- * themselves, and for non-REQUEST dispatches (e.g. the error page), so a cookie is processed once per request.
+ * Skipped for {@code POST /api/auth/login}, {@code /register}, {@code /logout} and {@code /reset-password}, which
+ * handle the cookie themselves, and for non-REQUEST dispatches (e.g. the error page), so a cookie is processed once per request.
  */
 class SessionRememberMeAuthenticationFilter extends RememberMeAuthenticationFilter {
 
     private static final RequestMatcher HANDLES_COOKIE_ITSELF = new OrRequestMatcher(
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/login"),
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/register"),
-            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/logout"));
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/logout"),
+            // Signs this browser out and ends every remember-me login: signing in from the cookie first is useless.
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/reset-password"));
 
     SessionRememberMeAuthenticationFilter(AuthenticationManager authenticationManager,
             HashedRememberMeServices rememberMeServices, SecurityContextRepository securityContextRepository,

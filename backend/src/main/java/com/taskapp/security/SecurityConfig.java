@@ -65,6 +65,11 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                             .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login",
                                     "/api/auth/logout").permitAll()
+                            // Email links (specs/email-auth.md): public, CSRF still required. A stale session or
+                            // a rejected remember-me cookie only makes the request anonymous, so never a 401.
+                            .requestMatchers(HttpMethod.POST, "/api/auth/verify-email",
+                                    "/api/auth/forgot-password", "/api/auth/check-reset-token",
+                                    "/api/auth/reset-password").permitAll()
                             .requestMatchers("/error").permitAll();
                     if (apiDocsEnabled) {
                         auth.requestMatchers(HttpMethod.GET, API_DOCS_PATHS).permitAll();

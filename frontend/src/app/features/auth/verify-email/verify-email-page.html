@@ -1,0 +1,53 @@
+<main class="auth-page">
+  <section class="auth-card" aria-labelledby="verify-email-title">
+    <h1 id="verify-email-title">Confirm email</h1>
+
+    @switch (state()) {
+      @case ('checking') {
+        <p class="link-status" role="status" data-testid="link-checking">
+          <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+          Confirming your email…
+        </p>
+      }
+      @case ('success') {
+        <p class="notice notice--info" role="status" data-testid="email-confirmed">
+          {{ confirmedMessage }}
+        </p>
+        <button
+          type="button"
+          class="btn btn--primary"
+          [disabled]="pending()"
+          [attr.aria-busy]="pending()"
+          (click)="continue()"
+        >
+          @if (pending()) {
+            <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+          }
+          Continue
+        </button>
+      }
+      @case ('invalid') {
+        <p class="notice notice--error" role="alert" data-testid="link-invalid">
+          {{ invalidMessage }}
+        </p>
+        @if (canResend()) {
+          <app-resend-verification />
+        }
+      }
+      @case ('error') {
+        <p class="notice notice--error" role="alert" data-testid="link-error">
+          {{ errorMessage() }}
+        </p>
+        <button
+          type="button"
+          class="btn btn--primary"
+          [disabled]="pending()"
+          [attr.aria-busy]="pending()"
+          (click)="retry()"
+        >
+          Try again
+        </button>
+      }
+    }
+  </section>
+</main>

@@ -22,6 +22,20 @@ services:
       timeout: 5s
       retries: 20
 
+  # Dev-only mail catcher (specs/email-auth.md): the backend's dev profile sends every email here, nothing reaches
+  # real addresses. Read them at http://localhost:8025. Pinned tag; check for updates like any other dependency.
+  mail:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      # Localhost only: never reachable from other machines on the network.
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # web UI and API
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   # db-data held the old PostgreSQL 16 files; no longer mounted, kept (not deleted) on purpose.
   db-data:

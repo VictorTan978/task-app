@@ -155,7 +155,8 @@ class AuthIntegrationTest {
         assertThat(user.get("id").isIntegralNumber()).isTrue();
         assertThat(user.get("email").asText()).isEqualTo("alice@example.com");
         assertThat(user.get("displayName").asText()).isEqualTo("Alice");
-        assertThat(user.size()).isEqualTo(3);
+        assertThat(user.get("emailVerified").asBoolean(true)).isFalse();
+        assertThat(user.size()).isEqualTo(4);
         assertThat(reg.setCookie("JSESSIONID")).contains("HttpOnly").contains("SameSite=Lax").contains("Path=/");
         assertThat(b.cookies.get("XSRF-TOKEN")).isNotEqualTo(csrfBefore);
 

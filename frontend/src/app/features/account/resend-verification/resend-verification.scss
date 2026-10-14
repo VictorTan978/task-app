@@ -1,0 +1,18 @@
+:host {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.resend-verification__message {
+  font-weight: 600;
+
+  &:empty {
+    display: none;
+  }
+
+  &--error {
+    color: var(--color-error);
+  }
+}

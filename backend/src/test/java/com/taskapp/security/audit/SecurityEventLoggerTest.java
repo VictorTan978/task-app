@@ -69,7 +69,11 @@ class SecurityEventLoggerTest {
                     // Session events: normal expiries (REMEMBER_ME_REJECTED reason=reused is logged at WARN).
                     || event == SecurityEvent.REMEMBER_ME_LOGIN || event == SecurityEvent.REMEMBER_ME_REJECTED
                     || event == SecurityEvent.SESSION_MAX_LENGTH_REACHED
-                    || event == SecurityEvent.OTHER_SESSIONS_LOGGED_OUT;
+                    || event == SecurityEvent.OTHER_SESSIONS_LOGGED_OUT
+                    // specs/email-auth.md (PASSWORD_RESET_REQUESTED is logged whatever the outcome).
+                    || event == SecurityEvent.EMAIL_VERIFICATION_SENT || event == SecurityEvent.EMAIL_VERIFIED
+                    || event == SecurityEvent.PASSWORD_RESET_REQUESTED
+                    || event == SecurityEvent.PASSWORD_RESET_COMPLETED;
             assertThat(event.level().name()).as(event.name()).isEqualTo(success ? "INFO" : "WARN");
         }
     }

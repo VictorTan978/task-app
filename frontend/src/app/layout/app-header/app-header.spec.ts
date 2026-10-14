@@ -21,7 +21,9 @@ describe('AppHeader', () => {
     auth = TestBed.inject(AuthService);
     navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
     auth.loadMe().subscribe();
-    http.expectOne('/api/auth/me').flush({ id: 1, email: 'bob@example.com', displayName: 'Bob' });
+    http
+      .expectOne('/api/auth/me')
+      .flush({ id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true });
     fixture = TestBed.createComponent(AppHeader);
     el = fixture.nativeElement;
     await fixture.whenStable();
@@ -44,7 +46,12 @@ describe('AppHeader', () => {
   });
 
   it('shows the new name as soon as the signed-in user is updated', async () => {
-    auth.updateCurrentUser({ id: 1, email: 'bob@example.com', displayName: 'Bobby' });
+    auth.updateCurrentUser({
+      id: 1,
+      email: 'bob@example.com',
+      displayName: 'Bobby',
+      emailVerified: true,
+    });
     await fixture.whenStable();
     expect(greeting()?.textContent?.trim()).toBe('Hi, Bobby');
   });

@@ -29,4 +29,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update User u set u.sessionsValidAfter = :cutoff where u.id = :id")
     int endSessionsBefore(@Param("id") long id, @Param("cutoff") Instant cutoff);
+
+    /** Marks the email as confirmed at {@code at}; an earlier confirmation time is kept. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update User u set u.emailVerifiedAt = :at where u.id = :id and u.emailVerifiedAt is null")
+    int markEmailVerified(@Param("id") long id, @Param("at") Instant at);
+
+    /** Password reset by email: new BCrypt hash, and the email counts as confirmed (earlier time kept). */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update User u set u.passwordHash = :passwordHash, "
+            + "u.emailVerifiedAt = coalesce(u.emailVerifiedAt, :at) where u.id = :id")
+    int resetPassword(@Param("id") long id, @Param("passwordHash") String passwordHash, @Param("at") Instant at);
 }

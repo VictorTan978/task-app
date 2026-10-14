@@ -76,7 +76,7 @@ class AccountServiceTest {
         DisplayNameChange change = accountService.changeDisplayName(1L, new ChangeDisplayNameRequest("  Bobby "));
 
         assertThat(change.changed()).isTrue();
-        assertThat(change.user()).isEqualTo(new UserResponse(1L, "bob@example.com", "Bobby"));
+        assertThat(change.user()).isEqualTo(new UserResponse(1L, "bob@example.com", "Bobby", false));
         assertThat(bob.getDisplayName()).isEqualTo("Bobby");
         verify(userRepository).existsByDisplayNameAndIdNot("Bobby", 1L);
         verify(userRepository).saveAndFlush(bob);
@@ -237,7 +237,7 @@ class AccountServiceTest {
     void deleteAccountDeletesTheUser() {
         UserResponse deleted = accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD));
 
-        assertThat(deleted).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob"));
+        assertThat(deleted).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false));
         verify(userRepository).delete(bob);
         verify(userRepository).flush();
     }

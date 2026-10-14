@@ -36,7 +36,7 @@ import com.taskapp.security.ratelimit.RateLimitedException;
 @Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class AuthRateLimitControllerTest {
 
-    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob");
+    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false);
     private static final String LOGIN = "{\"email\":\"bob@example.com\",\"password\":\"correct-horse\"}";
     private static final String REGISTER =
             "{\"displayName\":\"Bob\",\"email\":\"bob@example.com\",\"password\":\"correct-horse\"}";

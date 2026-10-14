@@ -8,6 +8,16 @@ export const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password';
 export const SESSION_EXPIRED_MESSAGE = 'Your session expired, please sign in again';
 export const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a few minutes and try again.';
 export const ACCOUNT_DELETED_MESSAGE = 'Your account has been deleted';
+export const PASSWORD_RESET_MESSAGE = 'Your password has been reset. Please sign in.';
+/** 429 on the public email endpoints (forgot, check, reset, verify). */
+export const TOO_MANY_ATTEMPTS_MESSAGE = 'Too many attempts, please try again later';
+/** 429 on resend verification. */
+export const TOO_MANY_EMAILS_MESSAGE = 'Too many emails, please try again later';
+export const LINK_INVALID_MESSAGE = 'This link is invalid or has expired';
+export const EMAIL_CONFIRMED_MESSAGE = 'Your email is confirmed';
+export const EMAIL_SENT_MESSAGE = 'Email sent';
+export const RESET_LINK_SENT_MESSAGE =
+  "If an account exists for that email, we've sent a link to reset your password.";
 
 export const DISPLAY_NAME_MAX = 50;
 export const EMAIL_MAX = 254;

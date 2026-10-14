@@ -85,10 +85,14 @@ class SecurityEventLoggingIntegrationTest {
         return "{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}";
     }
 
+    /** Lines of request threads only: the background email jobs (threads "email-N") log at unpredictable times. */
     private static List<String> securityLines(CapturedOutput output) {
         return output.getOut().lines().filter(l -> l.contains("SECURITY event="))
+                .filter(l -> !EMAIL_THREAD.matcher(l).find())
                 .map(l -> l.substring(l.indexOf("SECURITY event="))).toList();
     }
+
+    private static final java.util.regex.Pattern EMAIL_THREAD = java.util.regex.Pattern.compile("\\[\\s*email-\\d+\\]");
 
     @Test
     void fullFlowLogsOneLinePerEventAndNoSecrets(CapturedOutput output) throws Exception {
@@ -118,6 +122,12 @@ class SecurityEventLoggingIntegrationTest {
                 "SECURITY event=LOGIN_SUCCESS email=audit@example.com ip=" + ip + " path=/api/auth/login",
                 "SECURITY event=CSRF_REJECTED email=audit@example.com ip=" + ip + " path=/api/auth/logout",
                 "SECURITY event=LOGOUT email=audit@example.com ip=" + ip + " path=/api/auth/logout");
+
+        // specs/email-auth.md AC15/AC17: the confirmation email queued by register fails (no mail server in this
+        // test) and is logged by the background job, without failing the register.
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(20)).untilAsserted(() ->
+                assertThat(output.getOut()).contains("SECURITY event=EMAIL_SEND_FAILED kind=verify_email reason=smtp"
+                        + " email=audit@example.com ip=" + ip + " path=/api/auth/register"));
 
         String hash = jdbc.queryForObject("select password_hash from users where email = 'audit@example.com'",
                 String.class);

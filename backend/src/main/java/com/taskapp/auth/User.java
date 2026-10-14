@@ -33,6 +33,10 @@ public class User {
     @Column(name = "sessions_valid_after")
     private Instant sessionsValidAfter;
 
+    /** When the user confirmed their email (link or password reset by email); null = not confirmed. */
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
     protected User() {
     }
 
@@ -65,6 +69,14 @@ public class User {
 
     public Instant getSessionsValidAfter() {
         return sessionsValidAfter;
+    }
+
+    public Instant getEmailVerifiedAt() {
+        return emailVerifiedAt;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
     }
 
     /** Ends every session of this user that became valid before {@code cutoff} (see SessionUserRefreshFilter). */

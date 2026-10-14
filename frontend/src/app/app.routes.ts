@@ -1,8 +1,11 @@
 import { Routes } from '@angular/router';
 import { authGuard, guestGuard } from './core/auth/auth.guards';
 import { AccountPage } from './features/account/account-page/account-page';
+import { ForgotPasswordPage } from './features/auth/forgot-password/forgot-password-page';
 import { LoginPage } from './features/auth/login/login-page';
 import { RegisterPage } from './features/auth/register/register-page';
+import { ResetPasswordPage } from './features/auth/reset-password/reset-password-page';
+import { VerifyEmailPage } from './features/auth/verify-email/verify-email-page';
 import { TasksPage } from './features/tasks/tasks-page/tasks-page';
 import { ShellLayout } from './layout/shell/shell-layout';
 
@@ -15,6 +18,14 @@ export const routes: Routes = [
     component: RegisterPage,
     canActivate: [guestGuard],
   },
+  // Email link pages: public, signed in or not (no guard, outside the shell).
+  { path: 'verify-email', title: 'Confirm email · Task App', component: VerifyEmailPage },
+  {
+    path: 'forgot-password',
+    title: 'Forgot password · Task App',
+    component: ForgotPasswordPage,
+  },
+  { path: 'reset-password', title: 'Reset password · Task App', component: ResetPasswordPage },
   {
     path: '',
     component: ShellLayout,

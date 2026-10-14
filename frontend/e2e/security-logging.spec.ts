@@ -73,6 +73,8 @@ test('AC11/AC12: auth flow writes one SECURITY line per event and no secrets', a
     .map((l) => l.slice(l.indexOf('SECURITY event=')).replace(/ ip=\S+/, ''));
   expect(mine).toEqual([
     `SECURITY event=REGISTER_SUCCESS email=${email} path=/api/auth/register`,
+    // specs/email-auth.md AC17 (0.7.0): the confirmation email queued by register
+    `SECURITY event=EMAIL_VERIFICATION_SENT trigger=register email=${email} path=/api/auth/register`,
     `SECURITY event=LOGOUT email=${email} path=/api/auth/logout`,
     `SECURITY event=LOGIN_FAILURE reason=bad_password email=${email} path=/api/auth/login`,
     `SECURITY event=LOGIN_FAILURE reason=unknown_email email=${unknown} path=/api/auth/login`,

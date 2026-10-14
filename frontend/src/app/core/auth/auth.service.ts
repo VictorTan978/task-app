@@ -2,7 +2,14 @@ import { HttpClient } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { catchError, map, Observable, of, switchMap, tap, throwError } from 'rxjs';
 import { AUTH_API } from './auth-api';
-import { LoginRequest, RegisterRequest, User } from './auth.models';
+import {
+  ForgotPasswordRequest,
+  LoginRequest,
+  RegisterRequest,
+  ResetPasswordRequest,
+  TokenRequest,
+  User,
+} from './auth.models';
 import { hasProblemCode } from './problem';
 
 @Injectable({ providedIn: 'root' })
@@ -12,6 +19,7 @@ export class AuthService {
   private readonly user = signal<User | null>(null);
   private readonly expired = signal(false);
   private readonly deleted = signal(false);
+  private readonly reset = signal(false);
   private signedInThisTab = false;
 
   /** The signed-in user, or null when signed out. */
@@ -21,6 +29,8 @@ export class AuthService {
   readonly sessionExpired = this.expired.asReadonly();
   /** True after this tab deleted the signed-in account (shown once on the login page). */
   readonly accountDeleted = this.deleted.asReadonly();
+  /** True after this tab reset the password by email (shown once on the login page). */
+  readonly passwordReset = this.reset.asReadonly();
 
   /** True once a user was signed in at any point during this tab's lifetime. */
   get wasSignedInThisTab(): boolean {
@@ -38,6 +48,17 @@ export class AuthService {
         this.user.set(null);
         return of(null);
       }),
+    );
+  }
+
+  /**
+   * Refetches the signed-in user (e.g. to pick up a new `emailVerified`). Never errors and never
+   * signs anyone in: it only replaces the user when this tab is already signed in.
+   */
+  refreshMe(): Observable<User | null> {
+    return this.http.get<User>(AUTH_API.me).pipe(
+      tap((user) => this.updateCurrentUser(user)),
+      catchError(() => of(null)),
     );
   }
 
@@ -61,6 +82,38 @@ export class AuthService {
         next: () => this.clearLocal(),
         error: () => this.clearLocal(),
       }),
+    );
+  }
+
+  /** POST /api/auth/verify-email. Completes on 204; 400 TOKEN_INVALID surfaces as an error. */
+  verifyEmail(request: TokenRequest): Observable<void> {
+    return this.withCsrfRetry(() => this.http.post<unknown>(AUTH_API.verifyEmail, request)).pipe(
+      map(() => undefined),
+    );
+  }
+
+  /** POST /api/auth/forgot-password. Completes on 202 (always the same for a well-formed email). */
+  forgotPassword(request: ForgotPasswordRequest): Observable<void> {
+    return this.withCsrfRetry(() => this.http.post<unknown>(AUTH_API.forgotPassword, request)).pipe(
+      map(() => undefined),
+    );
+  }
+
+  /** POST /api/auth/check-reset-token. Completes on 204 without using the token up. */
+  checkResetToken(request: TokenRequest): Observable<void> {
+    return this.withCsrfRetry(() =>
+      this.http.post<unknown>(AUTH_API.checkResetToken, request),
+    ).pipe(map(() => undefined));
+  }
+
+  /**
+   * POST /api/auth/reset-password. On 204 the server signed this browser out and set a fresh
+   * XSRF-TOKEN, so the local user is cleared (no GET /me) and the reset is flagged for /login.
+   */
+  resetPassword(request: ResetPasswordRequest): Observable<void> {
+    return this.withCsrfRetry(() => this.http.post<unknown>(AUTH_API.resetPassword, request)).pipe(
+      map(() => undefined),
+      tap(() => this.handlePasswordReset()),
     );
   }
 
@@ -97,11 +150,22 @@ export class AuthService {
     this.deleted.set(false);
   }
 
+  /** Called after a successful password reset: clears the local user and flags the reset. */
+  handlePasswordReset(): void {
+    this.clearLocal();
+    this.reset.set(true);
+  }
+
+  clearPasswordReset(): void {
+    this.reset.set(false);
+  }
+
   private setUser(user: User): void {
     this.user.set(user);
     this.signedInThisTab = true;
     this.expired.set(false);
     this.deleted.set(false);
+    this.reset.set(false);
   }
 
   private clearLocal(): void {
@@ -109,6 +173,7 @@ export class AuthService {
     this.signedInThisTab = false;
     this.expired.set(false);
     this.deleted.set(false);
+    this.reset.set(false);
   }
 
   /** On 403 CSRF_INVALID: fetch a fresh XSRF-TOKEN via GET /me once, then retry once. */

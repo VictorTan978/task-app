@@ -5,7 +5,7 @@ import { provideRouter, Router } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { LoginPage } from './login-page';
 
-const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob' };
+const BOB = { id: 1, email: 'bob@example.com', displayName: 'Bob', emailVerified: true };
 
 function problem(status: number, code: string, errors?: unknown[]) {
   return { type: 'about:blank', title: 'x', status, detail: 'x', instance: '/api', code, errors };
@@ -60,7 +60,22 @@ describe('LoginPage', () => {
     expect(el.querySelector('label[for=login-email]')?.textContent).toContain('Email');
     expect(el.querySelector('label[for=login-password]')?.textContent).toContain('Password');
     expect(button().textContent).toContain('Sign in');
-    expect(el.querySelector('a')?.getAttribute('href')).toBe('/register');
+    expect(el.querySelector('a[href="/register"]')?.textContent).toContain('Create an account');
+  });
+
+  it('has a "Forgot password?" link to /forgot-password under the password field', () => {
+    const link = el.querySelector<HTMLAnchorElement>('a[href="/forgot-password"]')!;
+    expect(link.textContent?.trim()).toBe('Forgot password?');
+    const password = el.querySelector('#login-password')!;
+    expect(
+      Boolean(password.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
+    expect(
+      Boolean(
+        link.compareDocumentPosition(el.querySelector('#login-remember-me')!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
   });
 
   it('has a show/hide toggle on the password and no confirm field', async () => {
@@ -245,6 +260,20 @@ describe('LoginPage', () => {
 
     await submit();
     expect(el.querySelector('[data-testid=account-deleted]')).toBeNull();
+    http.expectOne('/api/auth/login').flush(BOB);
+  });
+
+  it('shows "Your password has been reset. Please sign in." and clears it on submit', async () => {
+    TestBed.inject(AuthService).handlePasswordReset();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid=password-reset]')?.textContent?.trim()).toBe(
+      'Your password has been reset. Please sign in.',
+    );
+    expect(el.querySelector('[data-testid=password-reset]')?.getAttribute('role')).toBe('status');
+    expect(text()).not.toContain('Your session expired');
+
+    await submit();
+    expect(el.querySelector('[data-testid=password-reset]')).toBeNull();
     http.expectOne('/api/auth/login').flush(BOB);
   });
 });

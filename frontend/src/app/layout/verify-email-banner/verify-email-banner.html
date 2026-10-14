@@ -1,0 +1,12 @@
+@if (unverifiedEmail(); as email) {
+  <section
+    class="verify-email-banner"
+    aria-label="Confirm your email"
+    data-testid="verify-email-banner"
+  >
+    <p class="verify-email-banner__text">
+      Please confirm your email address. We sent a link to {{ email }}.
+    </p>
+    <app-resend-verification />
+  </section>
+}
