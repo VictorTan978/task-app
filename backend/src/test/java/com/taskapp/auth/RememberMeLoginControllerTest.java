@@ -53,7 +53,7 @@ import jakarta.servlet.http.Cookie;
 @Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class RememberMeLoginControllerTest {
 
-    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob");
+    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false);
     private static final String LOGIN = "/api/auth/login";
 
     @Autowired

@@ -68,7 +68,7 @@ class UserRepositoryTest {
         UserRepository racing = mock(UserRepository.class, delegatesTo(repository));
         doReturn(false).when(racing).existsByEmail(anyString());
         doReturn(false).when(racing).existsByDisplayName(anyString());
-        return new AuthService(racing, new BCryptPasswordEncoder(4), mock(AuthRateLimiter.class));
+        return new AuthService(racing, new BCryptPasswordEncoder(4), mock(AuthRateLimiter.class), mock(EmailJobs.class));
     }
 
     @Test

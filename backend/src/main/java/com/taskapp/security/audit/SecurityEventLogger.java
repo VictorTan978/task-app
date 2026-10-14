@@ -50,6 +50,18 @@ public final class SecurityEventLogger {
         write(event, level, field, value, email, request);
     }
 
+    /**
+     * From a background job, with the origin captured on the request thread. {@code fields} are name/value pairs
+     * written after the event name in this order, e.g. {@code "kind", "verify_email", "reason", "smtp"}.
+     */
+    public static void log(SecurityEvent event, AuditOrigin origin, String email, String... fields) {
+        if (fields.length % 2 != 0) {
+            throw new IllegalArgumentException("fields must be name/value pairs");
+        }
+        AuditOrigin from = origin == null ? AuditOrigin.NONE : origin;
+        write(event, event.level(), fields, email, from.ip(), from.path());
+    }
+
     /** Email of the signed-in user of the current request, or null when anonymous. */
     public static String currentUserEmail() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -61,13 +73,19 @@ public final class SecurityEventLogger {
 
     private static void write(SecurityEvent event, Level level, String field, String value, String email,
             HttpServletRequest request) {
+        write(event, level, field == null ? new String[0] : new String[] {field, value}, email,
+                request == null ? null : request.getRemoteAddr(), request == null ? null : path(request));
+    }
+
+    private static void write(SecurityEvent event, Level level, String[] fields, String email, String ip,
+            String path) {
         StringBuilder line = new StringBuilder(160).append(PREFIX).append(" event=").append(event.name());
-        if (field != null) {
-            line.append(' ').append(field).append('=').append(sanitize(value));
+        for (int i = 0; i < fields.length; i += 2) {
+            line.append(' ').append(fields[i]).append('=').append(sanitize(fields[i + 1]));
         }
         line.append(" email=").append(sanitize(email))
-                .append(" ip=").append(sanitize(request == null ? null : request.getRemoteAddr()))
-                .append(" path=").append(sanitize(request == null ? null : path(request)));
+                .append(" ip=").append(sanitize(ip))
+                .append(" path=").append(sanitize(path));
         log.atLevel(level).log(line.toString());
     }
 

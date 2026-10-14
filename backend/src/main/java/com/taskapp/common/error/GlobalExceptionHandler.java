@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -22,7 +23,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.taskapp.auth.AlreadyVerifiedException;
 import com.taskapp.auth.DisplayNameTakenException;
+import com.taskapp.auth.EmailTokenInvalidException;
+import com.taskapp.auth.InvalidFieldsException;
 import com.taskapp.auth.InvalidCredentialsException;
 import com.taskapp.auth.RegistrationConflictException;
 import com.taskapp.auth.UnauthenticatedException;
@@ -117,6 +121,26 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 Problems.of(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHENTICATED, "Authentication required"));
     }
 
+    /** Every invalid emailed link gives the same 400; the real reason only goes to the security log. */
+    @ExceptionHandler(EmailTokenInvalidException.class)
+    ResponseEntity<ProblemDetail> handleEmailTokenInvalid(EmailTokenInvalidException ex, HttpServletRequest request) {
+        SecurityEventLogger.log(SecurityEvent.EMAIL_TOKEN_REJECTED, "reason", ex.reason(), request, ex.email());
+        return ResponseEntity.badRequest().body(Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.TOKEN_INVALID,
+                "This link is invalid or has expired."));
+    }
+
+    @ExceptionHandler(AlreadyVerifiedException.class)
+    ResponseEntity<ProblemDetail> handleAlreadyVerified(AlreadyVerifiedException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Problems.of(HttpStatus.CONFLICT,
+                ErrorCode.ALREADY_VERIFIED, "Your email address is already confirmed."));
+    }
+
+    /** Validation run by a service (e.g. after the reset token check): same body as a {@code @Valid} failure. */
+    @ExceptionHandler(InvalidFieldsException.class)
+    ResponseEntity<ProblemDetail> handleInvalidFields(InvalidFieldsException ex) {
+        return ResponseEntity.badRequest().body(validationFailed(ex.bindingResult()));
+    }
+
     @ExceptionHandler(TaskNotFoundException.class)
     ResponseEntity<ProblemDetail> handleTaskNotFound(TaskNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
@@ -133,8 +157,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        return ResponseEntity.badRequest().body(validationFailed(ex.getBindingResult()));
+    }
+
+    /** One entry per field (the highest-priority code wins), sorted by field name. */
+    private static ProblemDetail validationFailed(BindingResult bindingResult) {
         Map<String, ApiFieldError> byField = new LinkedHashMap<>();
-        for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
+        for (FieldError fe : bindingResult.getFieldErrors()) {
             ApiFieldError candidate = new ApiFieldError(fe.getField(), fieldCode(fe), fe.getDefaultMessage());
             byField.merge(fe.getField(), candidate, (current, next) ->
                     priority(next.code()) < priority(current.code()) ? next : current);
@@ -142,8 +171,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         List<ApiFieldError> errors = byField.values().stream()
                 .sorted(Comparator.comparing(ApiFieldError::field))
                 .toList();
-        return ResponseEntity.badRequest().body(
-                Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED, "Validation failed", errors));
+        return Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED, "Validation failed", errors);
     }
 
     @Override

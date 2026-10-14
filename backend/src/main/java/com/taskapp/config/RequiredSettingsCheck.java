@@ -11,8 +11,9 @@ import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 
 /**
- * Secure by default: application.yml has no database defaults, so outside the {@code dev} profile the
- * app must be given its database settings. Without this check a missing variable surfaces later as an
+ * Secure by default: application.yml has no database or mail defaults, so outside the {@code dev} profile the
+ * app must be given its database and mail settings ({@code MAIL_HOST}, {@code MAIL_FROM}, {@code APP_BASE_URL}).
+ * With {@code REQUIRE_HTTPS=true}, {@code APP_BASE_URL} must also be {@code https://}. Without this check a missing variable surfaces later as an
  * unrelated error (e.g. "'url' must start with \"jdbc\"") instead of naming the variable.
  *
  * <p>Runs after the config files (including profile-specific ones) are loaded. A setting counts as
@@ -30,7 +31,14 @@ public class RequiredSettingsCheck implements EnvironmentPostProcessor, Ordered 
         // Flyway's own (privileged) user; the datasource user above is data-only.
         REQUIRED.put("spring.flyway.user", "DB_MIGRATION_USERNAME");
         REQUIRED.put("spring.flyway.password", "DB_MIGRATION_PASSWORD");
+        // Email (specs/email-auth.md): without them password reset would silently never work.
+        REQUIRED.put("spring.mail.host", "MAIL_HOST");
+        REQUIRED.put("app.email.from", "MAIL_FROM");
+        REQUIRED.put("app.email.base-url", "APP_BASE_URL");
     }
+
+    static final String REQUIRE_HTTPS = "app.security.require-https";
+    static final String BASE_URL = "app.email.base-url";
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -42,6 +50,28 @@ public class RequiredSettingsCheck implements EnvironmentPostProcessor, Ordered 
         });
         if (!missing.isEmpty()) {
             throw new MissingRequiredSettingsException(missing);
+        }
+        checkBaseUrlUsesHttps(environment);
+    }
+
+    /**
+     * With {@code REQUIRE_HTTPS=true} (the production default) the links in emails must be https: a reset link sent
+     * over plain http could be read on the network.
+     */
+    private static void checkBaseUrlUsesHttps(ConfigurableEnvironment environment) {
+        String requireHttps;
+        try {
+            requireHttps = environment.getProperty(REQUIRE_HTTPS, "true");
+        } catch (IllegalArgumentException unresolvablePlaceholder) {
+            requireHttps = "true";
+        }
+        if (!"false".equalsIgnoreCase(requireHttps.strip())) {
+            String baseUrl = environment.getProperty(BASE_URL, "").strip();
+            if (!baseUrl.regionMatches(true, 0, "https://", 0, "https://".length())) {
+                throw new InvalidSettingException("APP_BASE_URL",
+                        "must start with https:// when REQUIRE_HTTPS is true (email links would otherwise use"
+                                + " plain http)");
+            }
         }
     }
 

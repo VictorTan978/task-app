@@ -10,7 +10,14 @@ public class RateLimitedException extends RuntimeException {
         LOGIN_IP("login-ip"),
         LOGIN_EMAIL("login-email"),
         REGISTER_IP("register-ip"),
-        PASSWORD_CHECK_USER("password-check-user");
+        PASSWORD_CHECK_USER("password-check-user"),
+        FORGOT_PASSWORD_IP("forgot-password-ip"),
+        /** Silent: never turned into a 429, only logged by the background job. */
+        RESET_EMAIL_ACCOUNT("reset-email-account"),
+        RESEND_VERIFICATION_USER("resend-verification-user"),
+        VERIFY_EMAIL_IP("verify-email-ip"),
+        CHECK_RESET_TOKEN_IP("check-reset-token-ip"),
+        RESET_PASSWORD_IP("reset-password-ip");
 
         private final String logValue;
 
@@ -29,7 +36,7 @@ public class RateLimitedException extends RuntimeException {
 
     /**
      * {@code email} is the limited email for {@link Limit#LOGIN_EMAIL}, the signed-in user's email for
-     * {@link Limit#PASSWORD_CHECK_USER}, otherwise null (not known yet).
+     * {@link Limit#PASSWORD_CHECK_USER} and {@link Limit#RESEND_VERIFICATION_USER}, otherwise null (not known yet).
      */
     public RateLimitedException(Duration retryAfter, Limit limit, String email) {
         super("Rate limit exceeded", null, false, false);

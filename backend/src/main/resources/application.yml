@@ -7,7 +7,8 @@ spring:
   datasource:
     # Secure by default: no profile = production settings, so there are NO defaults here.
     # DB_USERNAME / DB_PASSWORD = the restricted app user (SELECT, INSERT, UPDATE, DELETE only).
-    # DB_URL, DB_USERNAME, DB_PASSWORD, DB_MIGRATION_USERNAME and DB_MIGRATION_PASSWORD must be set, or startup fails naming the missing variable
+    # DB_URL, DB_USERNAME, DB_PASSWORD, DB_MIGRATION_USERNAME and DB_MIGRATION_PASSWORD (and MAIL_HOST, MAIL_FROM,
+    # APP_BASE_URL, see below) must be set, or startup fails naming the missing variable
     # (see com.taskapp.config.RequiredSettingsCheck). For local development use the dev profile
     # (application-dev.yml): SPRING_PROFILES_ACTIVE=dev.
     # Keep connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true in DB_URL: DATETIME(6) values
@@ -31,6 +32,24 @@ spring:
     # See backend/docker/mysql-init/README.md.
     user: ${DB_MIGRATION_USERNAME}
     password: ${DB_MIGRATION_PASSWORD}
+  # Outgoing email (specs/email-auth.md): confirmation and password reset links, sent over SMTP in the background.
+  # MAIL_HOST is required outside the dev profile (com.taskapp.config.RequiredSettingsCheck); the dev profile points
+  # at Mailpit (docker compose up -d mail). The provider is chosen by these settings only.
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      # Production providers need SMTP login and STARTTLS (credentials never go over plain text). The dev profile
+      # turns both off for Mailpit. MAIL_SMTP_AUTH / MAIL_SMTP_STARTTLS override them.
+      "[mail.smtp.auth]": ${MAIL_SMTP_AUTH:true}
+      "[mail.smtp.starttls.enable]": ${MAIL_SMTP_STARTTLS:true}
+      "[mail.smtp.starttls.required]": ${MAIL_SMTP_STARTTLS:true}
+      # Milliseconds. A hanging mail server must not block the 2 email threads forever.
+      "[mail.smtp.connectiontimeout]": 10000
+      "[mail.smtp.timeout]": 10000
+      "[mail.smtp.writetimeout]": 10000
 
 server:
   port: 8080
@@ -80,6 +99,16 @@ app:
     # REMEMBER_ME_LENGTH: a "remember me" login (and any session it signs in) lasts this long from the login with
     # rememberMe: true; never extended by use (default 30d).
     length: ${REMEMBER_ME_LENGTH:30d}
+  # Emailed links (specs/email-auth.md). MAIL_FROM and APP_BASE_URL are required outside the dev profile, and with
+  # REQUIRE_HTTPS=true APP_BASE_URL must start with https:// (startup check, com.taskapp.config.RequiredSettingsCheck).
+  email:
+    # Frontend URL the links point to, e.g. https://tasks.example.com (links: <APP_BASE_URL>/verify-email?token=...).
+    base-url: ${APP_BASE_URL}
+    # Sender, e.g. "Task App <no-reply@example.com>". Must be an address the mail provider lets you send from.
+    from: ${MAIL_FROM}
+    # How long a link works (durations like 30m, 1h, 24h).
+    verify-email-link-lifetime: ${VERIFY_EMAIL_LINK_LIFETIME:24h}
+    reset-password-link-lifetime: ${RESET_PASSWORD_LINK_LIFETIME:1h}
   # Swagger UI + /v3/api-docs are off by default (on by default in the dev profile).
   # When enabled they are public. Never enable in production.
   api-docs-enabled: ${API_DOCS_ENABLED:false}
@@ -94,6 +123,13 @@ app:
   #                                        below, one counter shared by change password and delete account (default 5)
   #   RATE_LIMIT_PASSWORD_CHECK_FAILURE_WINDOW     sliding window for those failures (default 15m)
   #   RATE_LIMIT_MAX_TRACKED_KEYS          emails/IPs/users kept per counter before the oldest are dropped (default 100000)
+  # Email endpoints (specs/email-auth.md), all per 1 hour:
+  #   RATE_LIMIT_FORGOT_PASSWORD_PER_IP_PER_HOUR          forgot-password requests per client IP (default 10, 429)
+  #   RATE_LIMIT_RESET_EMAILS_PER_ACCOUNT_PER_HOUR        reset emails per account (default 3; silent: 202, no email)
+  #   RATE_LIMIT_RESEND_VERIFICATION_PER_USER_PER_HOUR    confirmation emails per user via resend (default 3, 429)
+  #   RATE_LIMIT_VERIFY_EMAIL_PER_IP_PER_HOUR             verify-email requests per client IP (default 30, 429)
+  #   RATE_LIMIT_CHECK_RESET_TOKEN_PER_IP_PER_HOUR        check-reset-token requests per client IP (default 30, 429)
+  #   RATE_LIMIT_RESET_PASSWORD_PER_IP_PER_HOUR           reset-password requests per client IP (default 20, 429)
   # The e2e suite registers many users from 127.0.0.1, so raise the per-IP limits for e2e runs.
   rate-limit:
     login-failures-per-email: ${RATE_LIMIT_LOGIN_FAILURES_PER_EMAIL:5}
@@ -103,6 +139,12 @@ app:
     password-check-failures-per-user: ${RATE_LIMIT_PASSWORD_CHECK_FAILURES_PER_USER:5}
     password-check-failure-window: ${RATE_LIMIT_PASSWORD_CHECK_FAILURE_WINDOW:15m}
     max-tracked-keys: ${RATE_LIMIT_MAX_TRACKED_KEYS:100000}
+    forgot-password-per-ip-per-hour: ${RATE_LIMIT_FORGOT_PASSWORD_PER_IP_PER_HOUR:10}
+    reset-emails-per-account-per-hour: ${RATE_LIMIT_RESET_EMAILS_PER_ACCOUNT_PER_HOUR:3}
+    resend-verification-per-user-per-hour: ${RATE_LIMIT_RESEND_VERIFICATION_PER_USER_PER_HOUR:3}
+    verify-email-per-ip-per-hour: ${RATE_LIMIT_VERIFY_EMAIL_PER_IP_PER_HOUR:30}
+    check-reset-token-per-ip-per-hour: ${RATE_LIMIT_CHECK_RESET_TOKEN_PER_IP_PER_HOUR:30}
+    reset-password-per-ip-per-hour: ${RATE_LIMIT_RESET_PASSWORD_PER_IP_PER_HOUR:20}
 
 springdoc:
   api-docs:

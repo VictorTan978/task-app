@@ -16,6 +16,10 @@ public final class ErrorCode {
     public static final String NOT_FOUND = "NOT_FOUND";
     public static final String RATE_LIMITED = "RATE_LIMITED";
     public static final String INTERNAL_ERROR = "INTERNAL_ERROR";
+    /** 400: an emailed link token is invalid for any reason (the reason is only logged). */
+    public static final String TOKEN_INVALID = "TOKEN_INVALID";
+    /** 409 on resend-verification: the email is already confirmed. */
+    public static final String ALREADY_VERIFIED = "ALREADY_VERIFIED";
 
     /** Field-level codes used inside {@code errors[]}. */
     public static final String REQUIRED = "REQUIRED";

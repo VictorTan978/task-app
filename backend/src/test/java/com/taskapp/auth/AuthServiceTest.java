@@ -35,13 +35,14 @@ class AuthServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
+    private final EmailJobs emailJobs = mock(EmailJobs.class);
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
         AuthRateLimiter rateLimiter = new AuthRateLimiter(
                 new RateLimitProperties(5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)), Clock.systemUTC());
-        authService = new AuthService(userRepository, passwordEncoder, rateLimiter);
+        authService = new AuthService(userRepository, passwordEncoder, rateLimiter, emailJobs);
     }
 
     private static User persisted(long id, String email, String hash, String name) {
@@ -61,12 +62,14 @@ class AuthServiceTest {
 
         UserResponse result = authService.register(new RegisterRequest(" Bob ", " Bob@Example.COM ", "correct-horse"));
 
-        assertThat(result).isEqualTo(new UserResponse(7L, "bob@example.com", "Bob"));
+        assertThat(result).isEqualTo(new UserResponse(7L, "bob@example.com", "Bob", false));
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(saved.capture());
         assertThat(saved.getValue().getPasswordHash()).startsWith("$2").hasSize(60).isNotEqualTo("correct-horse");
         assertThat(passwordEncoder.matches("correct-horse", saved.getValue().getPasswordHash())).isTrue();
         assertThat(saved.getValue().getEmail()).isEqualTo("bob@example.com");
+        // specs/email-auth.md AC1: a confirmation email is queued (sent after the response).
+        verify(emailJobs).sendVerification(7L, "bob@example.com", EmailJobs.Trigger.REGISTER);
     }
 
     @Test
@@ -79,6 +82,7 @@ class AuthServiceTest {
                     assertThat(e.displayNameTaken()).isFalse();
                 });
         verify(userRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(emailJobs);
     }
 
     @Test
@@ -170,7 +174,7 @@ class AuthServiceTest {
 
         UserResponse result = authService.login(new LoginRequest("BoB@Example.com ", "correct-horse"));
 
-        assertThat(result).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob"));
+        assertThat(result).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false));
     }
 
     @Test

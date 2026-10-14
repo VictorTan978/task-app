@@ -43,7 +43,7 @@ import com.taskapp.security.SessionAuthenticator;
 @Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class AuthControllerTest {
 
-    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob");
+    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false);
 
     @Autowired
     private MockMvc mockMvc;

@@ -10,7 +10,8 @@ public class MissingRequiredSettingsFailureAnalyzer extends AbstractFailureAnaly
     protected FailureAnalysis analyze(Throwable rootFailure, MissingRequiredSettingsException cause) {
         String names = String.join(", ", cause.getMissing());
         String description = cause.getMessage()
-                + " Without an active profile the app uses production settings, which have no default database credentials.";
+                + " Without an active profile the app uses production settings, which have no default database"
+                + " credentials or mail settings.";
         String action = "Set " + names
                 + ", or run with SPRING_PROFILES_ACTIVE=dev for local development.";
         return new FailureAnalysis(description, action, cause);
