@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git push -u origin feature/*)",
-      "Bash(git push origin feature/*)"
+      "Bash(git push origin feature/*)",
+      "Bash(git commit *)"
     ],
     "ask": [
       "Edit(/backend/src/main/resources/db/migration/**)",
@@ -15,7 +16,6 @@
       "Edit(/frontend/src/app/**/payment/**)",
       "Bash(npm install:*)",
       "Bash(npm i:*)",
-      "Bash(git commit:*)",
       "Bash(git push origin main*)",
       "Bash(git push -u origin main*)"
     ],
