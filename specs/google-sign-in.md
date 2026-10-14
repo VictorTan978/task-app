@@ -22,7 +22,11 @@ As a visitor or user, I want to sign in with my Google account, so that I don't 
   - A taken name gets a number added ("José 2", "José 3", …).
   - An empty Google name uses the part of the email before "@".
   - I can change the name later on `/account`.
-- [ ] AC5: Given an account with a password already exists for my Google email (matched ignoring case and accents), when I continue with Google and Google says the email is verified, then Google is connected to that account, I am signed in to it, and its email now counts as confirmed. If Google says the email is **not** verified, nothing is connected and I land on `/login` with "We couldn't sign you in with Google. Please sign in with your email and password."
+- [ ] AC5: Given an account already exists for my Google email (matched ignoring case and accents):
+  - If Google says the email is verified **and** the account's own email is already confirmed (`specs/email-auth.md`), then Google is connected to that account and I am signed in to it.
+  - Otherwise nothing is connected or created and I land on `/login` with "Google hasn't confirmed this email address, or it belongs to an account that isn't connected yet. Sign in with your email and password, or create an account." This covers: Google says not verified; the account's email is unconfirmed; the account already has a different Google account connected.
+  - The same message shows when no account exists and Google says the email is not verified (nothing is created).
+  - An unconfirmed account can still use Google: confirm the email first, or sign in with the password and use "Connect Google" on `/account` (AC12).
 - [ ] AC6: Given I cancel on Google's page, or Google sign-in fails for any reason (error from Google, expired or tampered request), then I land on `/login` with "Google sign-in was cancelled or failed. Please try again." Nothing is created or changed.
 - [ ] AC7: A Google sign-in creates a normal session, the same as a password login: a new session id and CSRF token, a 12-hour maximum and the 30-minute idle timeout. "Remember me" doesn't apply to Google sign-in.
 
@@ -120,4 +124,5 @@ _Filled in by the PM during the build._
 | 2026-10-15 | Start and callback rate limits answer with the failure redirect, not a 429 (they're browser navigations); a password-less login compares against the dummy hash (no timing leak); half-configured Google settings or a non-https issuer with REQUIRE_HTTPS fail startup | Backend CONTRACT, contract 0.8.0 | PM |
 | 2026-10-15 | Contract agreed in round 1 (frontend ACCEPT), `contracts/openapi.yaml` 0.8.0. Frontend: hidden form POST with `_csrf` read at submit time (Angular's `HttpXsrfTokenExtractor`); `/me` before a connect submit (a new AuthService method tells a 401 apart); reset the button spinner on `pageshow`. Backend to align the `OAuthResult` descriptions with the PM texts | See contract | PM |
 | 2026-10-15 | Known limitation: if the app starts already signed in on `/login?oauth=…` (rare: a failed connect restored by remember-me, or another tab signed in), `guestGuard` sends the user to `/tasks` and the notice isn't shown. Nothing changed on the server; no guard change | Fixing it needs a new notice channel; low value | PM |
+| 2026-10-15 | AC5 narrowed: auto-link only when Google says verified AND the local account's email is already confirmed; otherwise `google_unverified` with the new message. Unconfirmed accounts confirm first or connect from `/account` | Blocks a stranger who registered with someone else's email from receiving that person's Google sign-ins | User |
 
