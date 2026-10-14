@@ -1,10 +1,17 @@
 package com.taskapp.security;
 
+import java.security.SecureRandom;
+import java.time.Clock;
+import java.util.Base64;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.RememberMeAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -12,6 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.PortMapper;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter;
 import org.springframework.security.web.context.DelegatingSecurityContextRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
@@ -27,6 +35,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Configuration
 @EnableWebSecurity
+@Import(SessionConfig.class)
 public class SecurityConfig {
 
     private static final String[] API_DOCS_PATHS = {
@@ -35,7 +44,8 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper,
             CsrfTokenRepository csrfTokenRepository, SecurityContextRepository securityContextRepository,
-            ObjectProvider<SessionUserLookup> sessionUserLookup,
+            ObjectProvider<SessionUserLookup> sessionUserLookup, HashedRememberMeServices rememberMeServices,
+            ObjectProvider<SessionAuthenticator> sessionAuthenticator, Clock clock,
             @Value("${app.api-docs-enabled:false}") boolean apiDocsEnabled,
             @Value("${app.security.require-https:true}") boolean requireHttps) throws Exception {
         ProblemResponseWriter problemWriter = new ProblemResponseWriter(objectMapper);
@@ -67,10 +77,17 @@ public class SecurityConfig {
                         // Angular sends the raw cookie value, so no XOR masking (BREACH n/a for this JSON API).
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
-                // After CSRF, before authorization: a deleted user's session becomes anonymous (then 401),
-                // a changed email/display name refreshes the session principal.
-                .addFilterAfter(new SessionUserRefreshFilter(sessionUserLookup::getObject, securityContextRepository),
-                        CsrfCookieFilter.class)
+                // After CSRF, before authorization: a session past its maximum length, ended by "log out other
+                // sessions", or of a deleted user becomes anonymous (then 401); a changed email/display name
+                // refreshes the session principal.
+                .addFilterAfter(new SessionUserRefreshFilter(sessionUserLookup::getObject, securityContextRepository,
+                        clock), CsrfCookieFilter.class)
+                // Standard remember-me position (after the two filters above, before authorization): no valid
+                // session + a valid remember-me cookie = signed in within this request, on any method.
+                .addFilterAt(new SessionRememberMeAuthenticationFilter(
+                        new ProviderManager(new RememberMeAuthenticationProvider(rememberMeServices.getKey())),
+                        rememberMeServices, securityContextRepository, sessionAuthenticator::getObject),
+                        RememberMeAuthenticationFilter.class)
                 .securityContext(sc -> sc.securityContextRepository(securityContextRepository))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(new ProblemAuthenticationEntryPoint(problemWriter))
@@ -117,6 +134,20 @@ public class SecurityConfig {
     SecurityContextRepository securityContextRepository() {
         return new DelegatingSecurityContextRepository(
                 new RequestAttributeSecurityContextRepository(), new HttpSessionSecurityContextRepository());
+    }
+
+    /**
+     * Remember-me logins (specs/sessions.md). The key is random per startup: it signs nothing persistent (cookies
+     * are checked against the hashed database rows), it only ties remember-me authentications to this provider.
+     */
+    @Bean
+    HashedRememberMeServices rememberMeServices(ObjectProvider<RememberMeTokenStore> tokenStore,
+            ObjectProvider<SessionUserLookup> sessionUserLookup, Clock clock, RememberMeProperties properties,
+            @Value("${app.security.require-https:true}") boolean requireHttps) {
+        byte[] key = new byte[32];
+        new SecureRandom().nextBytes(key);
+        return new HashedRememberMeServices(Base64.getEncoder().encodeToString(key), tokenStore::getObject,
+                sessionUserLookup::getObject, clock, properties.length(), requireHttps);
     }
 
     @Bean

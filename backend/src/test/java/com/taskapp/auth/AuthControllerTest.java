@@ -7,7 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static com.taskapp.security.TestSessions.signedInSession;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -264,7 +264,7 @@ class AuthControllerTest {
         var principal = new AuthenticatedUser(1L, "bob@example.com", "Bob");
 
         mockMvc.perform(get("/api/auth/me")
-                        .with(authentication(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()))))
+                        .with(signedInSession(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.displayName").value("Bob"));

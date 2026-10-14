@@ -44,7 +44,7 @@ async function loginUi(page: Page, email: string, pw: string) {
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
 async function logout(page: Page) {
-  await page.getByRole('button', { name: 'Log out' }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
 }
 async function api(context: BrowserContext, req: APIRequestContext, path: string, data: object) {

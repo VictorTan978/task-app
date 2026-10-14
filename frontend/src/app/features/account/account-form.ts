@@ -13,6 +13,7 @@ import {
 export const ACCOUNT_RATE_LIMITED_MESSAGE = 'Too many attempts, please try again later';
 export const DISPLAY_NAME_UPDATED_MESSAGE = 'Display name updated';
 export const PASSWORD_CHANGED_MESSAGE = 'Password changed';
+export const LOGGED_OUT_OTHERS_MESSAGE = "You've been logged out on all other devices";
 
 /** Field-level problem: 400 VALIDATION_FAILED, 409 DISPLAY_NAME_TAKEN or 400 WRONG_PASSWORD. */
 function accountFieldProblem(error: unknown): Problem | null {

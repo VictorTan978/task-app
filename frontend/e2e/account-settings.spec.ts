@@ -74,7 +74,7 @@ async function login(page: Page, mail: string, password = PASSWORD) {
 }
 
 async function logout(page: Page) {
-  await page.getByRole('button', { name: 'Log out' }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page).toHaveURL(/\/login/);
 }
 
@@ -671,7 +671,7 @@ test.describe('States', () => {
     await register(page, `Busy ${uid()}`, email('ac17'));
     await gotoAccount(page);
     let release: () => void = () => undefined;
-    const gate = new Promise<void>((res) => (release = res));
+    let gate = new Promise<void>((res) => (release = res));
     await page.route('**/api/account/**', async (r) => {
       await gate;
       await r.continue();
@@ -691,6 +691,14 @@ test.describe('States', () => {
     await change.click();
     await expect(change).toBeDisabled();
     await expect(change.getByTestId('spinner')).toBeVisible();
+    // sessions spec: page-level busy lock while the password change is in flight
+    await expect(page.locator('#account-delete')).toBeDisabled();
+    await expect(page.locator('#account-logout-others')).toBeDisabled();
+    release();
+    await expect(page.getByText('Display name updated')).toBeVisible();
+    await expect(page.locator('#account-current-password-error')).toBeVisible();
+    await expect(page.locator('#account-delete')).toBeEnabled();
+    gate = new Promise<void>((res) => (release = res));
 
     await page.getByRole('button', { name: 'Delete account' }).click();
     await page.locator('#delete-account-password').fill('wrong-pw-busy');

@@ -3,19 +3,23 @@ package com.taskapp.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -25,6 +29,7 @@ import com.taskapp.auth.dto.ChangeDisplayNameRequest;
 import com.taskapp.auth.dto.ChangePasswordRequest;
 import com.taskapp.auth.dto.DeleteAccountRequest;
 import com.taskapp.auth.dto.UserResponse;
+import com.taskapp.security.SessionRenewal;
 import com.taskapp.security.ratelimit.AuthRateLimiter;
 import com.taskapp.security.ratelimit.RateLimitProperties;
 import com.taskapp.security.ratelimit.RateLimitedException;
@@ -32,8 +37,15 @@ import com.taskapp.security.ratelimit.RateLimitedException;
 class AccountServiceTest {
 
     private static final String PASSWORD = "correct-horse";
+    private static final Instant SIGNED_IN = Instant.parse("2026-10-13T08:00:00Z");
+    private static final Instant NOW = Instant.parse("2026-10-13T09:00:00.123456Z");
+    /** A normal session (no remember-me login) signed in at SIGNED_IN, ending the others at NOW. */
+    private static final SessionRenewal RENEWAL = new SessionRenewal(SIGNED_IN, NOW, null);
+    /** base64url of a 32-byte series hash, as stored in the session. */
+    private static final String SERIES_ID = "A".repeat(42) + "Q";
 
     private final UserRepository userRepository = mock(UserRepository.class);
+    private final RememberMeTokenRepository rememberMeTokens = mock(RememberMeTokenRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private AccountService accountService;
     private User bob;
@@ -43,7 +55,7 @@ class AccountServiceTest {
     void setUp() {
         AuthRateLimiter rateLimiter = new AuthRateLimiter(new RateLimitProperties(
                 5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)), Clock.systemUTC());
-        accountService = new AccountService(userRepository, passwordEncoder, rateLimiter);
+        accountService = new AccountService(userRepository, passwordEncoder, rateLimiter, rememberMeTokens);
         bob = persisted(1L, "bob@example.com", "Bob");
         alice = persisted(2L, "alice@example.com", "Alice");
         when(userRepository.findById(1L)).thenReturn(Optional.of(bob));
@@ -124,7 +136,7 @@ class AccountServiceTest {
 
         assertThatThrownBy(() -> accountService.changeDisplayName(9L, new ChangeDisplayNameRequest("X")))
                 .isInstanceOf(UnauthenticatedException.class);
-        assertThatThrownBy(() -> accountService.changePassword(9L, new ChangePasswordRequest(PASSWORD, "new-password")))
+        assertThatThrownBy(() -> accountService.changePassword(9L, new ChangePasswordRequest(PASSWORD, "new-password"), RENEWAL))
                 .isInstanceOf(UnauthenticatedException.class);
         assertThatThrownBy(() -> accountService.deleteAccount(9L, new DeleteAccountRequest(PASSWORD)))
                 .isInstanceOf(UnauthenticatedException.class);
@@ -134,7 +146,7 @@ class AccountServiceTest {
 
     @Test
     void changePasswordStoresNewBcryptHash() {
-        UserResponse result = accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, "battery-staple-42"));
+        UserResponse result = accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, "battery-staple-42"), RENEWAL);
 
         assertThat(result.email()).isEqualTo("bob@example.com");
         assertThat(bob.getPasswordHash()).startsWith("$2").hasSize(60);
@@ -145,7 +157,7 @@ class AccountServiceTest {
 
     @Test
     void newPasswordMayEqualTheCurrentOne() {
-        accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, PASSWORD));
+        accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, PASSWORD), RENEWAL);
 
         assertThat(passwordEncoder.matches(PASSWORD, bob.getPasswordHash())).isTrue();
     }
@@ -154,7 +166,7 @@ class AccountServiceTest {
     void wrongCurrentPasswordChangesNothing() {
         String hashBefore = bob.getPasswordHash();
 
-        assertThatThrownBy(() -> accountService.changePassword(1L, new ChangePasswordRequest("wrong-horse", "new-password")))
+        assertThatThrownBy(() -> accountService.changePassword(1L, new ChangePasswordRequest("wrong-horse", "new-password"), RENEWAL))
                 .isInstanceOfSatisfying(WrongPasswordException.class, e -> {
                     assertThat(e.action()).isEqualTo(WrongPasswordException.Action.CHANGE_PASSWORD);
                     assertThat(e.action().field()).isEqualTo("currentPassword");
@@ -163,6 +175,60 @@ class AccountServiceTest {
                 });
         assertThat(bob.getPasswordHash()).isEqualTo(hashBefore);
         verify(userRepository, never()).saveAndFlush(any());
+        assertThat(bob.getSessionsValidAfter()).isNull();
+        verifyNoInteractions(rememberMeTokens);
+    }
+
+    // --- other sessions (specs/sessions.md AC10, AC11) ---
+
+    @Test
+    void changePasswordEndsAllOtherSessionsAndRememberMeLogins() {
+        accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, "battery-staple-42"), RENEWAL);
+
+        assertThat(bob.getSessionsValidAfter()).isEqualTo(NOW);
+        verify(rememberMeTokens).deleteAllForUserExcept(1L, null);
+    }
+
+    @Test
+    void logoutOtherSessionsSetsTheCutoffAndKeepsThisDevicesRememberMeLogin() {
+        UserResponse result = accountService.logoutOtherSessions(1L, new SessionRenewal(SIGNED_IN, NOW, SERIES_ID));
+
+        assertThat(result.email()).isEqualTo("bob@example.com");
+        assertThat(bob.getSessionsValidAfter()).isEqualTo(NOW);
+        verify(userRepository).saveAndFlush(bob);
+        ArgumentCaptor<byte[]> kept = ArgumentCaptor.forClass(byte[].class);
+        verify(rememberMeTokens).deleteAllForUserExcept(eq(1L), kept.capture());
+        assertThat(kept.getValue()).hasSize(32);
+    }
+
+    @Test
+    void logoutOtherSessionsIsIdempotent() {
+        accountService.logoutOtherSessions(1L, RENEWAL);
+        // Same session again: its validity time is now the cutoff itself, which is not "before" it.
+        accountService.logoutOtherSessions(1L, new SessionRenewal(NOW, NOW.plusSeconds(5), null));
+
+        assertThat(bob.getSessionsValidAfter()).isEqualTo(NOW.plusSeconds(5));
+    }
+
+    @Test
+    void aSessionAlreadyEndedByANewerCutoffCannotRenewItself() {
+        bob.endSessionsBefore(SIGNED_IN.plusSeconds(1));
+
+        assertThatThrownBy(() -> accountService.logoutOtherSessions(1L, RENEWAL))
+                .isInstanceOf(UnauthenticatedException.class);
+        assertThatThrownBy(() -> accountService.changePassword(1L,
+                new ChangePasswordRequest(PASSWORD, "battery-staple-42"), RENEWAL))
+                .isInstanceOf(UnauthenticatedException.class);
+        assertThat(bob.getSessionsValidAfter()).isEqualTo(SIGNED_IN.plusSeconds(1));
+        verifyNoInteractions(rememberMeTokens);
+    }
+
+    @Test
+    void logoutOtherSessionsOfAMissingUserIsUnauthenticated() {
+        when(userRepository.findById(9L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> accountService.logoutOtherSessions(9L, RENEWAL))
+                .isInstanceOf(UnauthenticatedException.class);
     }
 
     // --- delete ---
@@ -191,7 +257,7 @@ class AccountServiceTest {
     @Test
     void fiveWrongPasswordsAcrossBothEndpointsBlockBothEvenWithTheRightPassword() {
         for (int i = 0; i < 3; i++) {
-            assertThatThrownBy(() -> accountService.changePassword(1L, new ChangePasswordRequest("wrong", "new-password")))
+            assertThatThrownBy(() -> accountService.changePassword(1L, new ChangePasswordRequest("wrong", "new-password"), RENEWAL))
                     .isInstanceOf(WrongPasswordException.class);
         }
         for (int i = 0; i < 2; i++) {
@@ -199,7 +265,7 @@ class AccountServiceTest {
                     .isInstanceOf(WrongPasswordException.class);
         }
 
-        assertThatThrownBy(() -> accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, "new-password")))
+        assertThatThrownBy(() -> accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, "new-password"), RENEWAL))
                 .isInstanceOfSatisfying(RateLimitedException.class, e -> {
                     assertThat(e.limit()).isEqualTo(RateLimitedException.Limit.PASSWORD_CHECK_USER);
                     assertThat(e.email()).isEqualTo("bob@example.com");
@@ -211,7 +277,7 @@ class AccountServiceTest {
         verify(userRepository, never()).saveAndFlush(any());
 
         // Other users are not affected.
-        accountService.changePassword(2L, new ChangePasswordRequest(PASSWORD, "new-password"));
+        accountService.changePassword(2L, new ChangePasswordRequest(PASSWORD, "new-password"), RENEWAL);
     }
 
     @Test
@@ -220,9 +286,11 @@ class AccountServiceTest {
             assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest("wrong")))
                     .isInstanceOf(WrongPasswordException.class);
         }
-        accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, PASSWORD));
+        accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, PASSWORD), RENEWAL);
+        // This session's validity time is now the cutoff it set.
+        SessionRenewal renewed = new SessionRenewal(NOW, NOW, null);
         for (int i = 0; i < 4; i++) {
-            assertThatThrownBy(() -> accountService.changePassword(1L, new ChangePasswordRequest("wrong", PASSWORD)))
+            assertThatThrownBy(() -> accountService.changePassword(1L, new ChangePasswordRequest("wrong", PASSWORD), renewed))
                     .isInstanceOf(WrongPasswordException.class);
         }
 

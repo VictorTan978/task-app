@@ -47,12 +47,26 @@ public class AccountController {
         return change.user();
     }
 
+    /** Also ends all other sessions; this one stays signed in with a new session id. */
     @PutMapping("/password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changePassword(@AuthenticationPrincipal AuthenticatedUser principal,
             @Valid @RequestBody ChangePasswordRequest body, HttpServletRequest request) {
-        UserResponse user = accountService.changePassword(principal.id(), body);
+        UserResponse user = sessionAuthenticator.keepOnlyThisSession(request,
+                renewal -> accountService.changePassword(principal.id(), body, renewal));
         SecurityEventLogger.log(SecurityEvent.PASSWORD_CHANGED, request, user.email());
+        SecurityEventLogger.log(SecurityEvent.OTHER_SESSIONS_LOGGED_OUT, "trigger", "password_change", request,
+                user.email());
+    }
+
+    /** No request body (ignored if sent). This session stays signed in with a new session id. */
+    @PostMapping("/logout-other-sessions")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logoutOtherSessions(@AuthenticationPrincipal AuthenticatedUser principal,
+            HttpServletRequest request) {
+        UserResponse user = sessionAuthenticator.keepOnlyThisSession(request,
+                renewal -> accountService.logoutOtherSessions(principal.id(), renewal));
+        SecurityEventLogger.log(SecurityEvent.OTHER_SESSIONS_LOGGED_OUT, "trigger", "button", request, user.email());
     }
 
     @PostMapping("/delete")

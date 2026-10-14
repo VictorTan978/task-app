@@ -75,7 +75,7 @@ test.describe('Registration', () => {
     await expect(page).toHaveURL(/\/tasks$/);
     await expect(page.getByText(`Hi, ${nameAliceQA}`)).toBeVisible();
     await expect(page.getByText('Task App')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/ac1-tasks-after-register.png`, fullPage: true });
     console.log('AC1 console errors:', JSON.stringify(w.consoleErrors));
@@ -208,7 +208,7 @@ test.describe('Session and logout', () => {
     const w = watch(page);
     await registerViaUi(page, uniqueName('Frank'), uniqueEmail('ac7'));
     await expect(page).toHaveURL(/\/tasks$/);
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
     await expect(page).toHaveURL(/\/login$/);
     // no session-expired notice after a normal logout
     await expect(page.getByRole('status')).toHaveCount(0);
@@ -234,7 +234,7 @@ test.describe('Session and logout', () => {
       await new Promise((r) => setTimeout(r, 500));
       await route.continue();
     });
-    await page.getByRole('button', { name: 'Log out' }).dblclick();
+    await page.getByRole('button', { name: 'Log out', exact: true }).dblclick();
     await expect(page).toHaveURL(/\/login$/);
     expect(logouts).toBe(1);
   });
@@ -304,7 +304,7 @@ test.describe('Session and logout', () => {
       headers: { 'X-XSRF-TOKEN': token },
     });
     expect(out.status()).toBe(204);
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
     await expect(page).toHaveURL(/\/login$/);
   });
 });
@@ -452,7 +452,7 @@ test.describe('AC10-12 via browser request context', () => {
     await expect(page).toHaveURL(/\/tasks$/);
     await page.reload();
     await expect(page.getByText(`Hi, ${namePat}`)).toBeVisible();
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
     await expect(page).toHaveURL(/\/login$/);
     await loginViaUi(page, email);
     await expect(page).toHaveURL(/\/tasks$/);

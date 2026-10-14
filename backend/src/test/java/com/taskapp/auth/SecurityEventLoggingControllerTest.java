@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static com.taskapp.security.TestSessions.signedInSession;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -152,7 +152,7 @@ class SecurityEventLoggingControllerTest {
 
     @Test
     void logoutWhenSignedInAndAnonymous() throws Exception {
-        mockMvc.perform(post("/api/auth/logout").with(csrf()).with(from("10.1.0.7")).with(authentication(signedIn())))
+        mockMvc.perform(post("/api/auth/logout").with(csrf()).with(from("10.1.0.7")).with(signedInSession(signedIn())))
                 .andExpect(status().isNoContent());
         assertSingleLine(Level.INFO,
                 "SECURITY event=LOGOUT email=bob@example.com ip=10.1.0.7 path=/api/auth/logout");
@@ -209,7 +209,7 @@ class SecurityEventLoggingControllerTest {
     void unauthenticatedBecauseSessionUserNoLongerExists() throws Exception {
         when(authService.getUser(anyLong())).thenThrow(new UnauthenticatedException());
 
-        mockMvc.perform(get("/api/auth/me").with(from("10.1.0.12")).with(authentication(signedIn())))
+        mockMvc.perform(get("/api/auth/me").with(from("10.1.0.12")).with(signedInSession(signedIn())))
                 .andExpect(status().isUnauthorized());
 
         assertSingleLine(Level.WARN,
@@ -218,7 +218,7 @@ class SecurityEventLoggingControllerTest {
 
     @Test
     void csrfRejection() throws Exception {
-        mockMvc.perform(post("/api/auth/logout").with(from("10.1.0.13")).with(authentication(signedIn())))
+        mockMvc.perform(post("/api/auth/logout").with(from("10.1.0.13")).with(signedInSession(signedIn())))
                 .andExpect(status().isForbidden());
 
         assertSingleLine(Level.WARN,

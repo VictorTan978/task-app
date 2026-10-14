@@ -306,7 +306,7 @@ test.describe('AC18: show/hide toggle', () => {
     await page.screenshot({ path: `${SHOTS}/ac18-after-password-changed-hidden.png`, fullPage: true });
 
     // login/register page load: shown state does not survive navigation
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
     await expect(page).toHaveURL(/\/login/);
     await page.goto('/register');
     await toggle(page, 'register-password').click();
@@ -425,7 +425,7 @@ test.describe('AC20: change password confirm', () => {
     await expect(page.getByText('Password changed')).toHaveCount(0);
 
     // password unchanged on the server: still logs in with the old one
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
     await expect(page).toHaveURL(/\/login/);
     await page.locator('#login-email').fill(mail);
     await page.locator('#login-password').fill(PASSWORD);
@@ -478,7 +478,7 @@ test.describe('AC21: matching passwords work; confirm never sent', () => {
     expect(pwReqs.length).toBe(2);
 
     // signed in with the latest password
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
     await expect(page).toHaveURL(/\/login/);
     await page.locator('#login-email').fill(mail);
     await page.locator('#login-password').fill(NEW_PASSWORD);
@@ -513,7 +513,7 @@ test.describe('AC22: login and delete dialog have no confirm field', () => {
     const w = watch(page);
     const mail = email('lg');
     await register(page, `Lg ${uid()}`, mail);
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
     await expect(page).toHaveURL(/\/login/);
     await expect(page.locator('input[type=password]')).toHaveCount(1);
     await expect(page.getByTestId('password-toggle')).toHaveCount(1);
@@ -526,7 +526,8 @@ test.describe('AC22: login and delete dialog have no confirm field', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page).toHaveURL(/\/tasks$/);
     expect(reqs.length).toBe(1);
-    expect(reqs[0].body).toEqual({ email: mail, password: PASSWORD });
+    // sessions (contract 0.6.0) adds the optional rememberMe flag; still no confirm field
+    expect(reqs[0].body).toEqual({ email: mail, password: PASSWORD, rememberMe: false });
 
     // delete dialog: one password field, one toggle, no confirm
     await gotoAccount(page);

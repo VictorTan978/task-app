@@ -10,7 +10,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static com.taskapp.security.TestSessions.signedInSession;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -21,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
@@ -29,7 +30,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -42,6 +45,8 @@ import com.taskapp.auth.dto.DeleteAccountRequest;
 import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.security.SecurityConfig;
+import com.taskapp.security.SessionAttributes;
+import com.taskapp.security.SessionRenewal;
 import com.taskapp.security.SessionAuthenticator;
 import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.security.audit.SecurityLogCapture;
@@ -58,6 +63,7 @@ class AccountControllerTest {
     private static final String DISPLAY_NAME = "/api/account/display-name";
     private static final String PASSWORD = "/api/account/password";
     private static final String DELETE = "/api/account/delete";
+    private static final String LOGOUT_OTHERS = "/api/account/logout-other-sessions";
 
     @Autowired
     private MockMvc mockMvc;
@@ -78,7 +84,7 @@ class AccountControllerTest {
     }
 
     private static RequestPostProcessor signedIn() {
-        return authentication(UsernamePasswordAuthenticationToken.authenticated(PRINCIPAL, null, List.of()));
+        return signedInSession(UsernamePasswordAuthenticationToken.authenticated(PRINCIPAL, null, List.of()));
     }
 
     private static RequestPostProcessor from(String ip) {
@@ -199,7 +205,7 @@ class AccountControllerTest {
 
     @Test
     void changePasswordReturns204WithoutBodyOrCookiesAndLogs() throws Exception {
-        when(accountService.changePassword(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob"));
+        when(accountService.changePassword(eq(1L), any(), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob"));
 
         mockMvc.perform(json(put(PASSWORD), "{\"currentPassword\":\"correct-horse\",\"newPassword\":\"battery-staple-42\"}")
                         .with(csrf()).with(signedIn()).with(from("10.2.0.2")))
@@ -207,10 +213,14 @@ class AccountControllerTest {
                 .andExpect(content().string(""))
                 .andExpect(cookie().doesNotExist("JSESSIONID"));
 
-        verify(accountService).changePassword(1L, new ChangePasswordRequest("correct-horse", "battery-staple-42"));
+        verify(accountService).changePassword(eq(1L),
+                eq(new ChangePasswordRequest("correct-horse", "battery-staple-42")), any());
         assertThat(capture.lines()).containsExactly(
-                "SECURITY event=PASSWORD_CHANGED email=bob@example.com ip=10.2.0.2 path=/api/account/password");
+                "SECURITY event=PASSWORD_CHANGED email=bob@example.com ip=10.2.0.2 path=/api/account/password",
+                "SECURITY event=OTHER_SESSIONS_LOGGED_OUT trigger=password_change email=bob@example.com ip=10.2.0.2"
+                        + " path=/api/account/password");
         assertThat(capture.events().get(0).getLevel()).isEqualTo(Level.INFO);
+        assertThat(capture.events().get(1).getLevel()).isEqualTo(Level.INFO);
     }
 
     @Test
@@ -242,7 +252,7 @@ class AccountControllerTest {
 
     @Test
     void wrongCurrentPasswordIs400WrongPasswordAndLogsFailure() throws Exception {
-        when(accountService.changePassword(eq(1L), any())).thenThrow(
+        when(accountService.changePassword(eq(1L), any(), any())).thenThrow(
                 new WrongPasswordException(WrongPasswordException.Action.CHANGE_PASSWORD, "bob@example.com"));
 
         mockMvc.perform(json(put(PASSWORD), "{\"currentPassword\":\"wrong-horse-123\",\"newPassword\":\"battery-staple-42\"}")
@@ -265,7 +275,7 @@ class AccountControllerTest {
 
     @Test
     void passwordCheckLimitIs429WithRetryAfterAndLogs() throws Exception {
-        when(accountService.changePassword(eq(1L), any())).thenThrow(limited());
+        when(accountService.changePassword(eq(1L), any(), any())).thenThrow(limited());
         when(accountService.deleteAccount(eq(1L), any())).thenThrow(limited());
 
         mockMvc.perform(json(put(PASSWORD), "{\"currentPassword\":\"correct-horse\",\"newPassword\":\"battery-staple-42\"}")
@@ -345,6 +355,95 @@ class AccountControllerTest {
                 + " email=bob@example.com ip=10.2.0.6 path=/api/account/delete");
     }
 
+    // --- log out other sessions (specs/sessions.md AC10, AC14, AC15) ---
+
+    private static MockHttpSession sessionValidFrom(Instant validFrom) {
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(SessionAttributes.EXPIRES_AT, validFrom.plus(Duration.ofHours(12)));
+        session.setAttribute(SessionAttributes.VALID_FROM, validFrom);
+        return session;
+    }
+
+    @Test
+    void logoutOtherSessionsReturns204RenewsTheSessionAndLogs() throws Exception {
+        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob"));
+        Instant signedInAt = Instant.now().minus(Duration.ofHours(1));
+        MockHttpSession session = sessionValidFrom(signedInAt);
+        session.setAttribute(SessionAttributes.REMEMBER_ME_SERIES, "A".repeat(42) + "Q");
+        String idBefore = session.getId();
+
+        mockMvc.perform(post(LOGOUT_OTHERS).session(session).with(csrf()).with(signedIn()).with(from("10.2.0.7")))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""))
+                .andExpect(header().doesNotExist("Set-Cookie"));
+
+        ArgumentCaptor<SessionRenewal> renewal = ArgumentCaptor.forClass(SessionRenewal.class);
+        verify(accountService).logoutOtherSessions(eq(1L), renewal.capture());
+        assertThat(renewal.getValue().previousValidFrom()).isEqualTo(signedInAt);
+        assertThat(renewal.getValue().now()).isAfter(signedInAt);
+        assertThat(renewal.getValue().keepSeries()).isEqualTo("A".repeat(42) + "Q");
+        assertThat(session.getId()).isNotEqualTo(idBefore);
+        assertThat(session.getAttribute(SessionAttributes.VALID_FROM)).isEqualTo(renewal.getValue().now());
+        assertThat(session.getAttribute(SessionAttributes.EXPIRES_AT)).isEqualTo(signedInAt.plus(Duration.ofHours(12)));
+        assertThat(capture.lines()).containsExactly("SECURITY event=OTHER_SESSIONS_LOGGED_OUT trigger=button"
+                + " email=bob@example.com ip=10.2.0.7 path=/api/account/logout-other-sessions");
+        assertThat(capture.events().get(0).getLevel()).isEqualTo(Level.INFO);
+    }
+
+    @Test
+    void logoutOtherSessionsIgnoresABody() throws Exception {
+        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob"));
+
+        mockMvc.perform(json(post(LOGOUT_OTHERS), "{not json").with(csrf()).with(signedIn()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void failedRenewalRestoresTheSessionsValidityAndKeepsItsId() throws Exception {
+        when(accountService.logoutOtherSessions(eq(1L), any())).thenThrow(new UnauthenticatedException());
+        Instant signedInAt = Instant.now().minus(Duration.ofHours(1));
+        MockHttpSession session = sessionValidFrom(signedInAt);
+        String idBefore = session.getId();
+
+        mockMvc.perform(post(LOGOUT_OTHERS).session(session).with(csrf()).with(signedIn()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+
+        assertThat(session.getAttribute(SessionAttributes.VALID_FROM)).isEqualTo(signedInAt);
+        assertThat(session.getId()).isEqualTo(idBefore);
+    }
+
+    @Test
+    void wrongPasswordOnChangeRestoresTheSessionsValidity() throws Exception {
+        when(accountService.changePassword(eq(1L), any(), any())).thenThrow(
+                new WrongPasswordException(WrongPasswordException.Action.CHANGE_PASSWORD, "bob@example.com"));
+        Instant signedInAt = Instant.now().minus(Duration.ofHours(1));
+        MockHttpSession session = sessionValidFrom(signedInAt);
+        String idBefore = session.getId();
+
+        mockMvc.perform(json(put(PASSWORD), "{\"currentPassword\":\"wrong-horse\",\"newPassword\":\"battery-staple-42\"}")
+                        .session(session).with(csrf()).with(signedIn()))
+                .andExpect(status().isBadRequest());
+
+        assertThat(session.getAttribute(SessionAttributes.VALID_FROM)).isEqualTo(signedInAt);
+        assertThat(session.getId()).isEqualTo(idBefore);
+    }
+
+    @Test
+    void logoutOtherSessionsIs401WhenSignedOutAnd403WithoutCsrf() throws Exception {
+        mockMvc.perform(post(LOGOUT_OTHERS).with(csrf()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+        mockMvc.perform(post(LOGOUT_OTHERS).with(signedIn()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_INVALID"));
+        mockMvc.perform(post(LOGOUT_OTHERS))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_INVALID"));
+        verifyNoInteractions(accountService);
+    }
+
     // --- AC16: 401 / 403 and their precedence ---
 
     @Test
@@ -384,7 +483,7 @@ class AccountControllerTest {
 
     @Test
     void passwordsNeverAppearInLogsOrResponses() throws Exception {
-        when(accountService.changePassword(anyLong(), any())).thenThrow(
+        when(accountService.changePassword(anyLong(), any(), any())).thenThrow(
                 new WrongPasswordException(WrongPasswordException.Action.CHANGE_PASSWORD, "bob@example.com"));
         String body = mockMvc.perform(json(put(PASSWORD),
                         "{\"currentPassword\":\"Secret-Current-1\",\"newPassword\":\"Secret-New-22\"}")

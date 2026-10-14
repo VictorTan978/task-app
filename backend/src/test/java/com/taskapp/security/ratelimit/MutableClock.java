@@ -6,16 +6,16 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 
-/** Test clock that only moves when told to. */
-final class MutableClock extends Clock {
+/** Test clock that only moves when told to. Thread-safe enough for HTTP tests (volatile). */
+public final class MutableClock extends Clock {
 
-    private Instant now;
+    private volatile Instant now;
 
-    MutableClock(Instant start) {
+    public MutableClock(Instant start) {
         this.now = start;
     }
 
-    void advance(Duration duration) {
+    public void advance(Duration duration) {
         now = now.plus(duration);
     }
 

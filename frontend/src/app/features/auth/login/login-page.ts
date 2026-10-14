@@ -24,6 +24,7 @@ import {
   selector: 'app-login-page',
   imports: [ReactiveFormsModule, RouterLink, PasswordField],
   templateUrl: './login-page.html',
+  styleUrl: './login-page.scss',
 })
 export class LoginPage {
   private readonly auth = inject(AuthService);
@@ -32,6 +33,7 @@ export class LoginPage {
   protected readonly form = inject(NonNullableFormBuilder).group({
     email: ['', [requiredTrimmed, emailTrimmed]],
     password: ['', [requiredTrimmed]],
+    rememberMe: [false],
   });
 
   protected readonly pending = signal(false);
@@ -65,10 +67,10 @@ export class LoginPage {
       return;
     }
 
-    const { email, password } = this.form.getRawValue();
+    const { email, password, rememberMe } = this.form.getRawValue();
     this.pending.set(true);
     this.auth
-      .login({ email: email.trim(), password })
+      .login({ email: email.trim(), password, rememberMe })
       .pipe(finalize(() => this.pending.set(false)))
       .subscribe({
         next: () => void this.router.navigateByUrl('/tasks'),

@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -17,7 +18,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * Fields are always in this order; a missing value is {@code -}. Every value is escaped (see {@link #sanitize}),
  * so a value is always a single token without spaces and can't start a new log line.
  * <p>
- * Never pass passwords, hashes, session IDs or CSRF tokens. Only the email, the client IP
+ * Never pass passwords, hashes, session IDs, CSRF tokens or remember-me cookie values. Only the email, the client IP
  * ({@code request.getRemoteAddr()}, already resolved through trusted proxies) and the request path (without
  * query string or {@code ;} path parameters) are taken from the request.
  */
@@ -34,13 +35,19 @@ public final class SecurityEventLogger {
     }
 
     public static void log(SecurityEvent event, HttpServletRequest request, String email) {
-        write(event, null, null, email, request);
+        write(event, event.level(), null, null, email, request);
     }
 
     /** With one extra field after the event name, e.g. {@code reason=bad_password} or {@code limit=login-ip}. */
     public static void log(SecurityEvent event, String field, String value, HttpServletRequest request,
             String email) {
-        write(event, field, value, email, request);
+        write(event, event.level(), field, value, email, request);
+    }
+
+    /** Like {@link #log(SecurityEvent, String, String, HttpServletRequest, String)}, at a level other than the event's. */
+    public static void log(SecurityEvent event, Level level, String field, String value, HttpServletRequest request,
+            String email) {
+        write(event, level, field, value, email, request);
     }
 
     /** Email of the signed-in user of the current request, or null when anonymous. */
@@ -52,7 +59,7 @@ public final class SecurityEventLogger {
         return null;
     }
 
-    private static void write(SecurityEvent event, String field, String value, String email,
+    private static void write(SecurityEvent event, Level level, String field, String value, String email,
             HttpServletRequest request) {
         StringBuilder line = new StringBuilder(160).append(PREFIX).append(" event=").append(event.name());
         if (field != null) {
@@ -61,7 +68,7 @@ public final class SecurityEventLogger {
         line.append(" email=").append(sanitize(email))
                 .append(" ip=").append(sanitize(request == null ? null : request.getRemoteAddr()))
                 .append(" path=").append(sanitize(request == null ? null : path(request)));
-        log.atLevel(event.level()).log(line.toString());
+        log.atLevel(level).log(line.toString());
     }
 
     /** Request URI without {@code ;params} (e.g. a {@code ;jsessionid=...} in the URL). Never the query string. */

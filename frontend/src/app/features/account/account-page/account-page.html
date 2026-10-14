@@ -19,12 +19,39 @@
     <app-change-password-form />
   </section>
 
+  <section class="account-card" aria-labelledby="account-sessions-heading">
+    <h2 id="account-sessions-heading">Sessions</h2>
+    <p class="account-card__text">
+      Signed in somewhere else, like a shared computer? Log out everywhere except this device.
+    </p>
+    <div class="account-card__actions">
+      <button
+        id="account-logout-others"
+        type="button"
+        class="btn btn--secondary"
+        [disabled]="locked()"
+        (click)="openLogoutOthers()"
+      >
+        Log out all other devices
+      </button>
+      <p class="account-card__status" id="account-logout-others-status" role="status">
+        {{ sessionsStatus() }}
+      </p>
+    </div>
+  </section>
+
   <section class="account-card account-card--danger" aria-labelledby="account-delete-heading">
     <h2 id="account-delete-heading">Delete account</h2>
     <p class="account-card__text">
       Permanently delete your account and all your tasks. This can't be undone.
     </p>
-    <button type="button" class="btn btn--danger" (click)="deleting.set(true)">
+    <button
+      id="account-delete"
+      type="button"
+      class="btn btn--danger"
+      [disabled]="locked()"
+      (click)="deleting.set(true)"
+    >
       Delete account
     </button>
   </section>
@@ -32,4 +59,10 @@
 
 @if (deleting()) {
   <app-delete-account-dialog (deleted)="onDeleted()" (closed)="deleting.set(false)" />
+}
+@if (loggingOutOthers()) {
+  <app-logout-others-dialog
+    (loggedOut)="onLoggedOutOthers()"
+    (closed)="loggingOutOthers.set(false)"
+  />
 }

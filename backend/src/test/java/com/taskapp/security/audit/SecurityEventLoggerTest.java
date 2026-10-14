@@ -65,7 +65,11 @@ class SecurityEventLoggerTest {
         for (SecurityEvent event : SecurityEvent.values()) {
             boolean success = event == SecurityEvent.LOGIN_SUCCESS || event == SecurityEvent.REGISTER_SUCCESS
                     || event == SecurityEvent.LOGOUT || event == SecurityEvent.PASSWORD_CHANGED
-                    || event == SecurityEvent.DISPLAY_NAME_CHANGED || event == SecurityEvent.ACCOUNT_DELETED;
+                    || event == SecurityEvent.DISPLAY_NAME_CHANGED || event == SecurityEvent.ACCOUNT_DELETED
+                    // Session events: normal expiries (REMEMBER_ME_REJECTED reason=reused is logged at WARN).
+                    || event == SecurityEvent.REMEMBER_ME_LOGIN || event == SecurityEvent.REMEMBER_ME_REJECTED
+                    || event == SecurityEvent.SESSION_MAX_LENGTH_REACHED
+                    || event == SecurityEvent.OTHER_SESSIONS_LOGGED_OUT;
             assertThat(event.level().name()).as(event.name()).isEqualTo(success ? "INFO" : "WARN");
         }
     }

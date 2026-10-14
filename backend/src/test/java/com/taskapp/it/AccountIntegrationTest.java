@@ -279,8 +279,10 @@ class AccountIntegrationTest {
 
         assertThat(r.status()).isEqualTo(204);
         assertThat(r.body()).isEmpty();
-        assertThat(r.setCookies()).isEmpty();
-        assertThat(b.cookies.get("JSESSIONID")).isEqualTo(sessionBefore);
+        // Since 0.6.0 (specs/sessions.md AC11): same session, new id; XSRF-TOKEN unchanged.
+        assertThat(r.setCookies()).hasSize(1);
+        assertThat(r.setCookies().get(0)).startsWith("JSESSIONID=");
+        assertThat(b.cookies.get("JSESSIONID")).isNotEqualTo(sessionBefore);
         assertThat(b.cookies.get("XSRF-TOKEN")).isEqualTo(csrfBefore);
         assertThat(b.get("/api/auth/me").status()).isEqualTo(200);
         assertThat(hashInDb("dora@example.com")).startsWith("$2").hasSize(60);
@@ -468,10 +470,11 @@ class AccountIntegrationTest {
                 "SECURITY event=DISPLAY_NAME_CHANGED" + tail + "display-name",
                 "SECURITY event=PASSWORD_CHECK_FAILURE action=change_password" + tail + "password",
                 "SECURITY event=PASSWORD_CHANGED" + tail + "password",
+                "SECURITY event=OTHER_SESSIONS_LOGGED_OUT trigger=password_change" + tail + "password",
                 "SECURITY event=PASSWORD_CHECK_FAILURE action=delete_account" + tail + "delete",
                 "SECURITY event=ACCOUNT_DELETED" + tail + "delete");
         assertThat(capture.events().stream().map(e -> e.getLevel().toString()).toList())
-                .containsExactly("INFO", "WARN", "INFO", "WARN", "INFO");
+                .containsExactly("INFO", "WARN", "INFO", "INFO", "WARN", "INFO");
         assertThat(String.join("\n", capture.lines())).doesNotContain(secret, wrong, next);
     }
 

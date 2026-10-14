@@ -50,6 +50,11 @@
         }
       </div>
 
+      <div class="field field--checkbox">
+        <input id="login-remember-me" type="checkbox" formControlName="rememberMe" />
+        <label for="login-remember-me">Remember me</label>
+      </div>
+
       <button type="submit" class="btn btn--primary" [disabled]="pending()" [attr.aria-busy]="pending()">
         @if (pending()) {
           <span class="spinner" aria-hidden="true" data-testid="spinner"></span>

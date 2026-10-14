@@ -15,6 +15,8 @@ export interface RegisterRequest {
 export interface LoginRequest {
   email: string;
   password: string;
+  /** Optional, default false. True keeps this device signed in for 30 days. */
+  rememberMe?: boolean;
 }
 
 export type FieldName = 'displayName' | 'email' | 'password' | 'currentPassword' | 'newPassword';
