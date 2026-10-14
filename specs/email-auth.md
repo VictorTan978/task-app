@@ -68,6 +68,7 @@ As a user, I want to confirm my email address and reset a forgotten password by 
   - `POST /api/auth/forgot-password` `{email}` → 202 (always); 429 (per-IP limit only)
   - `POST /api/auth/reset-password` `{token, newPassword}` → 204; 400 `TOKEN_INVALID` / `VALIDATION_FAILED`
   - `User` gets `emailVerified: boolean`.
+  - A reset-token check that doesn't use up the token (added 2026-10-14; see Decisions log).
 - **Backend tests** need a mail server. Use Mailpit through the existing Testcontainers setup if possible; any new test dependency (e.g. GreenMail) needs approval.
 
 ## Approvals needed before build
@@ -98,4 +99,7 @@ _Filled in by the PM during the build._
 | 2026-10-14 | After a reset the user signs in again on `/login` (no automatic sign-in) | Open question 3 | User |
 | 2026-10-14 | Accounts created before this feature are unconfirmed and see the banner | Open question 4 | User |
 | 2026-10-14 | Changing the email address is a separate follow-up, not part of A3 | Open question 5 | User |
+| 2026-10-14 | Add an endpoint that checks a reset token without using it up, so `/reset-password` can show "invalid or expired" when the link is opened (AC11) and while it is checked (AC19) | Gap found in frontend NEEDS | PM |
+| 2026-10-14 | Token leak protection on the frontend: `<meta name="referrer" content="no-referrer">` and the token removed from the address bar after reading (`replaceUrl`); no backend security-header change | AC16; avoids extra security-config scope | PM |
+| 2026-10-14 | The 401 interceptor ignores the public verify/forgot/check/reset URLs, as a safety net; resend is not ignored | Within the approved auth-frontend scope | PM |
 
