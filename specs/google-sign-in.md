@@ -111,4 +111,6 @@ _Filled in by the PM during the build._
 | 2026-10-15 | Accounts without a password confirm deletion by typing their email | Open question 3 | User |
 | 2026-10-15 | Connect and disconnect on `/account` are part of A4 | Open question 4 | User |
 | 2026-10-15 | Google sign-in ignores "Remember me" (normal session) | Open question 5 | User |
+| 2026-10-15 | Redirect results use one query param `oauth` with a fixed set of codes (`google_failed`, `google_unverified`, `google_connected`, `google_in_use`, `google_connect_failed`); the frontend strips it right away, so a refresh doesn't repeat the message. Failed-connect text: "Couldn't connect Google. Please try again." | Frontend NEEDS | PM |
+| 2026-10-15 | Disconnect returns 200 with the updated User. When Google is turned off, existing connections stay in `User` and the card is read-only | Frontend NEEDS | PM |
 
