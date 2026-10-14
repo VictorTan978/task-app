@@ -1,6 +1,6 @@
 # Feature: Email verification and password reset
 
-**Status:** DRAFT 2026-10-14 (waiting for user approval). **Depends on:** `specs/auth.md`, `specs/account-settings.md`, `specs/sessions.md` (all DONE). **Branch:** `feature/email-auth`
+**Status:** APPROVED 2026-10-14, in build. **Depends on:** `specs/auth.md`, `specs/account-settings.md`, `specs/sessions.md` (all DONE). **Branch:** `feature/email-auth`
 
 ## Why
 Today the app never checks that an email address is real, and a user who forgets their password has no way back into their account. Both need the app to send email.
@@ -82,11 +82,7 @@ As a user, I want to confirm my email address and reset a forgotten password by 
 3. Set `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` and `APP_BASE_URL` on the server.
 
 ## Open questions
-1. Should an unconfirmed account be fully usable with just the banner (draft: yes), or should it be blocked from signing in until confirmed?
-2. Link lifetimes: 24 hours for confirmation and 1 hour for reset (draft: yes)?
-3. After a successful reset, should the user land on `/login` to sign in (draft: yes), or be signed in automatically?
-4. Should accounts created before this feature be asked to confirm (draft: yes, they see the banner), or be treated as already confirmed?
-5. Should changing the email address on `/account` be added to this part (draft: no, a small follow-up)?
+None. All answered 2026-10-14 (see Decisions log).
 
 ---
 
@@ -96,3 +92,10 @@ _Filled in by the PM during the build._
 | Date | Decision | Why | Approved by |
 |---|---|---|---|
 | 2026-10-14 | Email via SMTP with Spring's mail support; Mailpit for dev; the production provider is chosen later by settings only | Free, fully testable locally, no vendor lock-in | User (option 1) |
+| 2026-10-14 | Spec approved, including: new dependency `spring-boot-starter-mail`; migration V6 (email token table + nullable `users.email_verified_at`); the auth/security changes (3 public endpoints, new rate limit, ending sessions on reset, `emailVerified` on User); the Mailpit service in docker-compose (dev, localhost only). Any other dependency (e.g. a test mail library) still needs a separate approval | Approval gates | User |
+| 2026-10-14 | Unconfirmed accounts are fully usable, with a banner only | Open question 1 | User |
+| 2026-10-14 | Link lifetimes: confirmation 24h, reset 1h | Open question 2 | User |
+| 2026-10-14 | After a reset the user signs in again on `/login` (no automatic sign-in) | Open question 3 | User |
+| 2026-10-14 | Accounts created before this feature are unconfirmed and see the banner | Open question 4 | User |
+| 2026-10-14 | Changing the email address is a separate follow-up, not part of A3 | Open question 5 | User |
+
