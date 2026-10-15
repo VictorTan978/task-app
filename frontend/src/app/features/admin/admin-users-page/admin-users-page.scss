@@ -192,10 +192,23 @@
       padding: 0.25rem 0.75rem;
     }
 
+    td {
+      overflow-wrap: anywhere;
+    }
+
     td[data-label]::before {
       content: attr(data-label);
+      flex: 0 0 auto;
+      min-width: 6rem;
       color: var(--color-muted);
       font-weight: 600;
+      white-space: nowrap;
+      overflow-wrap: normal;
+    }
+
+    &__you {
+      flex: 0 0 auto;
+      white-space: nowrap;
     }
 
     &__actions {
