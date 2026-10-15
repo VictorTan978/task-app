@@ -18,6 +18,21 @@
     gap: 1rem;
   }
 
+  &__link {
+    color: var(--color-primary);
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+  }
+
   &__greeting {
     color: inherit;
     font-weight: 600;

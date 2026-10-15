@@ -12,6 +12,7 @@ const BOB = {
   displayName: 'Bob',
   emailVerified: true,
   hasPassword: true,
+  role: 'USER',
   connections: [],
 };
 
@@ -76,13 +77,13 @@ describe('LoginPage', () => {
     const link = el.querySelector<HTMLAnchorElement>('a[href="/forgot-password"]')!;
     expect(link.textContent?.trim()).toBe('Forgot password?');
     const password = el.querySelector('#login-password')!;
-    expect(
-      Boolean(password.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING),
-    ).toBe(true);
+    expect(Boolean(password.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
     expect(
       Boolean(
         link.compareDocumentPosition(el.querySelector('#login-remember-me')!) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
+        Node.DOCUMENT_POSITION_FOLLOWING,
       ),
     ).toBe(true);
   });
@@ -207,12 +208,14 @@ describe('LoginPage', () => {
 
   it('maps server field errors to fields', async () => {
     await submit();
-    http.expectOne('/api/auth/login').flush(
-      problem(400, 'VALIDATION_FAILED', [
-        { field: 'email', code: 'INVALID_EMAIL', message: 'server text' },
-      ]),
-      { status: 400, statusText: 'Bad Request' },
-    );
+    http
+      .expectOne('/api/auth/login')
+      .flush(
+        problem(400, 'VALIDATION_FAILED', [
+          { field: 'email', code: 'INVALID_EMAIL', message: 'server text' },
+        ]),
+        { status: 400, statusText: 'Bad Request' },
+      );
     await fixture.whenStable();
     expect(el.querySelector('#login-email-error')?.textContent).toContain(
       'Enter a valid email address',
@@ -283,6 +286,36 @@ describe('LoginPage', () => {
 
     await submit();
     expect(el.querySelector('[data-testid=password-reset]')).toBeNull();
+    http.expectOne('/api/auth/login').flush(BOB);
+  });
+  it('shows "This account has been disabled." on 403 ACCOUNT_DISABLED (no CSRF retry)', async () => {
+    await submit();
+    http
+      .expectOne('/api/auth/login')
+      .flush(problem(403, 'ACCOUNT_DISABLED'), { status: 403, statusText: 'Forbidden' });
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid=form-error]')?.textContent?.trim()).toBe(
+      'This account has been disabled.',
+    );
+    expect(text()).not.toContain('Invalid email or password');
+    http.expectNone('/api/auth/me');
+    http.expectNone('/api/auth/login');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('shows "This account has been disabled." after the session ended, and clears it on submit', async () => {
+    const auth = TestBed.inject(AuthService);
+    auth.loadMe().subscribe();
+    http.expectOne('/api/auth/me').flush(BOB);
+    auth.handleAccountDisabled();
+    await fixture.whenStable();
+    const notice = el.querySelector('[data-testid=account-disabled]');
+    expect(notice?.textContent?.trim()).toBe('This account has been disabled.');
+    expect(notice?.getAttribute('role')).toBe('alert');
+    expect(text()).not.toContain('Your session expired');
+
+    await submit();
+    expect(el.querySelector('[data-testid=account-disabled]')).toBeNull();
     http.expectOne('/api/auth/login').flush(BOB);
   });
 });

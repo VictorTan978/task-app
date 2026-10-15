@@ -1,7 +1,8 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRouteSnapshot, Router, RouterStateSnapshot, UrlTree } from '@angular/router';
-import { authGuard, guestGuard } from './auth.guards';
+import { firstValueFrom, Observable, of } from 'rxjs';
+import { adminGuard, authGuard, guestGuard } from './auth.guards';
 import { AuthService } from './auth.service';
 
 describe('auth guards', () => {
@@ -42,5 +43,60 @@ describe('auth guards', () => {
   it('guestGuard redirects signed-in users to /tasks', () => {
     signedIn.set(true);
     expect(urlOf(run(guestGuard))).toBe('/tasks');
+  });
+});
+
+describe('adminGuard', () => {
+  const signedIn = signal(true);
+  const admin = signal(false);
+  let syncSession: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    signedIn.set(true);
+    admin.set(false);
+    syncSession = vi.fn(() => of(undefined));
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: AuthService, useValue: { isSignedIn: signedIn, isAdmin: admin, syncSession } },
+      ],
+    });
+  });
+
+  async function run(): Promise<unknown> {
+    const result = TestBed.runInInjectionContext(() =>
+      adminGuard({} as ActivatedRouteSnapshot, {} as RouterStateSnapshot),
+    );
+    return firstValueFrom(result as Observable<unknown>);
+  }
+
+  function urlOf(result: unknown): string {
+    expect(result).toBeInstanceOf(UrlTree);
+    return TestBed.inject(Router).serializeUrl(result as UrlTree);
+  }
+
+  it('re-reads the user, then allows admins', async () => {
+    admin.set(true);
+    expect(await run()).toBe(true);
+    expect(syncSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks the role after the refresh (a role raised meanwhile counts)', async () => {
+    syncSession.mockImplementation(() => {
+      admin.set(true);
+      return of(undefined);
+    });
+    expect(await run()).toBe(true);
+  });
+
+  it('sends normal users to /tasks', async () => {
+    expect(urlOf(await run())).toBe('/tasks');
+  });
+
+  it('sends users signed out by the refresh to /login', async () => {
+    syncSession.mockImplementation(() => {
+      signedIn.set(false);
+      return of(undefined);
+    });
+    expect(urlOf(await run())).toBe('/login');
   });
 });

@@ -1,6 +1,9 @@
 <header class="app-header">
   <span class="app-header__name">Task App</span>
   <div class="app-header__user">
+    @if (isAdmin()) {
+      <a class="app-header__link" routerLink="/admin/users" data-testid="admin-link">Admin</a>
+    }
     @if (user(); as u) {
       <a class="app-header__greeting" routerLink="/account">Hi, {{ u.displayName }}</a>
     }

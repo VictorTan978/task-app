@@ -9,6 +9,8 @@ export const SESSION_EXPIRED_MESSAGE = 'Your session expired, please sign in aga
 export const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a few minutes and try again.';
 export const ACCOUNT_DELETED_MESSAGE = 'Your account has been deleted';
 export const PASSWORD_RESET_MESSAGE = 'Your password has been reset. Please sign in.';
+/** Disabled account: 403 at login, 401 ending a session, or `/login?oauth=account_disabled`. */
+export const ACCOUNT_DISABLED_MESSAGE = 'This account has been disabled.';
 /** 429 on the public email endpoints (forgot, check, reset, verify). */
 export const TOO_MANY_ATTEMPTS_MESSAGE = 'Too many attempts, please try again later';
 /** 429 on resend verification. */

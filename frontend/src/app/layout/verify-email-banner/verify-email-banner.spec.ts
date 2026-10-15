@@ -12,6 +12,7 @@ const BOB: User = {
   displayName: 'Bob',
   emailVerified: false,
   hasPassword: true,
+  role: 'USER',
   connections: [],
 };
 

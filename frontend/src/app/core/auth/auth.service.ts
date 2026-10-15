@@ -21,17 +21,25 @@ export class AuthService {
   private readonly expired = signal(false);
   private readonly deleted = signal(false);
   private readonly reset = signal(false);
+  private readonly disabled = signal(false);
   private signedInThisTab = false;
 
   /** The signed-in user, or null when signed out. */
   readonly currentUser = this.user.asReadonly();
   readonly isSignedIn = computed(() => this.user() !== null);
+  /** True for ADMIN and SUPER_ADMIN (they may open /admin/users). */
+  readonly isAdmin = computed(() => {
+    const role = this.user()?.role;
+    return role === 'ADMIN' || role === 'SUPER_ADMIN';
+  });
   /** True when the session expired after the user had signed in during this tab. */
   readonly sessionExpired = this.expired.asReadonly();
   /** True after this tab deleted the signed-in account (shown once on the login page). */
   readonly accountDeleted = this.deleted.asReadonly();
   /** True after this tab reset the password by email (shown once on the login page). */
   readonly passwordReset = this.reset.asReadonly();
+  /** True after the session ended because the account was disabled (shown once on /login). */
+  readonly accountDisabled = this.disabled.asReadonly();
 
   /** True once a user was signed in at any point during this tab's lifetime. */
   get wasSignedInThisTab(): boolean {
@@ -64,6 +72,25 @@ export class AuthService {
   }
 
   /**
+   * Re-reads the signed-in user (GET /api/auth/me) so a changed role takes effect on the next
+   * navigation. Never errors. On 200 the user is replaced (never signs anyone in); on 401 the tab
+   * is signed out (`ACCOUNT_DISABLED` flags the disabled account, anything else is a lost
+   * session); any other failure keeps the current user. Callers check `isSignedIn()` afterwards.
+   */
+  syncSession(): Observable<void> {
+    return this.http.get<User>(AUTH_API.me).pipe(
+      tap((user) => this.updateCurrentUser(user)),
+      map(() => undefined),
+      catchError((error: unknown) => {
+        if (error instanceof HttpErrorResponse && error.status === 401) {
+          this.handleUnauthorized(error);
+        }
+        return of(undefined);
+      }),
+    );
+  }
+
+  /**
    * GET /api/auth/providers: which external sign-in providers are configured. Never errors: any
    * failure counts as "not configured" (`google: false`), so the Google buttons stay hidden.
    */
@@ -86,7 +113,7 @@ export class AuthService {
       map(() => true),
       catchError((error: unknown) => {
         if (error instanceof HttpErrorResponse && error.status === 401) {
-          this.handleSessionLost();
+          this.handleUnauthorized(error);
           return of(false);
         }
         return throwError(() => error);
@@ -192,12 +219,35 @@ export class AuthService {
     this.reset.set(false);
   }
 
+  /**
+   * Called when the server reports 401 `ACCOUNT_DISABLED`: the session ended because the account
+   * was disabled. Clears the local user and flags it for the login page (not a session expiry).
+   */
+  handleAccountDisabled(): void {
+    this.clearLocal();
+    this.disabled.set(true);
+  }
+
+  clearAccountDisabled(): void {
+    this.disabled.set(false);
+  }
+
+  /** 401 on GET /me: a disabled account, or a lost session. */
+  private handleUnauthorized(error: unknown): void {
+    if (hasProblemCode(error, 401, 'ACCOUNT_DISABLED')) {
+      this.handleAccountDisabled();
+    } else {
+      this.handleSessionLost();
+    }
+  }
+
   private setUser(user: User): void {
     this.user.set(user);
     this.signedInThisTab = true;
     this.expired.set(false);
     this.deleted.set(false);
     this.reset.set(false);
+    this.disabled.set(false);
   }
 
   private clearLocal(): void {
@@ -206,6 +256,7 @@ export class AuthService {
     this.expired.set(false);
     this.deleted.set(false);
     this.reset.set(false);
+    this.disabled.set(false);
   }
 
   /** On 403 CSRF_INVALID: fetch a fresh XSRF-TOKEN via GET /me once, then retry once. */

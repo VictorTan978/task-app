@@ -13,16 +13,18 @@ describe('authErrorInterceptor', () => {
   let http: HttpClient;
   let controller: HttpTestingController;
   let handleSessionLost: ReturnType<typeof vi.fn>;
+  let handleAccountDisabled: ReturnType<typeof vi.fn>;
   let navigateByUrl: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     handleSessionLost = vi.fn();
+    handleAccountDisabled = vi.fn();
     navigateByUrl = vi.fn().mockResolvedValue(true);
     TestBed.configureTestingModule({
       providers: [
         provideHttpClient(withInterceptors([authErrorInterceptor])),
         provideHttpClientTesting(),
-        { provide: AuthService, useValue: { handleSessionLost } },
+        { provide: AuthService, useValue: { handleSessionLost, handleAccountDisabled } },
         { provide: Router, useValue: { navigateByUrl } },
       ],
     });
@@ -100,5 +102,33 @@ describe('authErrorInterceptor', () => {
     call('/api/tasks', 403, 'CSRF_INVALID');
     expect(handleSessionLost).not.toHaveBeenCalled();
     expect(navigateByUrl).not.toHaveBeenCalled();
+  });
+  it.each(['/api/tasks', '/api/admin/users', '/api/account/display-name'])(
+    'on 401 ACCOUNT_DISABLED from %s: flags the disabled account, goes to /login, rethrows',
+    (url) => {
+      const error = call(url, 401, 'ACCOUNT_DISABLED');
+      expect(handleAccountDisabled).toHaveBeenCalledTimes(1);
+      expect(handleSessionLost).not.toHaveBeenCalled();
+      expect(navigateByUrl).toHaveBeenCalledWith('/login');
+      expect(error).toMatchObject({ status: 401 });
+    },
+  );
+
+  it('on 401 ACCOUNT_DISABLED from GET /me: flags it but leaves navigation to the caller', () => {
+    call('/api/auth/me', 401, 'ACCOUNT_DISABLED');
+    expect(handleAccountDisabled).toHaveBeenCalledTimes(1);
+    expect(navigateByUrl).not.toHaveBeenCalled();
+  });
+
+  it('never treats 403 ACCOUNT_DISABLED at login as a lost session', () => {
+    let received: unknown;
+    http.post('/api/auth/login', {}).subscribe({ error: (e: unknown) => (received = e) });
+    controller
+      .expectOne('/api/auth/login')
+      .flush(problem(403, 'ACCOUNT_DISABLED'), { status: 403, statusText: 'x' });
+    expect(handleAccountDisabled).not.toHaveBeenCalled();
+    expect(handleSessionLost).not.toHaveBeenCalled();
+    expect(navigateByUrl).not.toHaveBeenCalled();
+    expect(received).toMatchObject({ status: 403 });
   });
 });

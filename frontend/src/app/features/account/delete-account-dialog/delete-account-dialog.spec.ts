@@ -11,6 +11,7 @@ const BOB = {
   displayName: 'Bob',
   emailVerified: true,
   hasPassword: true,
+  role: 'USER',
   connections: [],
 };
 const URL = '/api/account/delete';
@@ -206,6 +207,7 @@ describe('DeleteAccountDialog (account without a password)', () => {
     displayName: 'Bob',
     emailVerified: true,
     hasPassword: false,
+    role: 'USER',
     connections: [{ provider: 'google', email: 'bob@gmail.com' }],
   };
   let fixture: ComponentFixture<DeleteAccountDialog>;

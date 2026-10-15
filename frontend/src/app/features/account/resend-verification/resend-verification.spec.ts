@@ -12,6 +12,7 @@ const BOB = {
   displayName: 'Bob',
   emailVerified: false,
   hasPassword: true,
+  role: 'USER',
   connections: [],
 };
 const URL = '/api/account/resend-verification';

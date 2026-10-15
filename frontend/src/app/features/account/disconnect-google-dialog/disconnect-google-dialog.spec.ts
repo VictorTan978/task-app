@@ -12,6 +12,7 @@ const CONNECTED: User = {
   displayName: 'Bob',
   emailVerified: true,
   hasPassword: true,
+  role: 'USER',
   connections: [{ provider: 'google', email: 'bob@gmail.com' }],
 };
 const DISCONNECTED: User = { ...CONNECTED, connections: [] };

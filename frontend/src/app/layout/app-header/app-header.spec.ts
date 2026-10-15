@@ -27,6 +27,7 @@ describe('AppHeader', () => {
       displayName: 'Bob',
       emailVerified: true,
       hasPassword: true,
+      role: 'USER',
       connections: [],
     });
     fixture = TestBed.createComponent(AppHeader);
@@ -57,6 +58,7 @@ describe('AppHeader', () => {
       displayName: 'Bobby',
       emailVerified: true,
       hasPassword: true,
+      role: 'USER',
       connections: [],
     });
     await fixture.whenStable();
@@ -79,5 +81,35 @@ describe('AppHeader', () => {
     await fixture.whenStable();
     expect(navigate).toHaveBeenCalledWith('/login');
     expect(auth.isSignedIn()).toBe(false);
+  });
+  const adminLink = () => el.querySelector<HTMLAnchorElement>('[data-testid=admin-link]');
+
+  it('shows no Admin link to normal users', () => {
+    expect(adminLink()).toBeNull();
+    expect(el.textContent).not.toContain('Admin');
+  });
+
+  it.each(['ADMIN', 'SUPER_ADMIN'] as const)(
+    'shows an "Admin" link to /admin/users before the greeting for %s',
+    async (role) => {
+      auth.updateCurrentUser({ ...auth.currentUser()!, role });
+      await fixture.whenStable();
+      expect(adminLink()?.textContent?.trim()).toBe('Admin');
+      expect(adminLink()?.getAttribute('href')).toBe('/admin/users');
+      expect(
+        Boolean(
+          adminLink()!.compareDocumentPosition(greeting()!) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it('hides the Admin link as soon as the role is lowered', async () => {
+    auth.updateCurrentUser({ ...auth.currentUser()!, role: 'ADMIN' });
+    await fixture.whenStable();
+    expect(adminLink()).not.toBeNull();
+    auth.updateCurrentUser({ ...auth.currentUser()!, role: 'USER' });
+    await fixture.whenStable();
+    expect(adminLink()).toBeNull();
   });
 });

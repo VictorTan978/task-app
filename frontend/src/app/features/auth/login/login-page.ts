@@ -9,6 +9,7 @@ import { OAuthResult } from '../../../core/auth/auth.models';
 import { PasswordField } from '../../../shared/password-field/password-field';
 import {
   ACCOUNT_DELETED_MESSAGE,
+  ACCOUNT_DISABLED_MESSAGE,
   applyServerFieldErrors,
   emailTrimmed,
   fieldMessage,
@@ -30,6 +31,7 @@ import { takeOAuthResult } from '../oauth-result';
 const LOGIN_OAUTH_NOTICES: Partial<Record<OAuthResult, string>> = {
   google_failed: GOOGLE_FAILED_MESSAGE,
   google_unverified: GOOGLE_UNVERIFIED_MESSAGE,
+  account_disabled: ACCOUNT_DISABLED_MESSAGE,
 };
 
 @Component({
@@ -58,6 +60,9 @@ export class LoginPage {
   protected readonly accountDeletedMessage = ACCOUNT_DELETED_MESSAGE;
   protected readonly passwordReset = this.auth.passwordReset;
   protected readonly passwordResetMessage = PASSWORD_RESET_MESSAGE;
+  /** The session ended because the account was disabled (401 ACCOUNT_DISABLED). */
+  protected readonly accountDisabled = this.auth.accountDisabled;
+  protected readonly accountDisabledMessage = ACCOUNT_DISABLED_MESSAGE;
   /** Shown once after a Google round trip; the `oauth` parameter is removed from the URL. */
   protected readonly oauthNotice = signal<string | null>(this.takeOAuthNotice());
 
@@ -79,6 +84,7 @@ export class LoginPage {
     this.auth.clearSessionExpired();
     this.auth.clearAccountDeleted();
     this.auth.clearPasswordReset();
+    this.auth.clearAccountDisabled();
     this.oauthNotice.set(null);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
@@ -97,7 +103,7 @@ export class LoginPage {
   }
 
   private takeOAuthNotice(): string | null {
-    const code = takeOAuthResult(['google_failed', 'google_unverified']);
+    const code = takeOAuthResult(['google_failed', 'google_unverified', 'account_disabled']);
     return code ? (LOGIN_OAUTH_NOTICES[code] ?? null) : null;
   }
 
@@ -108,6 +114,11 @@ export class LoginPage {
     }
     if (hasProblemCode(error, 401, 'INVALID_CREDENTIALS')) {
       this.formError.set(INVALID_CREDENTIALS_MESSAGE);
+      return;
+    }
+    // Correct password on a disabled account (no session was created).
+    if (hasProblemCode(error, 403, 'ACCOUNT_DISABLED')) {
+      this.formError.set(ACCOUNT_DISABLED_MESSAGE);
       return;
     }
     const problem = fieldProblem(error);

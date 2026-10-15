@@ -1,0 +1,151 @@
+<section class="admin-users" aria-labelledby="admin-users-heading">
+  <h1 id="admin-users-heading">Users</h1>
+
+  <div class="field admin-users__search">
+    <label for="admin-users-search">Search by email or name</label>
+    <input
+      id="admin-users-search"
+      type="search"
+      autocomplete="off"
+      [attr.maxlength]="queryMax"
+      (input)="onSearch($event)"
+    />
+  </div>
+
+  @if (notice(); as message) {
+    <p class="notice notice--info" role="status" data-testid="admin-notice">{{ message }}</p>
+  }
+
+  @if (failed()) {
+    <div class="notice notice--error notice--action" role="alert" data-testid="admin-load-error">
+      <span>{{ loadError }}</span>
+      <button type="button" class="btn btn--secondary" (click)="load()">Retry</button>
+    </div>
+  } @else if (result()) {
+    @if (rows().length === 0) {
+      <p class="admin-users__status" data-testid="admin-empty">No users found</p>
+    } @else {
+      <table class="admin-table" [attr.aria-busy]="loading()" data-testid="admin-table">
+        <thead>
+          <tr>
+            <th scope="col">Email</th>
+            <th scope="col">Display name</th>
+            <th scope="col">Created</th>
+            <th scope="col">Email confirmed</th>
+            <th scope="col">Google</th>
+            <th scope="col">Role</th>
+            <th scope="col">Status</th>
+            <th scope="col"><span class="admin-table__sr">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.user.id) {
+            <tr data-testid="admin-row" [attr.data-user-id]="row.user.id">
+              <td class="admin-table__email" data-label="Email">
+                {{ row.user.email }}
+                @if (row.you) {
+                  <span class="admin-table__you" data-testid="admin-you">(you)</span>
+                }
+              </td>
+              <td data-label="Display name">{{ row.user.displayName }}</td>
+              <td data-label="Created">
+                <time [attr.datetime]="row.user.createdAt">{{
+                  row.user.createdAt | date: 'mediumDate'
+                }}</time>
+              </td>
+              <td data-label="Email confirmed">{{ row.user.emailVerified ? 'Yes' : 'No' }}</td>
+              <td data-label="Google">{{ row.user.googleConnected ? 'Yes' : 'No' }}</td>
+              <td data-label="Role">
+                <span
+                  class="badge"
+                  [class.badge--super]="row.user.role === 'SUPER_ADMIN'"
+                  [class.badge--admin]="row.user.role === 'ADMIN'"
+                  data-testid="admin-role"
+                  >{{ roleLabels[row.user.role] }}</span
+                >
+              </td>
+              <td data-label="Status">
+                <span
+                  class="badge"
+                  [class.badge--active]="!row.user.disabled"
+                  [class.badge--disabled]="row.user.disabled"
+                  data-testid="admin-status"
+                  >{{ row.user.disabled ? 'Disabled' : 'Active' }}</span
+                >
+              </td>
+              <td class="admin-table__actions">
+                @if (row.actions.length > 0) {
+                  <div class="admin-menu" data-admin-menu>
+                    <button
+                      type="button"
+                      class="btn btn--secondary btn--small"
+                      aria-haspopup="menu"
+                      [attr.aria-expanded]="menuFor() === row.user.id"
+                      [attr.aria-label]="'Actions for ' + row.user.email"
+                      data-testid="admin-menu-toggle"
+                      (click)="toggleMenu(row.user.id)"
+                    >
+                      ⋯
+                    </button>
+                    @if (menuFor() === row.user.id) {
+                      <div class="admin-menu__list" role="menu" data-testid="admin-menu">
+                        @for (action of row.actions; track action) {
+                          <button
+                            type="button"
+                            role="menuitem"
+                            class="admin-menu__item"
+                            [class.admin-menu__item--danger]="isDestructive(action)"
+                            [attr.data-action]="action"
+                            (click)="openDialog(row.user, action)"
+                          >
+                            {{ actionLabels[action] }}
+                          </button>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+
+      <nav class="admin-pager" aria-label="Pages">
+        <button
+          type="button"
+          class="btn btn--secondary"
+          [disabled]="!hasPrevious() || loading()"
+          (click)="previous()"
+        >
+          Previous
+        </button>
+        <span data-testid="admin-page">Page {{ pageNumber() }} of {{ totalPages() }}</span>
+        <button
+          type="button"
+          class="btn btn--secondary"
+          [disabled]="!hasNext() || loading()"
+          (click)="next()"
+        >
+          Next
+        </button>
+      </nav>
+    }
+  } @else if (loading()) {
+    <p class="admin-users__status" role="status" data-testid="admin-loading">
+      <span class="spinner" aria-hidden="true"></span>
+      Loading users…
+    </p>
+  }
+</section>
+
+@if (dialog(); as d) {
+  <app-admin-action-dialog
+    [user]="d.user"
+    [action]="d.action"
+    (done)="onDone($event)"
+    (closed)="dialog.set(null)"
+    (stale)="load()"
+    (forbidden)="lostAdmin()"
+  />
+}

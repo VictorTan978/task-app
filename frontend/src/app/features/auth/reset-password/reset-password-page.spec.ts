@@ -13,6 +13,7 @@ const BOB = {
   displayName: 'Bob',
   emailVerified: true,
   hasPassword: true,
+  role: 'USER',
   connections: [],
 };
 

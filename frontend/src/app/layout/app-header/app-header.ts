@@ -14,6 +14,8 @@ export class AppHeader {
   private readonly router = inject(Router);
 
   protected readonly user = this.auth.currentUser;
+  /** Admins and super admins see the "Admin" link (updated when the user is re-read). */
+  protected readonly isAdmin = this.auth.isAdmin;
   protected readonly loggingOut = signal(false);
 
   protected logout(): void {

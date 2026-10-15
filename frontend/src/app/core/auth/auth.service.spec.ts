@@ -11,6 +11,7 @@ const BOB: User = {
   displayName: 'Bob',
   emailVerified: true,
   hasPassword: true,
+  role: 'USER',
   connections: [],
 };
 
@@ -61,7 +62,9 @@ describe('AuthService', () => {
   });
 
   it('login posts the credentials and sets the user', async () => {
-    const result = firstValueFrom(service.login({ email: 'bob@example.com', password: 'secret12' }));
+    const result = firstValueFrom(
+      service.login({ email: 'bob@example.com', password: 'secret12' }),
+    );
     const req = http.expectOne('/api/auth/login');
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ email: 'bob@example.com', password: 'secret12' });
@@ -212,15 +215,18 @@ describe('AuthService', () => {
       expect(await result).toBeUndefined();
     });
 
-    it.each(cases)('%s refreshes the CSRF token once on 403 and retries', async (method, url, body) => {
-      const result = firstValueFrom(callMethod(method, body), { defaultValue: 'none' });
-      http.expectOne(url).flush(problem(403, 'CSRF_INVALID'), { status: 403, statusText: 'x' });
-      http
-        .expectOne('/api/auth/me')
-        .flush(problem(401, 'UNAUTHENTICATED'), { status: 401, statusText: 'x' });
-      http.expectOne(url).flush(null, { status: 204, statusText: 'x' });
-      expect(await result).toBeUndefined();
-    });
+    it.each(cases)(
+      '%s refreshes the CSRF token once on 403 and retries',
+      async (method, url, body) => {
+        const result = firstValueFrom(callMethod(method, body), { defaultValue: 'none' });
+        http.expectOne(url).flush(problem(403, 'CSRF_INVALID'), { status: 403, statusText: 'x' });
+        http
+          .expectOne('/api/auth/me')
+          .flush(problem(401, 'UNAUTHENTICATED'), { status: 401, statusText: 'x' });
+        http.expectOne(url).flush(null, { status: 204, statusText: 'x' });
+        expect(await result).toBeUndefined();
+      },
+    );
 
     it.each(cases.filter(([m]) => m !== 'forgotPassword'))(
       '%s surfaces 400 TOKEN_INVALID as an error',
@@ -390,5 +396,130 @@ describe('AuthService', () => {
       expect(service.currentUser()).toEqual(BOB);
       expect(service.sessionExpired()).toBe(false);
     });
+  });
+  describe('roles and disabled accounts', () => {
+    it.each([
+      ['USER', false],
+      ['ADMIN', true],
+      ['SUPER_ADMIN', true],
+    ] as const)('isAdmin is %s -> %s', (role, expected) => {
+      service.loadMe().subscribe();
+      http.expectOne('/api/auth/me').flush({ ...BOB, role });
+      expect(service.isAdmin()).toBe(expected);
+    });
+
+    it('isAdmin is false when signed out', () => {
+      expect(service.isAdmin()).toBe(false);
+    });
+
+    it('handleAccountDisabled signs out locally and flags it (not an expiry)', () => {
+      service.loadMe().subscribe();
+      http.expectOne('/api/auth/me').flush(BOB);
+      service.handleAccountDisabled();
+      expect(service.isSignedIn()).toBe(false);
+      expect(service.accountDisabled()).toBe(true);
+      expect(service.sessionExpired()).toBe(false);
+      expect(service.wasSignedInThisTab).toBe(false);
+
+      // A later plain session loss does not hide the disabled message or add an expiry.
+      service.handleSessionLost();
+      expect(service.accountDisabled()).toBe(true);
+      expect(service.sessionExpired()).toBe(false);
+
+      service.clearAccountDisabled();
+      expect(service.accountDisabled()).toBe(false);
+    });
+
+    it('signing in again clears the disabled flag', async () => {
+      service.handleAccountDisabled();
+      const result = firstValueFrom(service.login({ email: 'a@b.co', password: 'x' }));
+      http.expectOne('/api/auth/login').flush(BOB);
+      await result;
+      expect(service.accountDisabled()).toBe(false);
+    });
+
+    it('login surfaces 403 ACCOUNT_DISABLED without a CSRF retry', async () => {
+      const result = firstValueFrom(service.login({ email: 'a@b.co', password: 'x' }));
+      http
+        .expectOne('/api/auth/login')
+        .flush(problem(403, 'ACCOUNT_DISABLED'), { status: 403, statusText: 'Forbidden' });
+      await expect(result).rejects.toMatchObject({ status: 403 });
+      http.expectNone('/api/auth/me');
+      http.expectNone('/api/auth/login');
+      expect(service.isSignedIn()).toBe(false);
+    });
+
+    it('confirmSession flags a disabled account on 401 ACCOUNT_DISABLED', async () => {
+      service.loadMe().subscribe();
+      http.expectOne('/api/auth/me').flush(BOB);
+      const result = firstValueFrom(service.confirmSession());
+      http
+        .expectOne('/api/auth/me')
+        .flush(problem(401, 'ACCOUNT_DISABLED'), { status: 401, statusText: 'x' });
+      expect(await result).toBe(false);
+      expect(service.accountDisabled()).toBe(true);
+      expect(service.sessionExpired()).toBe(false);
+    });
+  });
+
+  describe('syncSession', () => {
+    beforeEach(() => {
+      service.loadMe().subscribe();
+      http.expectOne('/api/auth/me').flush(BOB);
+    });
+
+    it('replaces the user with the fresh one (e.g. a new role)', async () => {
+      const result = firstValueFrom(service.syncSession(), { defaultValue: 'none' });
+      const req = http.expectOne('/api/auth/me');
+      expect(req.request.method).toBe('GET');
+      req.flush({ ...BOB, role: 'ADMIN' });
+      expect(await result).toBeUndefined();
+      expect(service.currentUser()?.role).toBe('ADMIN');
+      expect(service.isAdmin()).toBe(true);
+    });
+
+    it('signs the tab out as expired on 401 UNAUTHENTICATED', async () => {
+      const result = firstValueFrom(service.syncSession(), { defaultValue: 'none' });
+      http
+        .expectOne('/api/auth/me')
+        .flush(problem(401, 'UNAUTHENTICATED'), { status: 401, statusText: 'x' });
+      await result;
+      expect(service.isSignedIn()).toBe(false);
+      expect(service.sessionExpired()).toBe(true);
+      expect(service.accountDisabled()).toBe(false);
+    });
+
+    it('signs the tab out as disabled on 401 ACCOUNT_DISABLED', async () => {
+      const result = firstValueFrom(service.syncSession(), { defaultValue: 'none' });
+      http
+        .expectOne('/api/auth/me')
+        .flush(problem(401, 'ACCOUNT_DISABLED'), { status: 401, statusText: 'x' });
+      await result;
+      expect(service.isSignedIn()).toBe(false);
+      expect(service.accountDisabled()).toBe(true);
+      expect(service.sessionExpired()).toBe(false);
+    });
+
+    it.each([
+      ['network error', 0],
+      ['server error', 500],
+    ])('keeps the user on a %s and never errors', async (_label, status) => {
+      const result = firstValueFrom(service.syncSession(), { defaultValue: 'none' });
+      const req = http.expectOne('/api/auth/me');
+      if (status === 0) {
+        req.error(new ProgressEvent('error'));
+      } else {
+        req.flush(problem(500, 'INTERNAL_ERROR'), { status, statusText: 'x' });
+      }
+      expect(await result).toBeUndefined();
+      expect(service.currentUser()).toEqual(BOB);
+    });
+  });
+
+  it('syncSession never signs anyone in', async () => {
+    const result = firstValueFrom(service.syncSession(), { defaultValue: 'none' });
+    http.expectOne('/api/auth/me').flush(BOB);
+    await result;
+    expect(service.isSignedIn()).toBe(false);
   });
 });

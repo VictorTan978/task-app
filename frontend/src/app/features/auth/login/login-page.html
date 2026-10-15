@@ -12,6 +12,11 @@
         {{ passwordResetMessage }}
       </p>
     }
+    @if (accountDisabled()) {
+      <p class="notice notice--error" role="alert" data-testid="account-disabled">
+        {{ accountDisabledMessage }}
+      </p>
+    }
     @if (oauthNotice(); as message) {
       <p class="notice notice--error" role="alert" data-testid="oauth-notice">{{ message }}</p>
     }

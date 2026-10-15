@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
-import { authGuard, guestGuard } from './core/auth/auth.guards';
+import { adminGuard, authGuard, guestGuard } from './core/auth/auth.guards';
 import { AccountPage } from './features/account/account-page/account-page';
+import { AdminUsersPage } from './features/admin/admin-users-page/admin-users-page';
 import { ForgotPasswordPage } from './features/auth/forgot-password/forgot-password-page';
 import { LoginPage } from './features/auth/login/login-page';
 import { RegisterPage } from './features/auth/register/register-page';
@@ -33,6 +34,12 @@ export const routes: Routes = [
     children: [
       { path: 'tasks', title: 'Tasks · Task App', component: TasksPage },
       { path: 'account', title: 'Account · Task App', component: AccountPage },
+      {
+        path: 'admin/users',
+        title: 'Users · Task App',
+        component: AdminUsersPage,
+        canActivate: [authGuard, adminGuard],
+      },
     ],
   },
   { path: '**', redirectTo: 'tasks' },

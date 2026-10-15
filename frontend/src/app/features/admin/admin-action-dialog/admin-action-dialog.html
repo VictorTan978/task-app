@@ -1,0 +1,60 @@
+<dialog
+  #dialog
+  class="dialog dialog--narrow"
+  aria-labelledby="admin-action-heading"
+  aria-describedby="admin-action-text"
+  (cancel)="onCancel($event)"
+>
+  <h2 id="admin-action-heading" class="dialog__title">{{ text().title }}</h2>
+
+  <form class="dialog__form" (submit)="onSubmit($event)" novalidate>
+    <p id="admin-action-text" class="admin-action-text" data-testid="admin-action-text">
+      {{ text().before }} <strong>{{ user().email }}</strong
+      >{{ text().after }}
+    </p>
+
+    @if (needsEmail()) {
+      <div class="field">
+        <label for="admin-action-email">Email address</label>
+        <input
+          id="admin-action-email"
+          type="email"
+          autocomplete="off"
+          [value]="typedEmail()"
+          [attr.aria-invalid]="emailError() ? true : null"
+          [attr.aria-describedby]="emailError() ? 'admin-action-email-error' : null"
+          (input)="onEmailInput($event)"
+        />
+        @if (emailError(); as message) {
+          <p class="field-error" id="admin-action-email-error">{{ message }}</p>
+        }
+      </div>
+    }
+
+    @if (error(); as message) {
+      <p class="notice notice--error" role="alert" data-testid="admin-action-error">
+        {{ message }}
+      </p>
+    }
+
+    <div class="dialog__actions">
+      <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
+        Cancel
+      </button>
+      <button
+        type="submit"
+        class="btn"
+        data-testid="admin-action-confirm"
+        [class.btn--danger]="destructive()"
+        [class.btn--primary]="!destructive()"
+        [disabled]="!canConfirm()"
+        [attr.aria-busy]="pending()"
+      >
+        @if (pending()) {
+          <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+        }
+        {{ text().confirm }}
+      </button>
+    </div>
+  </form>
+</dialog>

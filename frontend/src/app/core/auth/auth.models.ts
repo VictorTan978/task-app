@@ -10,7 +10,12 @@ export interface User {
   hasPassword: boolean;
   /** External sign-in accounts connected to this user (empty when none). */
   connections: Connection[];
+  /** The account's role (new in 0.9.0). */
+  role: Role;
 }
+
+/** Account role. `SUPER_ADMIN` can only be set outside the app (startup setting or SQL). */
+export type Role = 'USER' | 'ADMIN' | 'SUPER_ADMIN';
 
 export type ConnectionProvider = 'google';
 
@@ -35,7 +40,8 @@ export type OAuthResult =
   | 'google_unverified'
   | 'google_connected'
   | 'google_in_use'
-  | 'google_connect_failed';
+  | 'google_connect_failed'
+  | 'account_disabled';
 
 export interface RegisterRequest {
   displayName: string;
@@ -101,7 +107,11 @@ export type ProblemCode =
   | 'TOKEN_INVALID'
   | 'ALREADY_VERIFIED'
   | 'PASSWORD_REQUIRED'
-  | 'EMAIL_MISMATCH';
+  | 'EMAIL_MISMATCH'
+  | 'ACCOUNT_DISABLED'
+  | 'CANNOT_MODIFY_SELF'
+  | 'INSUFFICIENT_ROLE'
+  | 'USER_NOT_FOUND';
 
 export interface Problem {
   type: string;
