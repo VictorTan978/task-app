@@ -105,7 +105,8 @@ public class AuthService {
      * Throws {@link InvalidCredentialsException} for unknown email, an account without a password and wrong password
      * alike, and counts each as a failure for that email. The first two are compared against a dummy hash, so all
      * three cost one BCrypt check. Too many recent failures for the email throw
-     * {@link com.taskapp.security.ratelimit.RateLimitedException} before the password is checked.
+     * {@link com.taskapp.security.ratelimit.RateLimitedException} before the password is checked. The right password
+     * of a disabled account throws {@link AccountDisabledException} (not counted either way).
      */
     @Transactional(readOnly = true)
     public UserResponse login(LoginRequest request) {
@@ -120,6 +121,10 @@ public class AuthService {
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             rateLimiter.recordLoginFailure(request.email());
             throw new InvalidCredentialsException(InvalidCredentialsException.Reason.BAD_PASSWORD, request.email());
+        }
+        if (user.isDisabled()) {
+            // Only after the password matched (no account discovery). Neither a failure nor a success for the limit.
+            throw new AccountDisabledException(request.email());
         }
         rateLimiter.recordLoginSuccess(request.email());
         return UserResponse.from(user);

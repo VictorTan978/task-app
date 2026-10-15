@@ -1,5 +1,7 @@
 package com.taskapp.auth;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -21,6 +23,10 @@ public interface UserConnectionRepository extends JpaRepository<UserConnection, 
     @Query("select c from UserConnection c where c.user.id = :userId and c.provider = :provider")
     Optional<UserConnection> findByUserIdAndProvider(@Param("userId") long userId,
             @Param("provider") String provider);
+
+    /** Of {@code userIds}, the ids of the users with a {@code provider} connection (admin list). Plain read. */
+    @Query("select c.user.id from UserConnection c where c.provider = :provider and c.user.id in :userIds")
+    List<Long> findUserIdsWithProvider(@Param("provider") String provider, @Param("userIds") Collection<Long> userIds);
 
     /** Deletes one connection by primary key. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)

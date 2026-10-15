@@ -1,8 +1,27 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.8.0
+  version: 0.9.0
   description: |
+    ## Changes in 0.9.0 (roles and admin users, specs/roles-admin.md)
+    - `User` gains `role` (`USER` | `ADMIN` | `SUPER_ADMIN`, see `Role`), always present in every
+      response that returns a `User`. Added, nothing renamed. Existing and new accounts are `USER`.
+    - New endpoints under `/api/admin/users` (tag `admin`), for `ADMIN` and `SUPER_ADMIN` only:
+      `GET /api/admin/users` (paged list and search), `POST /api/admin/users/{id}/disable`,
+      `POST /api/admin/users/{id}/enable`, `POST /api/admin/users/{id}/revoke-sessions`,
+      `PUT /api/admin/users/{id}/role` and `DELETE /api/admin/users/{id}`. See "Admin".
+    - Disabled accounts (see "Disabled accounts"): a session of a disabled account ends on its
+      next request with **401 `ACCOUNT_DISABLED`**; `POST /api/auth/login` with the correct
+      password answers **403 `ACCOUNT_DISABLED`** (a wrong password still gets the usual 401
+      `INVALID_CREDENTIALS`); Google sign-in redirects to `/login?oauth=account_disabled`
+      (new `OAuthResult` value); forgot password sends no email; reset links stop working.
+    - New error codes: `ACCOUNT_DISABLED` (401 / 403), `CANNOT_MODIFY_SELF` (409),
+      `INSUFFICIENT_ROLE` (403), `USER_NOT_FOUND` (404). New field codes: `INVALID_ROLE`,
+      `OUT_OF_RANGE`.
+    - A role change takes effect on the user's next request (no new sign-in needed): their
+      access to `/api/admin/**` follows the new role right away, and `GET /api/auth/me` returns
+      the new `role`.
+
     ## Changes in 0.8.0 (sign in with Google, specs/google-sign-in.md)
     - `User` gains `hasPassword` (boolean) and `connections` (array of `Connection`), always
       present in every response that returns a `User`: `GET /api/auth/me`,
@@ -66,6 +85,43 @@ info:
       (see `POST /api/account/logout-other-sessions`): treated like a deleted user, i.e. the
       session is invalidated and the request continues as anonymous (then 401, unless a valid
       remember-me cookie signs it in again, see below).
+    - **0.9.0:** the account was disabled by an admin: the session is invalidated and protected
+      endpoints answer **401 `ACCOUNT_DISABLED`** (detail "This account has been disabled.")
+      instead of `UNAUTHENTICATED`. Public endpoints answer normally (anonymous).
+    - **0.9.0:** the user's role changed: the session keeps going with the new role, so access
+      to `/api/admin/**` follows the new role from this request on.
+
+    ## Roles (0.9.0)
+    Every account has exactly one role (`User.role`): `USER`, `ADMIN` or `SUPER_ADMIN`.
+    - `USER`: the normal app. Every `/api/admin/**` endpoint answers 403 `FORBIDDEN`.
+    - `ADMIN`: also the admin endpoints; may disable, enable, sign out everywhere and delete
+      accounts whose role is `USER`.
+    - `SUPER_ADMIN`: like `ADMIN`, and may also act on `ADMIN` accounts and change roles between
+      `USER` and `ADMIN`.
+    - Nobody can act on a `SUPER_ADMIN` account (not even another super admin) or on themselves
+      through the admin API, and no API can set `SUPER_ADMIN`. The first super admin is set by
+      the server setting `ADMIN_BOOTSTRAP_EMAIL` at startup (only while no super admin exists);
+      any other change to super admins is done in the database by hand.
+    Admins can't see other users' tasks or passwords: the admin API returns only `AdminUser`.
+
+    ## Disabled accounts (0.9.0)
+    An admin can disable an account (`POST /api/admin/users/{id}/disable`). Its data (tasks,
+    connections, role) is kept; enabling it brings everything back (old sessions stay ended).
+    While disabled:
+    - Open sessions end on their next request: protected endpoints answer 401
+      `ACCOUNT_DISABLED` (the client shows "This account has been disabled." on `/login`).
+    - Its `remember-me` logins were deleted when it was disabled, so a `remember-me` cookie is
+      rejected like any unknown one (cookie expired, the request continues anonymous: the usual
+      401 `UNAUTHENTICATED` on protected endpoints). A remember-me login that still exists for a
+      disabled account (e.g. disabled in the database by hand) is deleted and rejected, with
+      401 `ACCOUNT_DISABLED`.
+    - `POST /api/auth/login`: only with the correct password, 403 `ACCOUNT_DISABLED`; a wrong
+      password (or unknown email) gets the usual 401 `INVALID_CREDENTIALS`, same timing, so the
+      answer never reveals whether an account exists. Nothing is signed in.
+    - Google sign-in: `/login?oauth=account_disabled`; nothing is created or linked.
+    - Forgot password: the usual 202, but no email is sent. Reset links issued before it was
+      disabled were deleted and give 400 `TOKEN_INVALID`.
+    - Confirm-email links still work (they sign nobody in).
 
     ## Session lifetime
     Every session has two limits, both checked on every request before authorization:
@@ -125,7 +181,8 @@ info:
     (which replaces it); expiry after 30 days; `POST /api/account/logout-other-sessions` or
     `PUT /api/account/password` on ANOTHER device; account deletion; stolen-cookie detection;
     a password reset (`POST /api/auth/reset-password`, ends ALL of the account's remember-me
-    logins on every device, including this one).
+    logins on every device, including this one); 0.9.0: an admin disabling the account, signing
+    it out everywhere or deleting it (all of its remember-me logins).
 
     ## Email verification and password reset
     The server sends two kinds of email, each with a single-use link to the frontend:
@@ -199,6 +256,8 @@ info:
     | Connect cancelled, Google error, invalid ID token, rate limited, this user already has a different Google account connected, any server error | `/account?oauth=google_connect_failed` |
     | Connect without a valid session (at the start, or the session ended before the callback) | `/login?oauth=google_failed` |
     | Login intent while already signed in (any account) | the session is replaced by the Google account's user, then `/tasks` |
+    | Login (0.9.0): the matched account is disabled (matched by Google account id, or by email once it would otherwise be linked); nothing is created or linked | `/login?oauth=account_disabled` |
+    | Connect (0.9.0): the signed-in account was disabled before the callback | `/login?oauth=account_disabled` |
 
     When the callback can't find the pending request (unknown `state`, session gone) it can't
     know the intent, so it uses the login row (`/login?oauth=google_failed`). Starting a second
@@ -342,6 +401,14 @@ info:
     `GET /api/auth/providers` and `DELETE /api/account/connections/google` are not rate
     limited (no secret is checked).
 
+    Admin endpoints (new in 0.9.0). Same 429 response as above:
+    - Admin actions, per signed-in admin: 60 requests per 1 minute
+      (`RATE_LIMIT_ADMIN_ACTIONS_PER_USER_PER_MINUTE`). Counted on every change request
+      (`POST .../disable`, `.../enable`, `.../revoke-sessions`, `PUT .../role`,
+      `DELETE /api/admin/users/{id}`) that passes the CSRF, sign-in, admin-role and request
+      validation checks, including ones then refused with 403 / 404 / 409. Not counted:
+      `GET /api/admin/users` (not limited).
+
     Delete account without a password (0.8.0): the `email` confirmation shares the per-user
     password-check counter above (a wrong `email` counts one failure, the right one resets it).
 
@@ -357,6 +424,28 @@ info:
     429 (per-user password checks) > 400 `WRONG_PASSWORD` / `EMAIL_MISMATCH` /
     409 `DISPLAY_NAME_TAKEN`.
 
+    Precedence (admin change endpoints, 0.9.0): 403 `CSRF_INVALID` >
+    401 `UNAUTHENTICATED` / `ACCOUNT_DISABLED` > 403 `FORBIDDEN` (not an admin) >
+    400 `MALFORMED_REQUEST` / `VALIDATION_FAILED` > 429 (per-admin) > 409 `CANNOT_MODIFY_SELF` >
+    403 `FORBIDDEN` (the caller's role was lowered to `USER` meanwhile) > 404 `USER_NOT_FOUND` >
+    403 `INSUFFICIENT_ROLE` > 200 / 204.
+
+    ## Admin (0.9.0)
+    `/api/admin/**` requires a signed-in `ADMIN` or `SUPER_ADMIN` (401 when signed out, 403
+    `FORBIDDEN` for a `USER`). Two different 403s:
+    - `FORBIDDEN`: the caller is not an admin (any more). The client should leave the admin page
+      (and refresh `GET /api/auth/me`).
+    - `INSUFFICIENT_ROLE`: the caller is an admin, but not allowed to do this to this account
+      (see "Roles"). The client shows "You don't have permission to do this." and refreshes the
+      list.
+
+    Every change runs against the current database state: the caller's and the target's rows
+    are locked and re-read in one transaction, so a role changed a moment ago (the caller's or
+    the target's) is respected. Changes that are already in effect (disable a disabled account,
+    enable an active one, set the role it already has) succeed with 200 and change nothing.
+    `revoke-sessions` always ends every session. Each change that happens, and each refused
+    attempt, is written to the server's security log.
+
     ## Request bodies
     Unknown properties in a JSON request body are ignored (never an error). In particular any
     `id`, `ownerId`, `createdAt` or `updatedAt` sent by the client is ignored; the task owner is
@@ -368,6 +457,8 @@ tags:
   - name: auth
   - name: account
   - name: tasks
+  - name: admin
+    description: Admin users page (0.9.0), `ADMIN` and `SUPER_ADMIN` only.
 paths:
   /api/health:
     get:
@@ -415,6 +506,7 @@ paths:
                 emailVerified: true
                 hasPassword: true
                 connections: []
+                role: USER
         '401':
           $ref: '#/components/responses/Unauthenticated'
 
@@ -472,6 +564,7 @@ paths:
                 emailVerified: false
                 hasPassword: true
                 connections: []
+                role: USER
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '403':
@@ -563,6 +656,12 @@ paths:
         password gives the same 401 `INVALID_CREDENTIALS` as a wrong password, with the same
         timing, and counts as a failed login for the per-email limit. Nothing reveals that the
         account exists or how it signs in.
+
+        **0.9.0:** a disabled account with the CORRECT password gets 403 `ACCOUNT_DISABLED`
+        (detail "This account has been disabled."): no session, no cookies, and the per-email
+        failure count is neither increased nor reset. With a wrong password it gets the usual
+        401 `INVALID_CREDENTIALS` (same body and timing as any wrong password). An account
+        without a password always gets the 401.
       operationId: login
       tags: [auth]
       security:
@@ -606,6 +705,7 @@ paths:
                 connections:
                   - provider: google
                     email: bob@gmail.com
+                role: USER
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '401':
@@ -622,7 +722,31 @@ paths:
                 instance: /api/auth/login
                 code: INVALID_CREDENTIALS
         '403':
-          $ref: '#/components/responses/CsrfInvalid'
+          description: |
+            `CSRF_INVALID` (missing or invalid CSRF token), or, new in 0.9.0, `ACCOUNT_DISABLED`:
+            the email and password are correct but the account is disabled. Nothing is signed in
+            and no cookie is set.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                csrf:
+                  value:
+                    type: about:blank
+                    title: Forbidden
+                    status: 403
+                    detail: Invalid or missing CSRF token
+                    instance: /api/auth/login
+                    code: CSRF_INVALID
+                accountDisabled:
+                  value:
+                    type: about:blank
+                    title: Forbidden
+                    status: 403
+                    detail: This account has been disabled.
+                    instance: /api/auth/login
+                    code: ACCOUNT_DISABLED
         '429':
           $ref: '#/components/responses/RateLimited'
 
@@ -850,6 +974,9 @@ paths:
 
         Works signed in or not; the session (if any) is not changed.
 
+        **0.9.0:** for a disabled account the response is the same 202, but no email is sent
+        and no reset link is created (this does not count towards the per-account limit).
+
         Order: 403 `CSRF_INVALID` > 429 (per-IP limit only) > 400 `MALFORMED_REQUEST` /
         `VALIDATION_FAILED` > 202. Never 401.
       operationId: forgotPassword
@@ -970,6 +1097,10 @@ paths:
         `/login`.
 
         `newPassword` follows the register password rules. It may equal the old password.
+
+        **0.9.0:** a reset token of a disabled account is invalid (400 `TOKEN_INVALID`), here and
+        on `POST /api/auth/check-reset-token`; disabling an account also deletes its unused reset
+        links, so they stay invalid after it is enabled again.
 
         Order: 403 `CSRF_INVALID` > 429 (per-IP) > 400 `MALFORMED_REQUEST` >
         400 `TOKEN_INVALID` > 400 `VALIDATION_FAILED` (`newPassword`) > 204. So an invalid
@@ -1137,6 +1268,7 @@ paths:
                 emailVerified: true
                 hasPassword: true
                 connections: []
+                role: USER
         '400':
           description: |
             Validation failed (`code: VALIDATION_FAILED`). Possible entries:
@@ -1475,6 +1607,7 @@ paths:
                 emailVerified: true
                 hasPassword: true
                 connections: []
+                role: USER
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1773,6 +1906,356 @@ paths:
         '404':
           $ref: '#/components/responses/TaskNotFound'
 
+  /api/admin/users:
+    get:
+      summary: List and search all accounts (admins only)
+      description: |
+        New in 0.9.0. Every account, including admins, super admins and the caller (the client
+        marks the caller's own row by comparing `id` with `GET /api/auth/me`). Sorted newest
+        first: `createdAt` descending, then `id` descending. Returns only the `AdminUser` fields:
+        never tasks, task counts, passwords or Google ids.
+
+        - `q` (optional): trimmed; empty or blank = no filter. Keeps the accounts whose `email`
+          OR `displayName` CONTAINS it, ignoring letter case and accents (`jose` finds
+          `José`). `%` and `_` are matched literally. At most 100 characters after trimming
+          (`q` / `TOO_LONG`).
+        - `page` (optional, default 0): zero-based page number, >= 0 (`page` / `OUT_OF_RANGE`).
+          A page past the end gives an empty `content` with the real `totalElements` and
+          `totalPages`.
+        - `size` (optional, default 20): 1-100 (`size` / `OUT_OF_RANGE`).
+        A non-integer `page` or `size` gives 400 `MALFORMED_REQUEST`.
+
+        GET, so no CSRF token. Not rate limited. Like any endpoint, an expired session is signed
+        in again from a valid `remember-me` cookie.
+      operationId: listAdminUsers
+      tags: [admin]
+      security:
+        - sessionCookie: []
+        - rememberMeCookie: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+          example: jose
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: One page of accounts (possibly empty).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserPage'
+              examples:
+                firstPage:
+                  value:
+                    content:
+                      - id: 42
+                        email: alice@example.com
+                        displayName: Alice
+                        createdAt: '2026-10-15T09:12:44.123456Z'
+                        emailVerified: true
+                        googleConnected: false
+                        role: USER
+                        disabled: false
+                      - id: 7
+                        email: carol@gmail.com
+                        displayName: Carol
+                        createdAt: '2026-10-12T18:01:02Z'
+                        emailVerified: true
+                        googleConnected: true
+                        role: ADMIN
+                        disabled: false
+                    page: 0
+                    size: 20
+                    totalElements: 2
+                    totalPages: 1
+                noMatch:
+                  value:
+                    content: []
+                    page: 0
+                    size: 20
+                    totalElements: 0
+                    totalPages: 0
+        '400':
+          description: |
+            `VALIDATION_FAILED` with one entry per invalid parameter, sorted by name:
+            - `page` / `OUT_OF_RANGE` / "Page must be 0 or more"
+            - `q` / `TOO_LONG` / "Search must be at most 100 characters"
+            - `size` / `OUT_OF_RANGE` / "Size must be between 1 and 100"
+
+            A non-integer `page` or `size` gives `MALFORMED_REQUEST` with no `errors`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/admin/users
+                code: VALIDATION_FAILED
+                errors:
+                  - field: size
+                    code: OUT_OF_RANGE
+                    message: Size must be between 1 and 100
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/NotAdmin'
+
+  /api/admin/users/{id}/disable:
+    parameters:
+      - $ref: '#/components/parameters/AdminUserId'
+    post:
+      summary: Disable an account
+      description: |
+        New in 0.9.0. Sets the account to disabled and, in the same transaction, ends all of its
+        sessions (their next request gets 401 `ACCOUNT_DISABLED`), deletes all of its
+        `remember-me` logins and its unused password-reset links. Its data is kept. Already
+        disabled: 200, nothing changes. No request body (ignored if sent).
+
+        Allowed: `ADMIN` on a `USER`; `SUPER_ADMIN` on a `USER` or an `ADMIN`. See "Admin" for
+        the order of the error responses.
+      operationId: disableUser
+      tags: [admin]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - rememberMeCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: 'The account as it is now (`disabled: true`).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+              example:
+                id: 42
+                email: alice@example.com
+                displayName: Alice
+                createdAt: '2026-10-15T09:12:44.123456Z'
+                emailVerified: true
+                googleConnected: false
+                role: USER
+                disabled: true
+        '400':
+          $ref: '#/components/responses/MalformedUserId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminActionForbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/CannotModifySelf'
+        '429':
+          $ref: '#/components/responses/AdminRateLimited'
+
+  /api/admin/users/{id}/enable:
+    parameters:
+      - $ref: '#/components/parameters/AdminUserId'
+    post:
+      summary: Enable a disabled account
+      description: |
+        New in 0.9.0. Clears the disabled state only: the user signs in again normally. Sessions,
+        `remember-me` logins and reset links ended by the disable stay ended. Already active:
+        200, nothing changes. No request body (ignored if sent). Same permission rules as
+        disable.
+      operationId: enableUser
+      tags: [admin]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - rememberMeCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: 'The account as it is now (`disabled: false`).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          $ref: '#/components/responses/MalformedUserId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminActionForbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/CannotModifySelf'
+        '429':
+          $ref: '#/components/responses/AdminRateLimited'
+
+  /api/admin/users/{id}/revoke-sessions:
+    parameters:
+      - $ref: '#/components/parameters/AdminUserId'
+    post:
+      summary: Sign an account out everywhere
+      description: |
+        New in 0.9.0. Ends every session of the account (their next request gets the usual 401
+        `UNAUTHENTICATED`) and deletes all of its `remember-me` logins, like
+        `POST /api/account/logout-other-sessions` but including every device. The account stays
+        active (or disabled, if it was). Always does this (also when there was nothing to end)
+        and returns 200. No request body (ignored if sent). Same permission rules as disable.
+      operationId: revokeUserSessions
+      tags: [admin]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - rememberMeCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: The account (unchanged fields).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          $ref: '#/components/responses/MalformedUserId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminActionForbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/CannotModifySelf'
+        '429':
+          $ref: '#/components/responses/AdminRateLimited'
+
+  /api/admin/users/{id}/role:
+    parameters:
+      - $ref: '#/components/parameters/AdminUserId'
+    put:
+      summary: Make an account admin, or remove admin (super admins only)
+      description: |
+        New in 0.9.0. `SUPER_ADMIN` only, on a `USER` or `ADMIN` account; an `ADMIN` gets 403
+        `INSUFFICIENT_ROLE`. The new role applies to that user's next request (no new sign-in);
+        their sessions are not ended. Same role as now: 200, nothing changes.
+
+        `role` must be `USER` or `ADMIN` (exactly, case-sensitive): `SUPER_ADMIN`, any other
+        value, `null` or a missing `role` give 400 `VALIDATION_FAILED` `role` / `INVALID_ROLE`.
+        A body that is not JSON gives 400 `MALFORMED_REQUEST`.
+      operationId: changeUserRole
+      tags: [admin]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - rememberMeCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeRoleRequest'
+            example:
+              role: ADMIN
+      responses:
+        '200':
+          description: The account with its new role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+              example:
+                id: 42
+                email: alice@example.com
+                displayName: Alice
+                createdAt: '2026-10-15T09:12:44.123456Z'
+                emailVerified: true
+                googleConnected: false
+                role: ADMIN
+                disabled: false
+        '400':
+          description: |
+            `VALIDATION_FAILED` with `role` / `INVALID_ROLE` / "Role must be USER or ADMIN", or
+            `MALFORMED_REQUEST` (non-integer `{id}`, or a body that is not JSON) with no `errors`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/admin/users/42/role
+                code: VALIDATION_FAILED
+                errors:
+                  - field: role
+                    code: INVALID_ROLE
+                    message: Role must be USER or ADMIN
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminActionForbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/CannotModifySelf'
+        '429':
+          $ref: '#/components/responses/AdminRateLimited'
+
+  /api/admin/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AdminUserId'
+    delete:
+      summary: Delete an account permanently
+      description: |
+        New in 0.9.0. Deletes the account with its tasks, Google connections, `remember-me`
+        logins and email links, exactly like the user deleting their own account
+        (`POST /api/account/delete`). Their open sessions end on their next request (401
+        `UNAUTHENTICATED`). Not reversible. The typed-email confirmation is client-side only:
+        the API takes no body. Same permission rules as disable. Already deleted: 404
+        `USER_NOT_FOUND`.
+      operationId: deleteUser
+      tags: [admin]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+        - rememberMeCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Deleted. No body.
+        '400':
+          $ref: '#/components/responses/MalformedUserId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminActionForbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          $ref: '#/components/responses/CannotModifySelf'
+        '429':
+          $ref: '#/components/responses/AdminRateLimited'
+
 components:
   securitySchemes:
     sessionCookie:
@@ -1823,6 +2306,18 @@ components:
         type: integer
         format: int64
         example: 12
+
+    AdminUserId:
+      name: id
+      in: path
+      required: true
+      description: |
+        The target account's id (`AdminUser.id`). A non-integer id returns 400
+        `MALFORMED_REQUEST`; an id with no account returns 404 `USER_NOT_FOUND`.
+      schema:
+        type: integer
+        format: int64
+        example: 42
 
   headers:
     SetSessionAndXsrfCookies:
@@ -1925,19 +2420,148 @@ components:
       description: |
         Not signed in: no session, session expired (30-minute idle or maximum length), session
         ended by "log out other sessions" or a password change on another device or a password
-        reset by email, or the
-        session's account was deleted; and no valid `remember-me` cookie. Always the same body.
+        reset by email or "sign out everywhere" by an admin, or the
+        session's account was deleted; and no valid `remember-me` cookie. Always the same body
+        (`UNAUTHENTICATED`), except:
+
+        **0.9.0:** `ACCOUNT_DISABLED` (detail "This account has been disabled.") when this
+        request's session (or `remember-me` login) belonged to an account that is now disabled.
+        Treat it like any 401 (signed out), and show the message on `/login`. Later requests
+        without that session get the usual `UNAUTHENTICATED`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            unauthenticated:
+              value:
+                type: about:blank
+                title: Unauthorized
+                status: 401
+                detail: Authentication required
+                instance: /api/auth/me
+                code: UNAUTHENTICATED
+            accountDisabled:
+              value:
+                type: about:blank
+                title: Unauthorized
+                status: 401
+                detail: This account has been disabled.
+                instance: /api/tasks
+                code: ACCOUNT_DISABLED
+    NotAdmin:
+      description: |
+        403 `FORBIDDEN`: the caller is signed in but is not an `ADMIN` or `SUPER_ADMIN` (0.9.0).
+        No CSRF check applies to GET.
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
             type: about:blank
-            title: Unauthorized
-            status: 401
-            detail: Authentication required
-            instance: /api/auth/me
-            code: UNAUTHENTICATED
+            title: Forbidden
+            status: 403
+            detail: Access denied
+            instance: /api/admin/users
+            code: FORBIDDEN
+    AdminActionForbidden:
+      description: |
+        One of (0.9.0):
+        - `CSRF_INVALID`: missing or invalid CSRF token.
+        - `FORBIDDEN` (detail "Access denied"): the caller is not an `ADMIN` or `SUPER_ADMIN`,
+          also when their role was lowered to `USER` a moment before this request was handled.
+        - `INSUFFICIENT_ROLE` (detail "You don't have permission to do this."): the caller is an
+          admin but may not do this: the target is a `SUPER_ADMIN`, or the target is an `ADMIN`
+          and the caller is an `ADMIN`, or the caller is an `ADMIN` changing a role.
+        Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            csrf:
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                detail: Invalid or missing CSRF token
+                instance: /api/admin/users/42/disable
+                code: CSRF_INVALID
+            notAdmin:
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                detail: Access denied
+                instance: /api/admin/users/42/disable
+                code: FORBIDDEN
+            insufficientRole:
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                detail: You don't have permission to do this.
+                instance: /api/admin/users/42/disable
+                code: INSUFFICIENT_ROLE
+    UserNotFound:
+      description: No account has this id (e.g. it was deleted meanwhile). Nothing was changed (0.9.0).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Not Found
+            status: 404
+            detail: This user no longer exists.
+            instance: /api/admin/users/42/disable
+            code: USER_NOT_FOUND
+    CannotModifySelf:
+      description: |
+        The target is the caller's own account (0.9.0). Use `/api/account/*` for your own
+        account. Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Conflict
+            status: 409
+            detail: You can't do this to your own account.
+            instance: /api/admin/users/1/disable
+            code: CANNOT_MODIFY_SELF
+    AdminRateLimited:
+      description: |
+        Too many admin changes by this admin (default 60 per minute, see "Rate limiting").
+        Wait `Retry-After` seconds. Nothing was changed.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Too Many Requests
+            status: 429
+            detail: Too many attempts. Please try again later.
+            instance: /api/admin/users/42/disable
+            code: RATE_LIMITED
+    MalformedUserId:
+      description: The `{id}` path segment is not an integer (0.9.0).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Bad Request
+            status: 400
+            detail: Failed to convert 'id' with value 'abc'
+            instance: /api/admin/users/abc/disable
+            code: MALFORMED_REQUEST
     TokenInvalid:
       description: |
         The link token is invalid: unknown, malformed, missing or blank, expired, already used,
@@ -2089,7 +2713,7 @@ components:
     User:
       type: object
       description: Never contains the password or its hash, nor any Google token or id.
-      required: [id, email, displayName, emailVerified, hasPassword, connections]
+      required: [id, email, displayName, emailVerified, hasPassword, connections, role]
       properties:
         id:
           type: integer
@@ -2127,6 +2751,100 @@ components:
             provider. Listed even when the provider is currently not configured on the server.
           items:
             $ref: '#/components/schemas/Connection'
+        role:
+          $ref: '#/components/schemas/Role'
+
+    Role:
+      type: string
+      description: |
+        New in 0.9.0, always present on `User` and `AdminUser`. See "Roles". `ADMIN` and
+        `SUPER_ADMIN` can use `/api/admin/**`. Show it as "User", "Admin", "Super admin".
+      enum: [USER, ADMIN, SUPER_ADMIN]
+      example: USER
+
+    AssignableRole:
+      type: string
+      description: The roles `PUT /api/admin/users/{id}/role` can set (never `SUPER_ADMIN`).
+      enum: [USER, ADMIN]
+      example: ADMIN
+
+    AdminUser:
+      type: object
+      description: |
+        An account as shown on the admin page (0.9.0). Only these fields: never tasks, task
+        counts, passwords, hashes or Google ids.
+      required: [id, email, displayName, createdAt, emailVerified, googleConnected, role, disabled]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 42
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        displayName:
+          type: string
+          example: Alice
+        createdAt:
+          type: string
+          format: date-time
+          description: When the account was created. Same format as `Task.createdAt`.
+          example: '2026-10-15T09:12:44.123456Z'
+        emailVerified:
+          type: boolean
+          description: Same as `User.emailVerified`.
+          example: true
+        googleConnected:
+          type: boolean
+          description: Whether a Google account is connected.
+          example: false
+        role:
+          $ref: '#/components/schemas/Role'
+        disabled:
+          type: boolean
+          description: '`true` while an admin has disabled the account ("Disabled"), else "Active".'
+          example: false
+
+    AdminUserPage:
+      type: object
+      description: One page of `GET /api/admin/users` (0.9.0).
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content:
+          type: array
+          description: At most `size` accounts; empty when nothing matches or `page` is past the end.
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        page:
+          type: integer
+          format: int32
+          description: The requested zero-based page number.
+          example: 0
+        size:
+          type: integer
+          format: int32
+          description: The requested page size.
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+          description: Number of matching accounts on all pages.
+          example: 2
+        totalPages:
+          type: integer
+          format: int32
+          description: |
+            Number of pages (`ceil(totalElements / size)`); 0 when nothing matches. The client
+            shows "Page {page + 1} of {max(totalPages, 1)}".
+          example: 1
+
+    ChangeRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/AssignableRole'
 
     Connection:
       type: object
@@ -2185,8 +2903,9 @@ components:
         - `google_in_use` (on `/account`): "This Google account is already connected to another
           account."
         - `google_connect_failed` (on `/account`): "Couldn't connect Google. Please try again."
+        - `account_disabled` (on `/login`, new in 0.9.0): "This account has been disabled."
         Unknown values must be ignored by the frontend.
-      enum: [google_failed, google_unverified, google_connected, google_in_use, google_connect_failed]
+      enum: [google_failed, google_unverified, google_connected, google_in_use, google_connect_failed, account_disabled]
 
     TokenRequest:
       type: object
@@ -2463,16 +3182,17 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, q, page, size, role]
           description: Name of the request field (exactly as in the request body).
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE]
           description: |
             Stable machine-readable reason.
             - REQUIRED: missing, null, empty or blank
             - INVALID_EMAIL: not a valid email address
-            - TOO_LONG: displayName > 50, email > 254, title > 200 or description > 2000 characters
+            - TOO_LONG: displayName > 50, email > 254, title > 200 or description > 2000 characters,
+              or the admin search `q` > 100 characters after trimming
             - PASSWORD_LENGTH: password / newPassword not 8-72 characters, or over 72 UTF-8 bytes
               (`newPassword` on `PUT /api/account/password` and `POST /api/auth/reset-password`)
             - EMAIL_TAKEN: (409 only, field `email`) email already registered, ignoring letter
@@ -2485,6 +3205,10 @@ components:
             - EMAIL_MISMATCH: (400 `EMAIL_MISMATCH` only, field `email` on
               `POST /api/account/delete` for accounts without a password, new in 0.8.0) the email
               does not match the signed-in user's email
+            - OUT_OF_RANGE: (new in 0.9.0, `page` / `size` of `GET /api/admin/users`) `page` < 0,
+              or `size` not 1-100
+            - INVALID_ROLE: (new in 0.9.0, field `role` of `PUT /api/admin/users/{id}/role`)
+              missing, null, `SUPER_ADMIN` or not one of `USER`, `ADMIN`
         message:
           type: string
           description: Human-readable English message, safe to display.
@@ -2528,6 +3252,10 @@ components:
             - ALREADY_VERIFIED
             - PASSWORD_REQUIRED
             - EMAIL_MISMATCH
+            - ACCOUNT_DISABLED
+            - CANNOT_MODIFY_SELF
+            - INSUFFICIENT_ROLE
+            - USER_NOT_FOUND
           description: |
             Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email
             is taken (even when the display name is taken too), otherwise `DISPLAY_NAME_TAKEN`.
@@ -2540,6 +3268,11 @@ components:
             `PUT /api/account/password` and `DELETE /api/account/connections/google`.
             `EMAIL_MISMATCH` (400, new in 0.8.0): only from `POST /api/account/delete` for
             accounts without a password.
+            New in 0.9.0: `ACCOUNT_DISABLED` (403 from `POST /api/auth/login` with the correct
+            password; 401 on any protected endpoint when the session's account is disabled),
+            `CANNOT_MODIFY_SELF` (409), `INSUFFICIENT_ROLE` (403) and `USER_NOT_FOUND` (404),
+            only from `/api/admin/**`. `FORBIDDEN` (403) on `/api/admin/**` means the caller is
+            not an admin.
         errors:
           type: array
           description: |

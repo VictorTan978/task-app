@@ -3,11 +3,16 @@ package com.taskapp.security;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
@@ -33,11 +38,13 @@ import jakarta.servlet.http.HttpSession;
  * {@code SESSION_MAX_LENGTH_REACHED}), checked without a database query;</li>
  * <li>the user is gone (account deleted, e.g. in another tab or device), so a stale session can never create data
  * for a deleted account;</li>
+ * <li>the account is disabled (specs/roles-admin.md): also logged as {@code ACCOUNT_DISABLED_SESSION_ENDED}, and
+ * the 401 says {@code ACCOUNT_DISABLED} (request attribute {@link ProblemAuthenticationEntryPoint#ACCOUNT_DISABLED});</li>
  * <li>the user's {@code sessions_valid_after} is later than the session's {@link SessionAttributes#VALID_FROM}
  * (log out other sessions, password change or stolen-cookie detection on another device).</li>
  * </ul>
- * Email or display name changed (e.g. in another session): the session principal is refreshed in place (same
- * session id, no cookies).
+ * Email, display name or role changed (e.g. in another session, or by an admin): the session's authentication is
+ * rebuilt in place (same session id, no cookies), with the authorities of the current role.
  * <p>
  * Only principals held in an HTTP session are checked; one primary-key lookup per such request. The lookup is
  * resolved lazily, so security slices without the user repository (MockMvc tests without a session) still work.
@@ -92,16 +99,40 @@ public class SessionUserRefreshFilter extends OncePerRequestFilter {
                     rememberMe ? "remember_me" : "normal", request, current.email());
             return;
         }
-        Optional<SessionUser> latest = lookup.get().findById(current.id());
-        if (latest.isEmpty() || latest.get().endsSessionValidFrom(validFrom)) {
+        Optional<SessionUser> found = lookup.get().findById(current.id());
+        if (found.isEmpty()) {
             end(session);
-        } else if (!latest.get().user().equals(current)) {
+            return;
+        }
+        SessionUser latest = found.get();
+        if (latest.disabled()) {
+            end(session);
+            request.setAttribute(ProblemAuthenticationEntryPoint.ACCOUNT_DISABLED, Boolean.TRUE);
+            SecurityEventLogger.log(SecurityEvent.ACCOUNT_DISABLED_SESSION_ENDED, request, latest.user().email());
+            return;
+        }
+        if (latest.endsSessionValidFrom(validFrom)) {
+            end(session);
+            return;
+        }
+        List<GrantedAuthority> authorities = latest.authorities();
+        if (!latest.user().equals(current) || !sameAuthorities(authentication.getAuthorities(), authorities)) {
+            // Always the authorities of the current role: never copied from the old authentication.
             SecurityContext context = contextHolder.createEmptyContext();
             context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
-                    latest.get().user(), null, authentication.getAuthorities()));
+                    latest.user(), null, authorities));
             contextHolder.setContext(context);
             securityContextRepository.saveContext(context, request, response);
         }
+    }
+
+    private static boolean sameAuthorities(Collection<? extends GrantedAuthority> held,
+            List<GrantedAuthority> current) {
+        return names(held).equals(names(current));
+    }
+
+    private static Set<String> names(Collection<? extends GrantedAuthority> authorities) {
+        return authorities.stream().map(GrantedAuthority::getAuthority).collect(Collectors.toSet());
     }
 
     private void end(HttpSession session) {

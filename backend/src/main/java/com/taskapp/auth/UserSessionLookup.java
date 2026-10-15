@@ -22,6 +22,6 @@ class UserSessionLookup implements SessionUserLookup {
     public Optional<SessionUser> findById(long userId) {
         return userRepository.findById(userId).map(user -> new SessionUser(
                 new AuthenticatedUser(user.getId(), user.getEmail(), user.getDisplayName()),
-                user.getSessionsValidAfter()));
+                user.getSessionsValidAfter(), user.getRole(), user.isDisabled()));
     }
 }

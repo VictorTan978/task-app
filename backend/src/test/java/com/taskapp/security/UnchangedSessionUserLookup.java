@@ -18,7 +18,13 @@ public class UnchangedSessionUserLookup implements SessionUserLookup {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null && authentication.getPrincipal() instanceof AuthenticatedUser user
                 && user.id() == userId) {
-            return Optional.of(new SessionUser(user, null));
+            // Same role as the session holds (USER when it holds none), so the filter changes nothing.
+            Role role = authentication.getAuthorities().stream()
+                    .map(a -> a.getAuthority())
+                    .filter(a -> a.startsWith("ROLE_"))
+                    .map(a -> Role.valueOf(a.substring("ROLE_".length())))
+                    .findFirst().orElse(Role.USER);
+            return Optional.of(new SessionUser(user, null, role, false));
         }
         return Optional.empty();
     }

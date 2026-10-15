@@ -23,6 +23,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.taskapp.admin.ActorDisabledException;
+import com.taskapp.admin.CannotModifySelfException;
+import com.taskapp.admin.InsufficientRoleException;
+import com.taskapp.admin.NotAdminException;
+import com.taskapp.admin.UserNotFoundException;
+import com.taskapp.auth.AccountDisabledException;
 import com.taskapp.auth.AlreadyVerifiedException;
 import com.taskapp.auth.ConnectionNotFoundException;
 import com.taskapp.auth.DisplayNameTakenException;
@@ -58,6 +64,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             ErrorCode.REQUIRED, 0,
             ErrorCode.INVALID_EMAIL, 1,
             ErrorCode.PASSWORD_LENGTH, 1,
+            ErrorCode.OUT_OF_RANGE, 1,
+            ErrorCode.INVALID_ROLE, 1,
             ErrorCode.TOO_LONG, 2);
 
     /**
@@ -130,6 +138,50 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 ex.reason() == null ? null : ex.reason().logValue(), request, ex.email());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                 Problems.of(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_CREDENTIALS, "Invalid email or password"));
+    }
+
+    /**
+     * Login with the correct password for a disabled account (only after the password matched, so it reveals nothing
+     * to someone without the password): 403, nothing signed in.
+     */
+    @ExceptionHandler(AccountDisabledException.class)
+    ResponseEntity<ProblemDetail> handleAccountDisabled(AccountDisabledException ex, HttpServletRequest request) {
+        SecurityEventLogger.log(SecurityEvent.LOGIN_FAILURE, "reason", "account_disabled", request, ex.email());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                Problems.of(HttpStatus.FORBIDDEN, ErrorCode.ACCOUNT_DISABLED, ex.getMessage()));
+    }
+
+    // ---- admin endpoints (specs/roles-admin.md); refusals are audited by AdminUserService ----
+
+    @ExceptionHandler(CannotModifySelfException.class)
+    ResponseEntity<ProblemDetail> handleCannotModifySelf(CannotModifySelfException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                Problems.of(HttpStatus.CONFLICT, ErrorCode.CANNOT_MODIFY_SELF, ex.getMessage()));
+    }
+
+    @ExceptionHandler(InsufficientRoleException.class)
+    ResponseEntity<ProblemDetail> handleInsufficientRole(InsufficientRoleException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                Problems.of(HttpStatus.FORBIDDEN, ErrorCode.INSUFFICIENT_ROLE, ex.getMessage()));
+    }
+
+    @ExceptionHandler(NotAdminException.class)
+    ResponseEntity<ProblemDetail> handleNotAdmin(NotAdminException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                Problems.of(HttpStatus.FORBIDDEN, ErrorCode.FORBIDDEN, ex.getMessage()));
+    }
+
+    @ExceptionHandler(UserNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleUserNotFound(UserNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                Problems.of(HttpStatus.NOT_FOUND, ErrorCode.USER_NOT_FOUND, ex.getMessage()));
+    }
+
+    @ExceptionHandler(ActorDisabledException.class)
+    ResponseEntity<ProblemDetail> handleActorDisabled(ActorDisabledException ex, HttpServletRequest request) {
+        SecurityEventLogger.log(SecurityEvent.UNAUTHENTICATED, request, SecurityEventLogger.currentUserEmail());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                Problems.of(HttpStatus.UNAUTHORIZED, ErrorCode.ACCOUNT_DISABLED, ex.getMessage()));
     }
 
     /** Every rate-limit refusal (per-IP, per-email and per-user) ends up here. */
@@ -251,6 +303,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case "Email" -> ErrorCode.INVALID_EMAIL;
             case "PasswordLength" -> ErrorCode.PASSWORD_LENGTH;
             case "Size" -> ErrorCode.TOO_LONG;
+            case "Min", "Max" -> ErrorCode.OUT_OF_RANGE;
+            case "InvalidRole" -> ErrorCode.INVALID_ROLE;
             default -> ErrorCode.VALIDATION_FAILED;
         };
     }

@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,7 @@ import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.ratelimit.AuthRateLimiter;
 import com.taskapp.security.ratelimit.RateLimitProperties;
 import com.taskapp.security.ratelimit.RateLimitedException;
+import com.taskapp.security.Role;
 
 class AuthServiceTest {
 
@@ -63,7 +65,7 @@ class AuthServiceTest {
 
         UserResponse result = authService.register(new RegisterRequest(" Bob ", " Bob@Example.COM ", "correct-horse"));
 
-        assertThat(result).isEqualTo(new UserResponse(7L, "bob@example.com", "Bob", false, true, List.of()));
+        assertThat(result).isEqualTo(new UserResponse(7L, "bob@example.com", "Bob", false, true, List.of(), Role.USER));
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(saved.capture());
         assertThat(saved.getValue().getPasswordHash()).startsWith("$2").hasSize(60).isNotEqualTo("correct-horse");
@@ -175,7 +177,7 @@ class AuthServiceTest {
 
         UserResponse result = authService.login(new LoginRequest("BoB@Example.com ", "correct-horse"));
 
-        assertThat(result).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
+        assertThat(result).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER));
     }
 
     @Test
@@ -199,6 +201,53 @@ class AuthServiceTest {
                     assertThat(e.reason()).isEqualTo(InvalidCredentialsException.Reason.UNKNOWN_EMAIL);
                     assertThat(e.email()).isEqualTo("nobody@example.com");
                 });
+    }
+
+    // --- disabled accounts (specs/roles-admin.md AC18) ---
+
+    @Test
+    void disabledAccountWithTheCorrectPasswordIsRefusedAsDisabledWithoutTouchingTheFailureCount() {
+        User bob = persisted(1L, "bob@example.com", passwordEncoder.encode("correct-horse"), "Bob");
+        bob.disable(Instant.parse("2026-10-15T08:00:00Z"));
+        when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
+        // Four failures first: a reset would allow five more, an increment would block the next try.
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "wrong-horse")))
+                    .isInstanceOf(InvalidCredentialsException.class);
+        }
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("BOB@example.com", "correct-horse")))
+                .isInstanceOfSatisfying(AccountDisabledException.class,
+                        e -> assertThat(e.email()).isEqualTo("bob@example.com"));
+        assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "correct-horse")))
+                .isInstanceOf(AccountDisabledException.class);
+
+        // Not counted as failures (else this would be 429 by now), and not a success either: the fifth failure blocks.
+        assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "wrong-horse")))
+                .isInstanceOf(InvalidCredentialsException.class);
+        assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "correct-horse")))
+                .isInstanceOf(RateLimitedException.class);
+    }
+
+    @Test
+    void disabledAccountWithAWrongPasswordGetsTheUsualInvalidCredentials() {
+        User bob = persisted(1L, "bob@example.com", passwordEncoder.encode("correct-horse"), "Bob");
+        bob.disable(Instant.parse("2026-10-15T08:00:00Z"));
+        when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("bob@example.com", "wrong-horse")))
+                .isInstanceOfSatisfying(InvalidCredentialsException.class,
+                        e -> assertThat(e.reason()).isEqualTo(InvalidCredentialsException.Reason.BAD_PASSWORD));
+    }
+
+    @Test
+    void loginReturnsTheRole() {
+        User bob = persisted(1L, "bob@example.com", passwordEncoder.encode("correct-horse"), "Bob");
+        bob.changeRole(Role.ADMIN);
+        when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
+
+        assertThat(authService.login(new LoginRequest("bob@example.com", "correct-horse")).role())
+                .isEqualTo(Role.ADMIN);
     }
 
     @Test

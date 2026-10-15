@@ -139,9 +139,18 @@ public class AccountService {
             verifyEmail(user, request.email());
         }
         UserResponse deleted = UserResponse.from(user);
+        deleteNow(user);
+        return deleted;
+    }
+
+    /**
+     * The delete itself, shared by {@link #deleteAccount} (after its checks) and the admin delete
+     * ({@code com.taskapp.admin.AdminUserService}): hard-deletes {@code user}, loaded in the caller's transaction; the
+     * database deletes the rows that reference it (see {@link #deleteAccount}). Checks nothing.
+     */
+    public void deleteNow(User user) {
         userRepository.delete(user);
         userRepository.flush();
-        return deleted;
     }
 
     /**

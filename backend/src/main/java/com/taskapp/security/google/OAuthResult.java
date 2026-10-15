@@ -11,7 +11,9 @@ enum OAuthResult {
     GOOGLE_UNVERIFIED("/login?oauth=google_unverified"),
     GOOGLE_CONNECTED("/account?oauth=google_connected"),
     GOOGLE_IN_USE("/account?oauth=google_in_use"),
-    GOOGLE_CONNECT_FAILED("/account?oauth=google_connect_failed");
+    GOOGLE_CONNECT_FAILED("/account?oauth=google_connect_failed"),
+    /** The account is disabled (contract 0.9.0), on login and on connect. */
+    ACCOUNT_DISABLED("/login?oauth=account_disabled");
 
     private final String route;
 

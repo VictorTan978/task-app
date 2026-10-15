@@ -34,6 +34,7 @@ import com.taskapp.security.SessionRenewal;
 import com.taskapp.security.ratelimit.AuthRateLimiter;
 import com.taskapp.security.ratelimit.RateLimitProperties;
 import com.taskapp.security.ratelimit.RateLimitedException;
+import com.taskapp.security.Role;
 
 class AccountServiceTest {
 
@@ -79,7 +80,7 @@ class AccountServiceTest {
         DisplayNameChange change = accountService.changeDisplayName(1L, new ChangeDisplayNameRequest("  Bobby "));
 
         assertThat(change.changed()).isTrue();
-        assertThat(change.user()).isEqualTo(new UserResponse(1L, "bob@example.com", "Bobby", false, true, List.of()));
+        assertThat(change.user()).isEqualTo(new UserResponse(1L, "bob@example.com", "Bobby", false, true, List.of(), Role.USER));
         assertThat(bob.getDisplayName()).isEqualTo("Bobby");
         verify(userRepository).existsByDisplayNameAndIdNot("Bobby", 1L);
         verify(userRepository).saveAndFlush(bob);
@@ -240,7 +241,7 @@ class AccountServiceTest {
     void deleteAccountDeletesTheUser() {
         UserResponse deleted = accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD, null));
 
-        assertThat(deleted).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
+        assertThat(deleted).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER));
         verify(userRepository).delete(bob);
         verify(userRepository).flush();
     }

@@ -1,13 +1,19 @@
 package com.taskapp.auth;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import com.taskapp.security.Role;
 
 import jakarta.persistence.LockModeType;
 
@@ -39,6 +45,45 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") long id);
+
+    /**
+     * Loads and locks the rows of {@code ids} in id order ({@code SELECT ... ORDER BY id FOR UPDATE}): an admin action
+     * locks the acting admin and the target together, always in the same order, so two actions can't deadlock.
+     * Missing ids are simply absent from the result.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id in :ids order by u.id")
+    List<User> findAllByIdForUpdate(@Param("ids") Collection<Long> ids);
+
+    boolean existsByRole(Role role);
+
+    /**
+     * Admin user list: users whose email OR display name contains {@code pattern}, a LIKE pattern escaped with
+     * {@value #LIKE_ESCAPE} (null = everyone). The columns' collation (utf8mb4_0900_ai_ci, V4) makes it ignore letter
+     * case and accents. Order and page come from {@code pageable}.
+     */
+    @Query(value = "select u from User u where :pattern is null"
+            + " or u.email like :pattern escape '" + LIKE_ESCAPE + "'"
+            + " or u.displayName like :pattern escape '" + LIKE_ESCAPE + "'",
+            countQuery = "select count(u) from User u where :pattern is null"
+                    + " or u.email like :pattern escape '" + LIKE_ESCAPE + "'"
+                    + " or u.displayName like :pattern escape '" + LIKE_ESCAPE + "'")
+    Page<User> search(@Param("pattern") String pattern, Pageable pageable);
+
+    /** Escape character of {@link #search} patterns (not a backslash: MySQL also treats that as a string escape). */
+    char LIKE_ESCAPE = '!';
+
+    /** A {@link #search} pattern matching values that contain {@code text} literally ({@code %}, {@code _} too). */
+    static String containsPattern(String text) {
+        StringBuilder pattern = new StringBuilder(text.length() + 2).append('%');
+        for (char c : text.toCharArray()) {
+            if (c == '%' || c == '_' || c == LIKE_ESCAPE) {
+                pattern.append(LIKE_ESCAPE);
+            }
+            pattern.append(c);
+        }
+        return pattern.append('%').toString();
+    }
 
     /** {@code displayName} must already be trimmed. */
     boolean existsByDisplayName(String displayName);

@@ -20,7 +20,9 @@ public record GoogleLogin(Outcome outcome, UserResponse user, String reason) {
         /** An account exists for the email but can't be linked, or the email isn't verified: nothing changed. */
         UNVERIFIED,
         /** The ID token lacks a usable {@code sub} or email: nothing changed. */
-        INVALID;
+        INVALID,
+        /** The matched account is disabled (specs/roles-admin.md AC18): nothing created or linked. */
+        DISABLED;
 
         public boolean signsIn() {
             return this == EXISTING || this == LINKED || this == CREATED;

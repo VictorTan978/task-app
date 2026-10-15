@@ -180,7 +180,8 @@ class GoogleSignInIntegrationTest {
         assertThat(me.get("connections")).hasSize(1);
         assertThat(me.get("connections").get(0).get("provider").asText()).isEqualTo("google");
         assertThat(me.get("connections").get(0).get("email").asText()).isEqualTo("ana.lopez@gmail.com");
-        assertThat(me.size()).isEqualTo(6);
+        assertThat(me.size()).isEqualTo(7);
+        assertThat(me.get("role").asText()).isEqualTo("USER");
         assertThat(me.toString()).doesNotContain("g-ana");
         assertThat(jdbc.queryForObject("select password_hash from users where email = 'ana.lopez@gmail.com'",
                 String.class)).isNull();
@@ -188,6 +189,39 @@ class GoogleSignInIntegrationTest {
         assertThat(auditLines("GOOGLE_ACCOUNT_CREATED")).containsExactly(
                 "SECURITY event=GOOGLE_ACCOUNT_CREATED email=ana.lopez@gmail.com ip=127.0.0.1"
                         + " path=/api/auth/oauth2/callback/google");
+        assertThat(auditLines("GOOGLE_LOGIN_SUCCESS")).hasSize(1);
+    }
+
+    // --- specs/roles-admin.md AC18: a disabled account can't sign in with Google
+
+    private static final String ACCOUNT_DISABLED = GoogleBrowser.APP_BASE_URL + "/login?oauth=account_disabled";
+
+    @Test
+    void disabledAccountGoesToTheDisabledNoticeAndNothingIsSignedInLinkedOrCreated() throws Exception {
+        assertThat(browser().google(google, "login", "g-dis", claims("dis@gmail.com", true, "Dis")).location())
+                .isEqualTo(TASKS);
+        long id = userId("dis@gmail.com");
+        GoogleBrowser owner = browser();
+        long linkable = owner.register("Linda", "linda@example.com").json().get("id").asLong();
+        confirm("linda@example.com");
+        jdbc.update("update users set disabled_at = now(6) where id in (?, ?)", id, linkable);
+        int usersBefore = jdbc.queryForObject("select count(*) from users", Integer.class);
+
+        GoogleBrowser b = browser();
+        Resp byId = b.google(google, "login", "g-dis", claims("dis@gmail.com", true, "Dis"));
+        Resp byEmail = b.google(google, "login", "g-linda", claims("linda@example.com", true, "Linda"));
+
+        assertThat(byId.location()).isEqualTo(ACCOUNT_DISABLED);
+        assertThat(byEmail.location()).isEqualTo(ACCOUNT_DISABLED);
+        assertThat(b.me().status()).isEqualTo(401);
+        assertThat(jdbc.queryForObject("select count(*) from users", Integer.class)).isEqualTo(usersBefore);
+        assertThat(jdbc.queryForObject("select count(*) from user_connections where user_id = ?", Integer.class,
+                linkable)).isZero();
+        assertThat(auditLines("GOOGLE_LOGIN_FAILURE")).containsExactly(
+                "SECURITY event=GOOGLE_LOGIN_FAILURE intent=login reason=account_disabled email=dis@gmail.com"
+                        + " ip=127.0.0.1 path=/api/auth/oauth2/callback/google",
+                "SECURITY event=GOOGLE_LOGIN_FAILURE intent=login reason=account_disabled email=linda@example.com"
+                        + " ip=127.0.0.1 path=/api/auth/oauth2/callback/google");
         assertThat(auditLines("GOOGLE_LOGIN_SUCCESS")).hasSize(1);
     }
 

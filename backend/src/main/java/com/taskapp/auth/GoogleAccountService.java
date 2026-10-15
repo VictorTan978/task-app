@@ -61,9 +61,11 @@ public class GoogleAccountService {
     /**
      * Login intent, in this order:
      * <ol>
-     * <li>a connection with this {@code sub}: its user (the stored Google email is updated if it changed);</li>
+     * <li>a connection with this {@code sub}: its user (the stored Google email is updated if it changed), or
+     * {@code DISABLED} if that account is disabled;</li>
      * <li>an account with this email (ignoring case and accents): linked only if Google says the email is verified,
-     * the account's own email is confirmed and it has no Google connection yet; otherwise {@code UNVERIFIED};</li>
+     * the account's own email is confirmed and it has no Google connection yet; otherwise {@code UNVERIFIED}; a
+     * disabled account that passes those checks gives {@code DISABLED} (nothing linked);</li>
      * <li>no account: created (no password, email confirmed) and connected if Google says the email is verified;
      * otherwise {@code UNVERIFIED}, nothing created.</li>
      * </ol>
@@ -83,6 +85,9 @@ public class GoogleAccountService {
         if (bySubject.isPresent()) {
             UserConnection connection = bySubject.get();
             User user = lockOrRetry(connection.getUser().getId());
+            if (user.isDisabled()) {
+                return GoogleLogin.refused(GoogleLogin.Outcome.DISABLED, "account_disabled");
+            }
             updateEmail(connection, email);
             return GoogleLogin.signedIn(GoogleLogin.Outcome.EXISTING, response(user));
         }
@@ -99,6 +104,10 @@ public class GoogleAccountService {
             }
             if (connections.findByUserIdAndProvider(user.getId(), UserConnection.GOOGLE).isPresent()) {
                 return GoogleLogin.refused(GoogleLogin.Outcome.UNVERIFIED, "other_google_connected");
+            }
+            if (user.isDisabled()) {
+                // Only once it would otherwise be linked: an unlinkable match says nothing about the account.
+                return GoogleLogin.refused(GoogleLogin.Outcome.DISABLED, "account_disabled");
             }
             link(user, subject, email);
             return GoogleLogin.signedIn(GoogleLogin.Outcome.LINKED, response(user));
@@ -133,6 +142,9 @@ public class GoogleAccountService {
             return new GoogleConnect(GoogleConnect.Outcome.USER_GONE, null);
         }
         User user = locked.get();
+        if (user.isDisabled()) {
+            return new GoogleConnect(GoogleConnect.Outcome.DISABLED, null);
+        }
         Optional<UserConnection> bySubject = connections.findByProviderAndProviderSubject(UserConnection.GOOGLE,
                 subject);
         GoogleConnect.Outcome outcome;

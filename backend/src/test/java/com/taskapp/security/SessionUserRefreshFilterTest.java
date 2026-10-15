@@ -64,7 +64,8 @@ class SessionUserRefreshFilterTest {
 
     private void signedInWithSessionWithoutLifetime(AuthenticatedUser principal) {
         SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()));
+        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(principal, null,
+                Role.USER.authorities()));
         SecurityContextHolder.setContext(context);
         session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
         request.setSession(session);
@@ -183,6 +184,80 @@ class SessionUserRefreshFilterTest {
 
         assertThat(seenByChain.get()).isSameAs(before);
         assertThat(session.isInvalid()).isFalse();
+    }
+
+    // --- roles and disabled accounts (specs/roles-admin.md) ---
+
+    @Test
+    void roleChangeRebuildsTheAuthoritiesFromTheCurrentRoleInTheSameSession() throws Exception {
+        signedInWithSession(BOB);
+        when(lookup.findById(1L)).thenReturn(Optional.of(new SessionUser(BOB, null, Role.ADMIN, false)));
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(seenByChain.get().getPrincipal()).isEqualTo(BOB);
+        assertThat(seenByChain.get().getAuthorities()).extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_ADMIN");
+        SecurityContext stored = (SecurityContext) session.getAttribute(
+                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+        assertThat(stored.getAuthentication().getAuthorities()).extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_ADMIN");
+        assertThat(session.isInvalid()).isFalse();
+        assertThat(response.getHeaders("Set-Cookie")).isEmpty();
+
+        // Demoted again: the old ROLE_ADMIN is never carried over.
+        when(lookup.findById(1L)).thenReturn(Optional.of(new SessionUser(BOB, null, Role.USER, false)));
+        filter.doFilter(request, response, chain);
+        assertThat(seenByChain.get().getAuthorities()).extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_USER");
+    }
+
+    @Test
+    void nameChangeTakesTheAuthoritiesOfTheCurrentRoleNotTheOldOnes() throws Exception {
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(BOB, null,
+                AuthorityUtils.createAuthorityList("ROLE_ADMIN", "SOMETHING_OLD")));
+        SecurityContextHolder.setContext(context);
+        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+        session.setAttribute(SessionAttributes.EXPIRES_AT, SIGNED_IN.plus(Duration.ofHours(12)));
+        session.setAttribute(SessionAttributes.VALID_FROM, SIGNED_IN);
+        request.setSession(session);
+        AuthenticatedUser renamed = new AuthenticatedUser(1L, "bob@example.com", "Bobby");
+        when(lookup.findById(1L)).thenReturn(Optional.of(new SessionUser(renamed, null, Role.USER, false)));
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(seenByChain.get().getPrincipal()).isEqualTo(renamed);
+        assertThat(seenByChain.get().getAuthorities()).extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_USER");
+    }
+
+    @Test
+    void disabledAccountEndsTheSessionMarksTheRequestAndLogs() throws Exception {
+        signedInWithSession(BOB);
+        when(lookup.findById(1L)).thenReturn(Optional.of(new SessionUser(BOB, null, Role.ADMIN, true)));
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(session.isInvalid()).isTrue();
+        assertThat(seenByChain.get()).isNull();
+        assertThat(request.getAttribute(ProblemAuthenticationEntryPoint.ACCOUNT_DISABLED)).isEqualTo(Boolean.TRUE);
+        assertThat(response.getHeaders("Set-Cookie")).isEmpty();
+        assertThat(capture.lines()).containsExactly("SECURITY event=ACCOUNT_DISABLED_SESSION_ENDED"
+                + " email=bob@example.com ip=127.0.0.1 path=/api/tasks");
+        assertThat(capture.events().get(0).getLevel().toString()).isEqualTo("WARN");
+    }
+
+    @Test
+    void sessionEndedByACutoffIsNotReportedAsDisabled() throws Exception {
+        signedInWithSession(BOB);
+        when(lookup.findById(1L)).thenReturn(Optional.of(new SessionUser(BOB, SIGNED_IN.plusSeconds(1))));
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(session.isInvalid()).isTrue();
+        assertThat(request.getAttribute(ProblemAuthenticationEntryPoint.ACCOUNT_DISABLED)).isNull();
+        assertThat(capture.lines()).isEmpty();
     }
 
     @Test

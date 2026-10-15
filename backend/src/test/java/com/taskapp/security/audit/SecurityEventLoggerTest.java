@@ -76,7 +76,11 @@ class SecurityEventLoggerTest {
                     || event == SecurityEvent.PASSWORD_RESET_COMPLETED
                     // specs/google-sign-in.md
                     || event == SecurityEvent.GOOGLE_LOGIN_SUCCESS || event == SecurityEvent.GOOGLE_ACCOUNT_CREATED
-                    || event == SecurityEvent.GOOGLE_LINKED || event == SecurityEvent.GOOGLE_UNLINKED;
+                    || event == SecurityEvent.GOOGLE_LINKED || event == SecurityEvent.GOOGLE_UNLINKED
+                    // specs/roles-admin.md: changes that happened (refusals and ended sessions are WARN).
+                    || event == SecurityEvent.ADMIN_BOOTSTRAPPED || event == SecurityEvent.ADMIN_USER_DISABLED
+                    || event == SecurityEvent.ADMIN_USER_ENABLED || event == SecurityEvent.ADMIN_USER_SESSIONS_REVOKED
+                    || event == SecurityEvent.ADMIN_ROLE_CHANGED || event == SecurityEvent.ADMIN_USER_DELETED;
             assertThat(event.level().name()).as(event.name()).isEqualTo(success ? "INFO" : "WARN");
         }
     }

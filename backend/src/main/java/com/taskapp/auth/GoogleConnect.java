@@ -21,7 +21,9 @@ public record GoogleConnect(Outcome outcome, UserResponse user) {
         /** The ID token lacks a usable {@code sub} or email. */
         INVALID,
         /** The signed-in user no longer exists. */
-        USER_GONE;
+        USER_GONE,
+        /** The signed-in user's account is disabled (specs/roles-admin.md AC18): nothing connected. */
+        DISABLED;
 
         public boolean connected() {
             return this == CONNECTED || this == ALREADY_CONNECTED;

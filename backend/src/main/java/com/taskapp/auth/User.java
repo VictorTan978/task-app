@@ -4,9 +4,16 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import com.taskapp.security.Role;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -42,6 +49,16 @@ public class User {
     /** When the user confirmed their email (link or password reset by email); null = not confirmed. */
     @Column(name = "email_verified_at")
     private Instant emailVerifiedAt;
+
+    /** USER, ADMIN or SUPER_ADMIN (V8); new accounts are USER. */
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "role", nullable = false, length = 16)
+    private Role role = Role.USER;
+
+    /** When an admin disabled the account (V8); null = active. */
+    @Column(name = "disabled_at")
+    private Instant disabledAt;
 
     /**
      * Connected external sign-in accounts (V7). Rows are written through {@link UserConnectionRepository}. Deleting
@@ -110,6 +127,32 @@ public class User {
     /** The connected external sign-in accounts, ordered by provider. */
     public List<UserConnection> getConnections() {
         return connections;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+
+    public Instant getDisabledAt() {
+        return disabledAt;
+    }
+
+    public boolean isDisabled() {
+        return disabledAt != null;
+    }
+
+    /** Disables the account at {@code at}. Callers also end its sessions and remember-me logins. */
+    public void disable(Instant at) {
+        this.disabledAt = at;
+    }
+
+    /** Makes the account usable again. Ended sessions stay ended. */
+    public void enable() {
+        this.disabledAt = null;
+    }
+
+    public void changeRole(Role role) {
+        this.role = role;
     }
 
     /** Ends every session of this user that became valid before {@code cutoff} (see SessionUserRefreshFilter). */

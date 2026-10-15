@@ -89,8 +89,11 @@ final class GoogleCallbackHandler implements AuthenticationSuccessHandler, Authe
             GoogleIdentity identity) throws IOException {
         GoogleLogin result = accounts.get().signIn(identity);
         if (!result.outcome().signsIn()) {
-            OAuthResult route = result.outcome() == GoogleLogin.Outcome.UNVERIFIED ? OAuthResult.GOOGLE_UNVERIFIED
-                    : OAuthResult.GOOGLE_FAILED;
+            OAuthResult route = switch (result.outcome()) {
+                case UNVERIFIED -> OAuthResult.GOOGLE_UNVERIFIED;
+                case DISABLED -> OAuthResult.ACCOUNT_DISABLED;
+                default -> OAuthResult.GOOGLE_FAILED;
+            };
             fail(request, response, pending, result.reason(), identity.email(), route);
             return;
         }
@@ -125,6 +128,7 @@ final class GoogleCallbackHandler implements AuthenticationSuccessHandler, Authe
             case INVALID -> fail(request, response, pending, "invalid_identity", null,
                     OAuthResult.GOOGLE_CONNECT_FAILED);
             case USER_GONE -> fail(request, response, pending, "user_gone", null, OAuthResult.GOOGLE_FAILED);
+            case DISABLED -> fail(request, response, pending, "account_disabled", null, OAuthResult.ACCOUNT_DISABLED);
         }
     }
 

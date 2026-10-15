@@ -159,7 +159,8 @@ class AuthIntegrationTest {
         assertThat(user.get("hasPassword").asBoolean(false)).isTrue();
         assertThat(user.get("connections").isArray()).isTrue();
         assertThat(user.get("connections")).isEmpty();
-        assertThat(user.size()).isEqualTo(6);
+        assertThat(user.get("role").asText()).isEqualTo("USER");
+        assertThat(user.size()).isEqualTo(7);
         assertThat(reg.setCookie("JSESSIONID")).contains("HttpOnly").contains("SameSite=Lax").contains("Path=/");
         assertThat(b.cookies.get("XSRF-TOKEN")).isNotEqualTo(csrfBefore);
 

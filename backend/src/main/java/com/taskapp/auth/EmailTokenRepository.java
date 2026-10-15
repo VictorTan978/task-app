@@ -33,16 +33,18 @@ public class EmailTokenRepository {
         this.jdbc = JdbcClient.create(jdbcTemplate);
     }
 
-    /** The user's current email, display name and confirmation state, read while their row is locked. */
-    public record LockedUser(long id, String email, String displayName, boolean emailVerified) {
+    /** The user's current email, display name, confirmation and disabled state, read while their row is locked. */
+    public record LockedUser(long id, String email, String displayName, boolean emailVerified, boolean disabled) {
     }
 
     /** {@code SELECT ... FOR UPDATE} on the user's row; empty if the user does not exist. */
     public Optional<LockedUser> lockUser(long userId) {
-        return jdbc.sql("SELECT id, email, display_name, email_verified_at FROM users WHERE id = ? FOR UPDATE")
+        return jdbc.sql("SELECT id, email, display_name, email_verified_at, disabled_at FROM users WHERE id = ?"
+                        + " FOR UPDATE")
                 .param(userId)
                 .query((rs, row) -> new LockedUser(rs.getLong("id"), rs.getString("email"),
-                        rs.getString("display_name"), rs.getTimestamp("email_verified_at") != null))
+                        rs.getString("display_name"), rs.getTimestamp("email_verified_at") != null,
+                        rs.getTimestamp("disabled_at") != null))
                 .optional();
     }
 

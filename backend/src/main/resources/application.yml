@@ -144,7 +144,11 @@ app:
   # failure page (/login?oauth=google_failed or /account?oauth=google_connect_failed), not a 429:
   #   RATE_LIMIT_GOOGLE_START_PER_IP_PER_MINUTE     POST /api/auth/oauth2/authorization/google per client IP (default 20)
   #   RATE_LIMIT_GOOGLE_CALLBACK_PER_IP_PER_MINUTE  GET /api/auth/oauth2/callback/google per client IP (default 20)
-  # The e2e suite registers many users from 127.0.0.1, so raise the per-IP limits for e2e runs.
+  # Admin users page (specs/roles-admin.md), per 1 minute, 429 over the limit:
+  #   RATE_LIMIT_ADMIN_ACTIONS_PER_USER_PER_MINUTE  change requests (disable, enable, sign out everywhere, role,
+  #                                                 delete) per acting admin (default 60; the list is not limited)
+  # The e2e suite registers many users from 127.0.0.1, so raise the per-IP limits for e2e runs (and the admin limit
+  # too if many e2e tests act as the same admin).
   rate-limit:
     login-failures-per-email: ${RATE_LIMIT_LOGIN_FAILURES_PER_EMAIL:5}
     login-failure-window: ${RATE_LIMIT_LOGIN_FAILURE_WINDOW:15m}
@@ -161,6 +165,13 @@ app:
     reset-password-per-ip-per-hour: ${RATE_LIMIT_RESET_PASSWORD_PER_IP_PER_HOUR:20}
     google-start-per-ip-per-minute: ${RATE_LIMIT_GOOGLE_START_PER_IP_PER_MINUTE:20}
     google-callback-per-ip-per-minute: ${RATE_LIMIT_GOOGLE_CALLBACK_PER_IP_PER_MINUTE:20}
+    admin-actions-per-user-per-minute: ${RATE_LIMIT_ADMIN_ACTIONS_PER_USER_PER_MINUTE:60}
+  # Roles and admin users (specs/roles-admin.md). ADMIN_BOOTSTRAP_EMAIL: at startup, if NO super admin exists yet and
+  # an account with this email exists (matched like login: ignoring letter case and accents) and is not disabled, it
+  # becomes SUPER_ADMIN (audit event ADMIN_BOOTSTRAPPED). Empty (default) = nothing happens. Once a super admin exists
+  # the setting does nothing, so it can't be used to take over later. See backend/README.md for the SQL fallback.
+  admin:
+    bootstrap-email: ${ADMIN_BOOTSTRAP_EMAIL:}
 
 springdoc:
   api-docs:

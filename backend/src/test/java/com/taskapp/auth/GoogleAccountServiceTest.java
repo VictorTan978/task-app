@@ -185,6 +185,65 @@ class GoogleAccountServiceTest {
                 .containsExactly("other-sub");
     }
 
+    // --- disabled accounts (specs/roles-admin.md AC18)
+
+    private void disable(long id) {
+        jdbc.update("update users set disabled_at = ? where id = ?", Timestamp.from(NOW.minusSeconds(60)), id);
+    }
+
+    @Test
+    void disabledAccountMatchedByGoogleIdIsRefusedAndNothingChanges() {
+        long id = service.signIn(google("d-1", "dee@gmail.com", true, "Dee")).user().id();
+        disable(id);
+
+        GoogleLogin result = service.signIn(google("d-1", "dee.new@gmail.com", true, "Dee"));
+
+        assertThat(result.outcome()).isEqualTo(GoogleLogin.Outcome.DISABLED);
+        assertThat(result.outcome().signsIn()).isFalse();
+        assertThat(result.reason()).isEqualTo("account_disabled");
+        assertThat(result.user()).isNull();
+        assertThat(jdbc.queryForObject("select provider_email from user_connections where user_id = ?", String.class,
+                id)).isEqualTo("dee@gmail.com");
+    }
+
+    @Test
+    void disabledAccountThatWouldBeLinkedByEmailIsRefusedAndNothingIsLinkedOrCreated() {
+        long id = passwordAccount("dora@example.com", "Dora", true);
+        disable(id);
+
+        GoogleLogin result = service.signIn(google("d-2", "DORA@example.com", true, "Dora"));
+
+        assertThat(result.outcome()).isEqualTo(GoogleLogin.Outcome.DISABLED);
+        assertThat(result.reason()).isEqualTo("account_disabled");
+        assertThat(count("user_connections")).isZero();
+        assertThat(count("users")).isEqualTo(1);
+    }
+
+    @Test
+    void disabledAccountThatCantBeLinkedAnywayGetsTheUsualAnswer() {
+        long id = passwordAccount("dirk@example.com", "Dirk", false);
+        disable(id);
+
+        assertThat(service.signIn(google("d-3", "dirk@example.com", true, "Dirk")).reason())
+                .isEqualTo("account_email_unconfirmed");
+        assertThat(service.signIn(google("d-3", "dirk@example.com", false, "Dirk")).reason())
+                .isEqualTo("google_email_unverified");
+    }
+
+    @Test
+    void connectForADisabledUserConnectsNothing() {
+        long id = passwordAccount("dina@example.com", "Dina", false);
+        disable(id);
+
+        GoogleConnect result = service.connect(id, google("d-4", "dina@example.com", true, "Dina"));
+
+        assertThat(result.outcome()).isEqualTo(GoogleConnect.Outcome.DISABLED);
+        assertThat(result.outcome().connected()).isFalse();
+        assertThat(count("user_connections")).isZero();
+        assertThat(jdbc.queryForObject("select email_verified_at from users where id = ?", Timestamp.class, id))
+                .isNull();
+    }
+
     @Test
     void unverifiedGoogleEmailWithoutAccountCreatesNothing() {
         GoogleLogin result = service.signIn(google("777", "gil@gmail.com", false, "Gil"));

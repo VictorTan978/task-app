@@ -86,6 +86,10 @@ public class SecurityConfig {
                     if (apiDocsEnabled) {
                         auth.requestMatchers(HttpMethod.GET, API_DOCS_PATHS).permitAll();
                     }
+                    // Admin users page (specs/roles-admin.md): admins only, by the role loaded fresh on every
+                    // request (SessionUserRefreshFilter). A signed-in USER gets 403 FORBIDDEN; per-target rules are
+                    // checked by AdminUserService.
+                    auth.requestMatchers("/api/admin/**").hasAnyRole(Role.ADMIN.name(), Role.SUPER_ADMIN.name());
                     // GET /api/auth/me is "public" in the contract but answers 401 when anonymous.
                     auth.anyRequest().authenticated();
                 })

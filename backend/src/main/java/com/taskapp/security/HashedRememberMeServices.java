@@ -43,7 +43,8 @@ import jakarta.servlet.http.HttpServletResponse;
  * accepted, not rotated again.</li>
  * <li>Any other wrong secret for a known series (an old cookie used again, i.e. stolen): every remember-me login
  * and session of that user is ended, logged at WARN.</li>
- * <li>Malformed, unknown, expired: the cookie is expired on the response and the request continues anonymous.
+ * <li>Malformed, unknown, expired, or the user's account is disabled (that login is deleted, and the 401 says
+ * {@code ACCOUNT_DISABLED}): the cookie is expired on the response and the request continues anonymous.
  * Never an exception (no 500), unlike Spring's {@code CookieTheftException} path.</li>
  * </ul>
  * The store and the user lookup are resolved lazily, so MockMvc slices without a database still start.
@@ -114,6 +115,12 @@ public class HashedRememberMeServices extends AbstractRememberMeServices {
             throw reject(request, "user_gone", null, Level.INFO);
         }
         String email = user.user().email();
+        if (user.disabled()) {
+            // Disabling deletes the account's logins; this one survived (e.g. disabled in the database by hand).
+            tokens.delete(row.seriesHash());
+            request.setAttribute(ProblemAuthenticationEntryPoint.ACCOUNT_DISABLED, Boolean.TRUE);
+            throw reject(request, "account_disabled", email, Level.WARN);
+        }
         if (!now.isBefore(row.expiresAt())) {
             tokens.delete(row.seriesHash());
             throw reject(request, "expired", email, Level.INFO);
@@ -143,7 +150,7 @@ public class HashedRememberMeServices extends AbstractRememberMeServices {
     protected Authentication createSuccessfulAuthentication(HttpServletRequest request, UserDetails user) {
         RememberedUser remembered = (RememberedUser) user;
         RememberMeAuthenticationToken authentication =
-                new RememberMeAuthenticationToken(getKey(), remembered.principal(), List.of());
+                new RememberMeAuthenticationToken(getKey(), remembered.principal(), remembered.getAuthorities());
         authentication.setDetails(remembered.login());
         return authentication;
     }
@@ -228,7 +235,7 @@ public class HashedRememberMeServices extends AbstractRememberMeServices {
 
     private static RememberedUser remembered(SessionUser user, RememberMeToken row) {
         return new RememberedUser(user.user(),
-                new RememberMeLogin(B64.encodeToString(row.seriesHash()), row.expiresAt()));
+                new RememberMeLogin(B64.encodeToString(row.seriesHash()), row.expiresAt()), user.authorities());
     }
 
     private static long secondsLeft(Instant expiresAt, Instant now) {
@@ -295,11 +302,13 @@ public class HashedRememberMeServices extends AbstractRememberMeServices {
     }
 
     /** Carries the principal and the login through {@link AbstractRememberMeServices#autoLogin}. */
-    private record RememberedUser(AuthenticatedUser principal, RememberMeLogin login) implements UserDetails {
+    private record RememberedUser(AuthenticatedUser principal, RememberMeLogin login,
+            List<GrantedAuthority> authorities) implements UserDetails {
 
+        /** From the user's current role, loaded with the user. */
         @Override
         public Collection<? extends GrantedAuthority> getAuthorities() {
-            return List.of();
+            return authorities;
         }
 
         @Override

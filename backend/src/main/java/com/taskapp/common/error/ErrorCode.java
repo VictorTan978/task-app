@@ -24,12 +24,24 @@ public final class ErrorCode {
     public static final String PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
     /** 400 on delete account for accounts without a password: the typed email is wrong. Also a field-level code. */
     public static final String EMAIL_MISMATCH = "EMAIL_MISMATCH";
+    /** 403 at login (correct password) or 401 on a session: the account is disabled (contract 0.9.0). */
+    public static final String ACCOUNT_DISABLED = "ACCOUNT_DISABLED";
+    /** 409 on /api/admin/**: the target is the caller's own account. */
+    public static final String CANNOT_MODIFY_SELF = "CANNOT_MODIFY_SELF";
+    /** 403 on /api/admin/**: the caller is an admin, but not allowed to do this to this account. */
+    public static final String INSUFFICIENT_ROLE = "INSUFFICIENT_ROLE";
+    /** 404 on /api/admin/**: no account has this id. */
+    public static final String USER_NOT_FOUND = "USER_NOT_FOUND";
 
     /** Field-level codes used inside {@code errors[]}. */
     public static final String REQUIRED = "REQUIRED";
     public static final String INVALID_EMAIL = "INVALID_EMAIL";
     public static final String TOO_LONG = "TOO_LONG";
     public static final String PASSWORD_LENGTH = "PASSWORD_LENGTH";
+    /** {@code page} / {@code size} of the admin user list out of range. */
+    public static final String OUT_OF_RANGE = "OUT_OF_RANGE";
+    /** {@code role} of the admin role change: missing or not USER/ADMIN. */
+    public static final String INVALID_ROLE = "INVALID_ROLE";
 
     private ErrorCode() {
     }

@@ -9,6 +9,9 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import java.time.Duration;
 import java.util.List;
@@ -33,6 +36,7 @@ import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.security.SessionAuthenticator;
 import com.taskapp.security.audit.SecurityLogCapture;
 import com.taskapp.security.ratelimit.RateLimitedException;
+import com.taskapp.security.Role;
 
 import ch.qos.logback.classic.Level;
 
@@ -43,7 +47,7 @@ import ch.qos.logback.classic.Level;
 @Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class SecurityEventLoggingControllerTest {
 
-    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of());
+    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER);
     private static final String LOGIN = "{\"email\":\"Bob@Example.com\",\"password\":\"correct-horse\"}";
     private static final String REGISTER =
             "{\"displayName\":\"Bob\",\"email\":\"bob@example.com\",\"password\":\"correct-horse\"}";
@@ -126,6 +130,23 @@ class SecurityEventLoggingControllerTest {
 
         assertSingleLine(Level.WARN, "SECURITY event=LOGIN_FAILURE reason=bad_password email=bob@example.com"
                 + " ip=10.1.0.4 path=/api/auth/login");
+    }
+
+    @Test
+    void loginOfADisabledAccountWithTheRightPasswordIs403AccountDisabledAndNoSession() throws Exception {
+        when(authService.login(any())).thenThrow(new AccountDisabledException("bob@example.com"));
+
+        mockMvc.perform(postJson("/api/auth/login", LOGIN, "10.1.0.14"))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("ACCOUNT_DISABLED"))
+                .andExpect(jsonPath("$.detail").value("This account has been disabled."))
+                .andExpect(jsonPath("$.instance").value("/api/auth/login"))
+                .andExpect(cookie().doesNotExist("JSESSIONID"))
+                .andExpect(cookie().doesNotExist("remember-me"));
+
+        assertSingleLine(Level.WARN, "SECURITY event=LOGIN_FAILURE reason=account_disabled email=bob@example.com"
+                + " ip=10.1.0.14 path=/api/auth/login");
     }
 
     @Test

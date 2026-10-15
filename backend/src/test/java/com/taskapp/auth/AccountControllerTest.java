@@ -51,6 +51,7 @@ import com.taskapp.security.SessionAuthenticator;
 import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.security.audit.SecurityLogCapture;
 import com.taskapp.security.ratelimit.RateLimitedException;
+import com.taskapp.security.Role;
 
 import ch.qos.logback.classic.Level;
 
@@ -107,7 +108,7 @@ class AccountControllerTest {
 
     @Test
     void changeDisplayNameReturnsUpdatedUserAndLogsOnce() throws Exception {
-        UserResponse bobby = new UserResponse(1L, "bob@example.com", "Bobby", false, true, List.of());
+        UserResponse bobby = new UserResponse(1L, "bob@example.com", "Bobby", false, true, List.of(), Role.USER);
         when(accountService.changeDisplayName(eq(1L), any())).thenReturn(new DisplayNameChange(bobby, true));
 
         mockMvc.perform(json(put(DISPLAY_NAME), "{\"displayName\":\"  Bobby \"}")
@@ -128,7 +129,7 @@ class AccountControllerTest {
     @Test
     void unchangedDisplayNameIsNotLogged() throws Exception {
         when(accountService.changeDisplayName(eq(1L), any()))
-                .thenReturn(new DisplayNameChange(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()), false));
+                .thenReturn(new DisplayNameChange(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER), false));
 
         mockMvc.perform(json(put(DISPLAY_NAME), "{\"displayName\":\"Bob\"}").with(csrf()).with(signedIn()))
                 .andExpect(status().isOk())
@@ -163,7 +164,7 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.errors[0].message").value("Display name must be at most 50 characters"));
 
         when(accountService.changeDisplayName(eq(1L), any())).thenReturn(new DisplayNameChange(
-                new UserResponse(1L, "bob@example.com", "x".repeat(50), false, true, List.of()), true));
+                new UserResponse(1L, "bob@example.com", "x".repeat(50), false, true, List.of(), Role.USER), true));
         mockMvc.perform(json(put(DISPLAY_NAME), "{\"displayName\":\"  " + "x".repeat(50) + "  \"}")
                         .with(csrf()).with(signedIn()))
                 .andExpect(status().isOk());
@@ -205,7 +206,7 @@ class AccountControllerTest {
 
     @Test
     void changePasswordReturns204WithoutBodyOrCookiesAndLogs() throws Exception {
-        when(accountService.changePassword(eq(1L), any(), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
+        when(accountService.changePassword(eq(1L), any(), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER));
 
         mockMvc.perform(json(put(PASSWORD), "{\"currentPassword\":\"correct-horse\",\"newPassword\":\"battery-staple-42\"}")
                         .with(csrf()).with(signedIn()).with(from("10.2.0.2")))
@@ -305,7 +306,7 @@ class AccountControllerTest {
 
     @Test
     void deleteReturns204SignsOutAndLogs() throws Exception {
-        when(accountService.deleteAccount(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
+        when(accountService.deleteAccount(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER));
 
         mockMvc.perform(json(post(DELETE), "{\"password\":\"correct-horse\"}")
                         .with(csrf()).with(signedIn()).with(from("10.2.0.5")))
@@ -348,7 +349,7 @@ class AccountControllerTest {
     @Test
     void deletePassesBothFieldsToTheServiceWithTheEmailTrimmed() throws Exception {
         when(accountService.deleteAccount(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@gmail.com", "Bob",
-                true, false, List.of()));
+                true, false, List.of(), Role.USER));
 
         mockMvc.perform(json(post(DELETE), "{\"email\":\"  Bob@Gmail.com \",\"password\":\"x\"}")
                         .with(csrf()).with(signedIn()))
@@ -432,7 +433,7 @@ class AccountControllerTest {
 
     @Test
     void logoutOtherSessionsReturns204RenewsTheSessionAndLogs() throws Exception {
-        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
+        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER));
         Instant signedInAt = Instant.now().minus(Duration.ofHours(1));
         MockHttpSession session = sessionValidFrom(signedInAt);
         session.setAttribute(SessionAttributes.REMEMBER_ME_SERIES, "A".repeat(42) + "Q");
@@ -458,7 +459,7 @@ class AccountControllerTest {
 
     @Test
     void logoutOtherSessionsIgnoresABody() throws Exception {
-        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
+        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER));
 
         mockMvc.perform(json(post(LOGOUT_OTHERS), "{not json").with(csrf()).with(signedIn()))
                 .andExpect(status().isNoContent());

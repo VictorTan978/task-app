@@ -167,9 +167,11 @@ class EmailTokenRepositoryTest {
     @Test
     void lockUserReturnsTheCurrentStateOrEmpty() {
         assertThat(tokens.lockUser(bob)).contains(
-                new EmailTokenRepository.LockedUser(bob, "bob@example.com", "Bob", false));
+                new EmailTokenRepository.LockedUser(bob, "bob@example.com", "Bob", false, false));
         users.markEmailVerified(bob, now());
         assertThat(tokens.lockUser(bob).orElseThrow().emailVerified()).isTrue();
+        jdbc.update("update users set disabled_at = now(6) where id = ?", bob);
+        assertThat(tokens.lockUser(bob).orElseThrow().disabled()).isTrue();
         assertThat(tokens.lockUser(-1)).isEmpty();
     }
 

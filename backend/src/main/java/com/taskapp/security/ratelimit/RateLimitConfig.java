@@ -16,18 +16,20 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 @EnableConfigurationProperties({RateLimitProperties.class, EmailRateLimitProperties.class,
-        GoogleRateLimitProperties.class})
+        GoogleRateLimitProperties.class, AdminRateLimitProperties.class})
 public class RateLimitConfig implements WebMvcConfigurer {
 
     private final AuthRateLimiter authRateLimiter;
     private final EmailRateLimiter emailRateLimiter;
     private final GoogleRateLimiter googleRateLimiter;
+    private final AdminRateLimiter adminRateLimiter;
 
     public RateLimitConfig(RateLimitProperties properties, EmailRateLimitProperties emailProperties,
-            GoogleRateLimitProperties googleProperties) {
+            GoogleRateLimitProperties googleProperties, AdminRateLimitProperties adminProperties) {
         this.authRateLimiter = new AuthRateLimiter(properties, Clock.systemUTC());
         this.emailRateLimiter = new EmailRateLimiter(emailProperties, Clock.systemUTC());
         this.googleRateLimiter = new GoogleRateLimiter(googleProperties, Clock.systemUTC());
+        this.adminRateLimiter = new AdminRateLimiter(adminProperties, Clock.systemUTC());
     }
 
     @Bean
@@ -44,6 +46,12 @@ public class RateLimitConfig implements WebMvcConfigurer {
     @Bean
     GoogleRateLimiter googleRateLimiter() {
         return googleRateLimiter;
+    }
+
+    /** Counted by AdminUserService (per acting admin, after the request is validated). */
+    @Bean
+    AdminRateLimiter adminRateLimiter() {
+        return adminRateLimiter;
     }
 
     @Override

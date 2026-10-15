@@ -36,8 +36,12 @@ class HashedRememberMeServicesTest {
 
     private final MutableClock clock = new MutableClock(T0);
     private final InMemoryStore store = new InMemoryStore();
+    /** Changed by the role / disabled tests (specs/roles-admin.md). */
+    private boolean bobDisabled;
+    private Role aliceRole = Role.USER;
     private final SessionUserLookup users = id -> Optional.ofNullable(
-            id == 1L ? new SessionUser(BOB, null) : id == 2L ? new SessionUser(ALICE, null) : null);
+            id == 1L ? new SessionUser(BOB, null, Role.USER, bobDisabled)
+                    : id == 2L ? new SessionUser(ALICE, null, aliceRole, false) : null);
     private final HashedRememberMeServices services =
             new HashedRememberMeServices("test-key", () -> store, () -> users, clock, THIRTY_DAYS, false);
     private final SecurityLogCapture capture = new SecurityLogCapture().start();
@@ -83,6 +87,42 @@ class HashedRememberMeServicesTest {
         int start = setCookie.indexOf("Max-Age=") + "Max-Age=".length();
         int end = setCookie.indexOf(';', start);
         return Long.parseLong(setCookie.substring(start, end < 0 ? setCookie.length() : end));
+    }
+
+    // --- roles and disabled accounts (specs/roles-admin.md) ---
+
+    @Test
+    void authoritiesComeFromTheUsersCurrentRole() {
+        Result first = autoLogin(login(2L));
+        assertThat(first.authentication().getAuthorities()).extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_USER");
+
+        aliceRole = Role.SUPER_ADMIN;
+        Result second = autoLogin(cookieValue(first.response()));
+
+        assertThat(second.authentication().getAuthorities()).extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_SUPER_ADMIN");
+    }
+
+    @Test
+    void cookieOfADisabledAccountIsRejectedItsLoginDeletedAndThe401SaysAccountDisabled() {
+        String cookie = login(1L);
+        login(2L);
+        bobDisabled = true;
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/tasks");
+        request.setCookies(new Cookie("remember-me", cookie));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        Authentication authentication = services.autoLogin(request, response);
+
+        assertThat(authentication).isNull();
+        assertThat(response.getHeader("Set-Cookie")).startsWith("remember-me=;").contains("Max-Age=0");
+        assertThat(store.rows).hasSize(1);
+        assertThat(store.rows.values()).allMatch(row -> row.userId() == 2L);
+        assertThat(request.getAttribute(ProblemAuthenticationEntryPoint.ACCOUNT_DISABLED)).isEqualTo(Boolean.TRUE);
+        assertThat(capture.lines()).containsExactly("SECURITY event=REMEMBER_ME_REJECTED reason=account_disabled"
+                + " email=bob@example.com ip=127.0.0.1 path=/api/tasks");
+        assertThat(capture.events().get(0).getLevel().toString()).isEqualTo("WARN");
     }
 
     // --- creating a login (AC12) ---

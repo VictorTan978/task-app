@@ -3,7 +3,6 @@ package com.taskapp.security;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
 import java.util.function.Function;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -76,8 +75,8 @@ public class SessionAuthenticator {
 
         Instant now = now();
         AuthenticatedUser principal = new AuthenticatedUser(user.id(), user.email(), user.displayName());
-        startSession(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()), now,
-                login == null ? now.plus(sessionProperties.maxLength()) : login.expiresAt(),
+        startSession(UsernamePasswordAuthenticationToken.authenticated(principal, null, user.role().authorities()),
+                now, login == null ? now.plus(sessionProperties.maxLength()) : login.expiresAt(),
                 login == null ? null : login.seriesId(), request, response);
         rotateCsrfToken(request, response);
     }
@@ -102,7 +101,8 @@ public class SessionAuthenticator {
     public void refreshPrincipal(UserResponse user, HttpServletRequest request, HttpServletResponse response) {
         AuthenticatedUser principal = new AuthenticatedUser(user.id(), user.email(), user.displayName());
         SecurityContext context = contextHolder.createEmptyContext();
-        context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()));
+        context.setAuthentication(
+                UsernamePasswordAuthenticationToken.authenticated(principal, null, user.role().authorities()));
         contextHolder.setContext(context);
         if (request.getSession(false) != null) {
             securityContextRepository.saveContext(context, request, response);

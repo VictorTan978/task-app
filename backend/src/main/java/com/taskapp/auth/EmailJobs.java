@@ -105,7 +105,8 @@ public class EmailJobs implements DisposableBean {
     /**
      * Queues a forgot-password request for the email as typed (normalized): looks up the account (ignoring letter
      * case and accents), applies the silent per-account limit, creates a reset token and sends the email to the
-     * account's stored address. Logs one {@code PASSWORD_RESET_REQUESTED} line with the outcome.
+     * account's stored address. A disabled account gets no email ({@code outcome=account_disabled}). Logs one
+     * {@code PASSWORD_RESET_REQUESTED} line with the outcome.
      */
     public void sendPasswordReset(String typedEmail) {
         AuditOrigin origin = AuditOrigin.current();
@@ -126,6 +127,10 @@ public class EmailJobs implements DisposableBean {
         if (user == null) {
             return "unknown_email";
         }
+        if (user.isDisabled()) {
+            // Before the per-account limit: not counted. issue() checks again under the lock.
+            return "account_disabled";
+        }
         if (!rateLimiter.tryAcquireResetEmail(user.getId())) {
             SecurityEventLogger.log(SecurityEvent.RATE_LIMITED, origin, user.getEmail(),
                     "limit", RateLimitedException.Limit.RESET_EMAIL_ACCOUNT.logValue());
@@ -133,6 +138,7 @@ public class EmailJobs implements DisposableBean {
         }
         Optional<EmailTokenService.IssuedToken> issued = tokens.issue(user.getId(), EmailTokenPurpose.RESET_PASSWORD);
         if (issued.isEmpty()) {
+            // Deleted or disabled since the lookup.
             return "unknown_email";
         }
         EmailTokenService.IssuedToken token = issued.get();

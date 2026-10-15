@@ -79,14 +79,16 @@ public class EmailTokenService {
 
     /**
      * Creates a token for {@code userId} and replaces their unused tokens of the same purpose (expired tokens of
-     * any purpose are deleted too). Empty if the user no longer exists, or for {@link EmailTokenPurpose#VERIFY_EMAIL}
-     * if their email is already confirmed (nothing is changed then).
+     * any purpose are deleted too). Empty if the user no longer exists, for {@link EmailTokenPurpose#VERIFY_EMAIL}
+     * if their email is already confirmed, or for {@link EmailTokenPurpose#RESET_PASSWORD} if the account is disabled
+     * (nothing is changed then).
      */
     public Optional<IssuedToken> issue(long userId, EmailTokenPurpose purpose) {
         return inTransaction("issue", () -> {
             Instant now = now();
             EmailTokenRepository.LockedUser user = tokens.lockUser(userId).orElse(null);
-            if (user == null || (purpose == EmailTokenPurpose.VERIFY_EMAIL && user.emailVerified())) {
+            if (user == null || (purpose == EmailTokenPurpose.VERIFY_EMAIL && user.emailVerified())
+                    || (purpose == EmailTokenPurpose.RESET_PASSWORD && user.disabled())) {
                 return Optional.empty();
             }
             tokens.deleteReplacedAndExpired(userId, purpose, now);
@@ -99,7 +101,8 @@ public class EmailTokenService {
     }
 
     /**
-     * Read-only check (no lock, changes nothing): the token is a known, unused, unexpired token of {@code purpose}.
+     * Read-only check (no lock, changes nothing): the token is a known, unused, unexpired token of {@code purpose},
+     * and for {@link EmailTokenPurpose#RESET_PASSWORD} its account is not disabled.
      *
      * @throws EmailTokenInvalidException otherwise, with the reason for the security log
      */
@@ -114,6 +117,11 @@ public class EmailTokenService {
         EmailToken row = tokens.find(hash)
                 .orElseThrow(() -> new EmailTokenInvalidException("unknown", null));
         requireUsable(row, purpose, () -> users.findById(row.userId()).map(User::getEmail).orElse(null), now());
+        if (purpose == EmailTokenPurpose.RESET_PASSWORD) {
+            users.findById(row.userId()).filter(User::isDisabled).ifPresent(user -> {
+                throw new EmailTokenInvalidException("account_disabled", user.getEmail());
+            });
+        }
         return row;
     }
 
@@ -150,6 +158,9 @@ public class EmailTokenService {
         EmailToken current = tokens.find(checked.tokenHash())
                 .orElseThrow(() -> new EmailTokenInvalidException("unknown", user.email()));
         requireUsable(current, purpose, user::email, now);
+        if (purpose == EmailTokenPurpose.RESET_PASSWORD && user.disabled()) {
+            throw new EmailTokenInvalidException("account_disabled", user.email());
+        }
         if (!tokens.markUsed(current.tokenHash(), now)) {
             throw new EmailTokenInvalidException("used", user.email());
         }

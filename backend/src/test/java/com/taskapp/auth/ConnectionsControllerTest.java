@@ -34,6 +34,7 @@ import com.taskapp.security.SecurityConfig;
 import com.taskapp.security.SessionAuthenticator;
 import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.security.audit.SecurityLogCapture;
+import com.taskapp.security.Role;
 
 /**
  * Contract 0.8.0 with Google sign-in configured: {@code GET /api/auth/providers},
@@ -83,13 +84,13 @@ class ConnectionsControllerTest {
     @Test
     void disconnectReturnsTheUpdatedUserAndLogs() throws Exception {
         when(accountService.disconnectGoogle(1L))
-                .thenReturn(new UserResponse(1L, "bob@example.com", "Bob", true, true, List.of()));
+                .thenReturn(new UserResponse(1L, "bob@example.com", "Bob", true, true, List.of(), Role.USER));
 
         mockMvc.perform(delete(DISCONNECT).with(csrf()).with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"id":1,"email":"bob@example.com","displayName":"Bob","emailVerified":true,
-                         "hasPassword":true,"connections":[]}""", true))
+                         "hasPassword":true,"connections":[],"role":"USER"}""", true))
                 .andExpect(header().doesNotExist("Set-Cookie"));
 
         assertThat(capture.lines()).containsExactly(
@@ -99,7 +100,7 @@ class ConnectionsControllerTest {
     @Test
     void userJsonListsConnections() throws Exception {
         when(accountService.disconnectGoogle(1L)).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", true,
-                true, List.of(new ConnectionResponse("google", "bob@gmail.com"))));
+                true, List.of(new ConnectionResponse("google", "bob@gmail.com")), Role.USER));
 
         mockMvc.perform(delete(DISCONNECT).with(csrf()).with(signedIn()))
                 .andExpect(jsonPath("$.connections[0].provider").value("google"))

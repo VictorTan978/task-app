@@ -29,6 +29,7 @@ import com.taskapp.security.SecurityConfig;
 import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.security.SessionAuthenticator;
 import com.taskapp.security.ratelimit.RateLimitedException;
+import com.taskapp.security.Role;
 
 /** Per-IP limits (real limiter, small limits) and the 429 response shape. Each test uses its own client IP. */
 @WebMvcTest(controllers = AuthController.class, properties = {
@@ -37,7 +38,7 @@ import com.taskapp.security.ratelimit.RateLimitedException;
 @Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class AuthRateLimitControllerTest {
 
-    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of());
+    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER);
     private static final String LOGIN = "{\"email\":\"bob@example.com\",\"password\":\"correct-horse\"}";
     private static final String REGISTER =
             "{\"displayName\":\"Bob\",\"email\":\"bob@example.com\",\"password\":\"correct-horse\"}";

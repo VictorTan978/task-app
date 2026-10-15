@@ -43,6 +43,7 @@ import com.taskapp.security.SessionAuthenticator;
 import com.taskapp.security.SessionUser;
 import com.taskapp.security.SessionUserLookup;
 import com.taskapp.security.UnchangedSessionUserLookup;
+import com.taskapp.security.Role;
 
 import jakarta.servlet.http.Cookie;
 
@@ -53,7 +54,7 @@ import jakarta.servlet.http.Cookie;
 @Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class RememberMeLoginControllerTest {
 
-    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of());
+    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER);
     private static final String LOGIN = "/api/auth/login";
 
     @Autowired
