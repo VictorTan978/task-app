@@ -109,6 +109,16 @@ app:
     # How long a link works (durations like 30m, 1h, 24h).
     verify-email-link-lifetime: ${VERIFY_EMAIL_LINK_LIFETIME:24h}
     reset-password-link-lifetime: ${RESET_PASSWORD_LINK_LIFETIME:1h}
+  # Sign in with Google (specs/google-sign-in.md). Optional: with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET both empty
+  # the feature is off (GET /api/auth/providers says google: false, the flow endpoints answer 404). Setting only one of
+  # them fails startup, and so does a GOOGLE_ISSUER_URI that isn't https:// while REQUIRE_HTTPS is true
+  # (com.taskapp.config.RequiredSettingsCheck). The issuer's OpenID configuration is loaded on the first sign-in, not
+  # at startup, so the app starts even when Google is unreachable. Register this redirect URI at Google:
+  # <APP_BASE_URL>/api/auth/oauth2/callback/google. Never commit the secret; it is never logged.
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    issuer-uri: ${GOOGLE_ISSUER_URI:https://accounts.google.com}
   # Swagger UI + /v3/api-docs are off by default (on by default in the dev profile).
   # When enabled they are public. Never enable in production.
   api-docs-enabled: ${API_DOCS_ENABLED:false}
@@ -130,6 +140,10 @@ app:
   #   RATE_LIMIT_VERIFY_EMAIL_PER_IP_PER_HOUR             verify-email requests per client IP (default 30, 429)
   #   RATE_LIMIT_CHECK_RESET_TOKEN_PER_IP_PER_HOUR        check-reset-token requests per client IP (default 30, 429)
   #   RATE_LIMIT_RESET_PASSWORD_PER_IP_PER_HOUR           reset-password requests per client IP (default 20, 429)
+  # Google sign-in (specs/google-sign-in.md), per 1 minute. Over a limit the browser is redirected to the flow's
+  # failure page (/login?oauth=google_failed or /account?oauth=google_connect_failed), not a 429:
+  #   RATE_LIMIT_GOOGLE_START_PER_IP_PER_MINUTE     POST /api/auth/oauth2/authorization/google per client IP (default 20)
+  #   RATE_LIMIT_GOOGLE_CALLBACK_PER_IP_PER_MINUTE  GET /api/auth/oauth2/callback/google per client IP (default 20)
   # The e2e suite registers many users from 127.0.0.1, so raise the per-IP limits for e2e runs.
   rate-limit:
     login-failures-per-email: ${RATE_LIMIT_LOGIN_FAILURES_PER_EMAIL:5}
@@ -145,6 +159,8 @@ app:
     verify-email-per-ip-per-hour: ${RATE_LIMIT_VERIFY_EMAIL_PER_IP_PER_HOUR:30}
     check-reset-token-per-ip-per-hour: ${RATE_LIMIT_CHECK_RESET_TOKEN_PER_IP_PER_HOUR:30}
     reset-password-per-ip-per-hour: ${RATE_LIMIT_RESET_PASSWORD_PER_IP_PER_HOUR:20}
+    google-start-per-ip-per-minute: ${RATE_LIMIT_GOOGLE_START_PER_IP_PER_MINUTE:20}
+    google-callback-per-ip-per-minute: ${RATE_LIMIT_GOOGLE_CALLBACK_PER_IP_PER_MINUTE:20}
 
 springdoc:
   api-docs:

@@ -8,7 +8,9 @@ public class InvalidCredentialsException extends RuntimeException {
 
     public enum Reason {
         UNKNOWN_EMAIL("unknown_email"),
-        BAD_PASSWORD("bad_password");
+        BAD_PASSWORD("bad_password"),
+        /** The account has no password (created with Google); the client still gets the usual answer. */
+        NO_PASSWORD("no_password");
 
         private final String logValue;
 

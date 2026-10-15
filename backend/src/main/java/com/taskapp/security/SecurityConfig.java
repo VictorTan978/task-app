@@ -15,6 +15,7 @@ import org.springframework.security.authentication.RememberMeAuthenticationProvi
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.DefaultLoginPageConfigurer;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.PortMapper;
@@ -32,10 +33,15 @@ import org.springframework.security.web.servlet.util.matcher.PathPatternRequestM
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.taskapp.auth.GoogleAccountService;
+import com.taskapp.security.google.GoogleFlowSecurity;
+import com.taskapp.security.google.GoogleSignIn;
+import com.taskapp.security.google.GoogleSignInConfig;
+import com.taskapp.security.ratelimit.GoogleRateLimiter;
 
 @Configuration
 @EnableWebSecurity
-@Import(SessionConfig.class)
+@Import({SessionConfig.class, GoogleSignInConfig.class})
 public class SecurityConfig {
 
     private static final String[] API_DOCS_PATHS = {
@@ -45,7 +51,8 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper,
             CsrfTokenRepository csrfTokenRepository, SecurityContextRepository securityContextRepository,
             ObjectProvider<SessionUserLookup> sessionUserLookup, HashedRememberMeServices rememberMeServices,
-            ObjectProvider<SessionAuthenticator> sessionAuthenticator, Clock clock,
+            ObjectProvider<SessionAuthenticator> sessionAuthenticator, Clock clock, GoogleSignIn googleSignIn,
+            ObjectProvider<GoogleRateLimiter> googleRateLimiter, ObjectProvider<GoogleAccountService> googleAccounts,
             @Value("${app.api-docs-enabled:false}") boolean apiDocsEnabled,
             @Value("${app.security.require-https:true}") boolean requireHttps) throws Exception {
         ProblemResponseWriter problemWriter = new ProblemResponseWriter(objectMapper);
@@ -70,6 +77,11 @@ public class SecurityConfig {
                             .requestMatchers(HttpMethod.POST, "/api/auth/verify-email",
                                     "/api/auth/forgot-password", "/api/auth/check-reset-token",
                                     "/api/auth/reset-password").permitAll()
+                            // Sign in with Google (specs/google-sign-in.md): public. The start is a form POST with
+                            // the CSRF token; the callback is protected by state. GoogleFlowGuardFilter answers every
+                            // other /api/auth/oauth2/ path (404) before authorization.
+                            .requestMatchers(HttpMethod.GET, "/api/auth/providers").permitAll()
+                            .requestMatchers(GoogleSignIn.FLOW_PREFIX + "**").permitAll()
                             .requestMatchers("/error").permitAll();
                     if (apiDocsEnabled) {
                         auth.requestMatchers(HttpMethod.GET, API_DOCS_PATHS).permitAll();
@@ -102,6 +114,11 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable);
+        // No server-rendered login page: the Angular app owns /login (also with oauth2Login enabled).
+        http.removeConfigurer(DefaultLoginPageConfigurer.class);
+        // After the CSRF check and SessionUserRefreshFilter, before Spring's OAuth2 filters and remember-me.
+        GoogleFlowSecurity.configure(http, googleSignIn, googleRateLimiter::getObject, googleAccounts::getObject,
+                sessionAuthenticator::getObject, objectMapper);
         return http.build();
     }
 

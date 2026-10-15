@@ -36,6 +36,16 @@ services:
       timeout: 5s
       retries: 20
 
+  # Dev-only fake Google (specs/google-sign-in.md): an OpenID Connect provider for the backend's dev profile and e2e.
+  # Its login page accepts any user; nothing reaches the real Google. Pinned tag; check for updates like any other dependency.
+  oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:6.0.3
+    environment:
+      JSON_CONFIG: '{"interactiveLogin": true}'
+    ports:
+      # Localhost only: never reachable from other machines on the network.
+      - "127.0.0.1:8090:8080"
+
 volumes:
   # db-data held the old PostgreSQL 16 files; no longer mounted, kept (not deleted) on purpose.
   db-data:

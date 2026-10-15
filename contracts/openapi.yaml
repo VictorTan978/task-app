@@ -2178,12 +2178,13 @@ components:
         "Sign in with Google"). A successful login goes to `/tasks` with no parameter.
         - `google_failed` (on `/login`): "Google sign-in was cancelled or failed. Please try
           again."
-        - `google_unverified` (on `/login`): "We couldn't sign you in with Google. Please sign
-          in with your email and password."
+        - `google_unverified` (on `/login`): "Google hasn't confirmed this email address, or it
+          belongs to an account that isn't connected yet. Sign in with your email and password, or
+          create an account."
         - `google_connected` (on `/account`): "Google connected"
         - `google_in_use` (on `/account`): "This Google account is already connected to another
           account."
-        - `google_connect_failed` (on `/account`): "Something went wrong, please try again"
+        - `google_connect_failed` (on `/account`): "Couldn't connect Google. Please try again."
         Unknown values must be ignored by the frontend.
       enum: [google_failed, google_unverified, google_connected, google_in_use, google_connect_failed]
 

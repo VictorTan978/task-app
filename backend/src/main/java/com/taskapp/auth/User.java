@@ -1,12 +1,17 @@
 package com.taskapp.auth;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 
 @Entity
@@ -20,7 +25,8 @@ public class User {
     @Column(nullable = false, unique = true, length = 254)
     private String email;
 
-    @Column(name = "password_hash", nullable = false, length = 60)
+    /** BCrypt hash; null = no password (account created with Google, specs/google-sign-in.md). */
+    @Column(name = "password_hash", length = 60)
     private String passwordHash;
 
     @Column(name = "display_name", nullable = false, length = 50)
@@ -37,6 +43,16 @@ public class User {
     @Column(name = "email_verified_at")
     private Instant emailVerifiedAt;
 
+    /**
+     * Connected external sign-in accounts (V7). Rows are written through {@link UserConnectionRepository}. Deleting
+     * the user deletes them first by primary key (REMOVE cascade, needed once they are loaded; the database's
+     * {@code ON DELETE CASCADE} covers every other delete). Loaded lazily, so read it inside a transaction (or on a
+     * user created in this request).
+     */
+    @OneToMany(mappedBy = "user", cascade = CascadeType.REMOVE)
+    @OrderBy("provider")
+    private List<UserConnection> connections = new ArrayList<>();
+
     protected User() {
     }
 
@@ -47,6 +63,13 @@ public class User {
         this.createdAt = Instant.now();
     }
 
+    /** An account created with Google: no password, email confirmed at {@code emailVerifiedAt}. */
+    public static User withoutPassword(String email, String displayName, Instant emailVerifiedAt) {
+        User user = new User(email, null, displayName);
+        user.emailVerifiedAt = emailVerifiedAt;
+        return user;
+    }
+
     public Long getId() {
         return id;
     }
@@ -55,8 +78,13 @@ public class User {
         return email;
     }
 
+    /** Null when the account has no password ({@link #hasPassword()}). */
     public String getPasswordHash() {
         return passwordHash;
+    }
+
+    public boolean hasPassword() {
+        return passwordHash != null;
     }
 
     public String getDisplayName() {
@@ -77,6 +105,11 @@ public class User {
 
     public boolean isEmailVerified() {
         return emailVerifiedAt != null;
+    }
+
+    /** The connected external sign-in accounts, ordered by provider. */
+    public List<UserConnection> getConnections() {
+        return connections;
     }
 
     /** Ends every session of this user that became valid before {@code cutoff} (see SessionUserRefreshFilter). */

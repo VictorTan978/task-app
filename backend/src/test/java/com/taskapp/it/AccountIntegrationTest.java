@@ -195,7 +195,9 @@ class AccountIntegrationTest {
         assertThat(r.json().get("displayName").asText()).isEqualTo("Anna Banana");
         assertThat(r.json().get("email").asText()).isEqualTo("anna@example.com");
         assertThat(r.json().get("emailVerified").isBoolean()).isTrue();
-        assertThat(r.json().size()).isEqualTo(4);
+        assertThat(r.json().get("hasPassword").asBoolean(false)).isTrue();
+        assertThat(r.json().get("connections").isArray()).isTrue();
+        assertThat(r.json().size()).isEqualTo(6);
         assertThat(r.setCookies()).isEmpty();
         assertThat(b.cookies.get("JSESSIONID")).isEqualTo(sessionBefore);
         assertThat(b.cookies.get("XSRF-TOKEN")).isEqualTo(csrfBefore);

@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 import org.hibernate.exception.ConstraintViolationException;
@@ -62,7 +63,7 @@ class AuthServiceTest {
 
         UserResponse result = authService.register(new RegisterRequest(" Bob ", " Bob@Example.COM ", "correct-horse"));
 
-        assertThat(result).isEqualTo(new UserResponse(7L, "bob@example.com", "Bob", false));
+        assertThat(result).isEqualTo(new UserResponse(7L, "bob@example.com", "Bob", false, true, List.of()));
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(userRepository).saveAndFlush(saved.capture());
         assertThat(saved.getValue().getPasswordHash()).startsWith("$2").hasSize(60).isNotEqualTo("correct-horse");
@@ -174,7 +175,7 @@ class AuthServiceTest {
 
         UserResponse result = authService.login(new LoginRequest("BoB@Example.com ", "correct-horse"));
 
-        assertThat(result).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false));
+        assertThat(result).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
     }
 
     @Test
@@ -256,5 +257,41 @@ class AuthServiceTest {
         when(userRepository.findById(9L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.getUser(9L)).isInstanceOf(UnauthenticatedException.class);
+    }
+
+    // --- 0.8.0: accounts without a password (specs/google-sign-in.md AC8)
+
+    @Test
+    void accountWithoutPasswordFailsLikeAWrongPasswordAndChecksTheDummyHash() {
+        PasswordEncoder spy = org.mockito.Mockito.spy(new BCryptPasswordEncoder(4));
+        AuthService service = new AuthService(userRepository, spy, new AuthRateLimiter(
+                new RateLimitProperties(5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)),
+                Clock.systemUTC()), emailJobs);
+        String dummyHash = (String) ReflectionTestUtils.getField(service, "dummyHash");
+        User google = User.withoutPassword("gina@gmail.com", "Gina", java.time.Instant.now());
+        ReflectionTestUtils.setField(google, "id", 3L);
+        when(userRepository.findByEmail("gina@gmail.com")).thenReturn(Optional.of(google));
+
+        assertThatThrownBy(() -> service.login(new LoginRequest("Gina@Gmail.com", "any-password")))
+                .isInstanceOfSatisfying(InvalidCredentialsException.class, e -> {
+                    assertThat(e.reason()).isEqualTo(InvalidCredentialsException.Reason.NO_PASSWORD);
+                    assertThat(e.getMessage()).isEqualTo("Invalid email or password");
+                });
+        // Exactly one BCrypt comparison, against the dummy hash: same cost as a wrong password.
+        verify(spy).matches("any-password", dummyHash);
+        verify(spy, org.mockito.Mockito.times(1)).matches(any(), any());
+    }
+
+    @Test
+    void accountWithoutPasswordCountsAsAFailedLogin() {
+        User google = User.withoutPassword("gina@gmail.com", "Gina", java.time.Instant.now());
+        when(userRepository.findByEmail("gina@gmail.com")).thenReturn(Optional.of(google));
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> authService.login(new LoginRequest("gina@gmail.com", "x")))
+                    .isInstanceOf(InvalidCredentialsException.class);
+        }
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("gina@gmail.com", "x")))
+                .isInstanceOf(RateLimitedException.class);
     }
 }

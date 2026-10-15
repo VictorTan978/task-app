@@ -43,7 +43,7 @@ import ch.qos.logback.classic.Level;
 @Import({SecurityConfig.class, SessionAuthenticator.class, UnchangedSessionUserLookup.class})
 class SecurityEventLoggingControllerTest {
 
-    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false);
+    private static final UserResponse BOB = new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of());
     private static final String LOGIN = "{\"email\":\"Bob@Example.com\",\"password\":\"correct-horse\"}";
     private static final String REGISTER =
             "{\"displayName\":\"Bob\",\"email\":\"bob@example.com\",\"password\":\"correct-horse\"}";

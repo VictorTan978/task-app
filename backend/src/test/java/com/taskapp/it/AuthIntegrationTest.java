@@ -156,7 +156,10 @@ class AuthIntegrationTest {
         assertThat(user.get("email").asText()).isEqualTo("alice@example.com");
         assertThat(user.get("displayName").asText()).isEqualTo("Alice");
         assertThat(user.get("emailVerified").asBoolean(true)).isFalse();
-        assertThat(user.size()).isEqualTo(4);
+        assertThat(user.get("hasPassword").asBoolean(false)).isTrue();
+        assertThat(user.get("connections").isArray()).isTrue();
+        assertThat(user.get("connections")).isEmpty();
+        assertThat(user.size()).isEqualTo(6);
         assertThat(reg.setCookie("JSESSIONID")).contains("HttpOnly").contains("SameSite=Lax").contains("Path=/");
         assertThat(b.cookies.get("XSRF-TOKEN")).isNotEqualTo(csrfBefore);
 
@@ -514,7 +517,8 @@ class AuthIntegrationTest {
         String hash = jdbc.queryForObject("select password_hash from users where email = 'gina@example.com'", String.class);
 
         for (Resp r : List.of(reg, login, me)) {
-            assertThat(r.body()).doesNotContain(password).doesNotContain(hash)
+            // "hasPassword" (0.8.0) is the only field allowed to mention it.
+            assertThat(r.body().replace("\"hasPassword\":true", "")).doesNotContain(password).doesNotContain(hash)
                     .doesNotContainIgnoringCase("password").doesNotContain("$2a$");
         }
     }

@@ -14,6 +14,7 @@ import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import org.hibernate.exception.ConstraintViolationException;
@@ -46,6 +47,7 @@ class AccountServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final RememberMeTokenRepository rememberMeTokens = mock(RememberMeTokenRepository.class);
+    private final UserConnectionRepository connections = mock(UserConnectionRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private AccountService accountService;
     private User bob;
@@ -55,7 +57,8 @@ class AccountServiceTest {
     void setUp() {
         AuthRateLimiter rateLimiter = new AuthRateLimiter(new RateLimitProperties(
                 5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)), Clock.systemUTC());
-        accountService = new AccountService(userRepository, passwordEncoder, rateLimiter, rememberMeTokens);
+        accountService = new AccountService(userRepository, passwordEncoder, rateLimiter, rememberMeTokens,
+                connections);
         bob = persisted(1L, "bob@example.com", "Bob");
         alice = persisted(2L, "alice@example.com", "Alice");
         when(userRepository.findById(1L)).thenReturn(Optional.of(bob));
@@ -76,7 +79,7 @@ class AccountServiceTest {
         DisplayNameChange change = accountService.changeDisplayName(1L, new ChangeDisplayNameRequest("  Bobby "));
 
         assertThat(change.changed()).isTrue();
-        assertThat(change.user()).isEqualTo(new UserResponse(1L, "bob@example.com", "Bobby", false));
+        assertThat(change.user()).isEqualTo(new UserResponse(1L, "bob@example.com", "Bobby", false, true, List.of()));
         assertThat(bob.getDisplayName()).isEqualTo("Bobby");
         verify(userRepository).existsByDisplayNameAndIdNot("Bobby", 1L);
         verify(userRepository).saveAndFlush(bob);
@@ -138,7 +141,7 @@ class AccountServiceTest {
                 .isInstanceOf(UnauthenticatedException.class);
         assertThatThrownBy(() -> accountService.changePassword(9L, new ChangePasswordRequest(PASSWORD, "new-password"), RENEWAL))
                 .isInstanceOf(UnauthenticatedException.class);
-        assertThatThrownBy(() -> accountService.deleteAccount(9L, new DeleteAccountRequest(PASSWORD)))
+        assertThatThrownBy(() -> accountService.deleteAccount(9L, new DeleteAccountRequest(PASSWORD, null)))
                 .isInstanceOf(UnauthenticatedException.class);
     }
 
@@ -235,16 +238,16 @@ class AccountServiceTest {
 
     @Test
     void deleteAccountDeletesTheUser() {
-        UserResponse deleted = accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD));
+        UserResponse deleted = accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD, null));
 
-        assertThat(deleted).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false));
+        assertThat(deleted).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
         verify(userRepository).delete(bob);
         verify(userRepository).flush();
     }
 
     @Test
     void wrongPasswordDeletesNothing() {
-        assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest("wrong-horse")))
+        assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest("wrong-horse", null)))
                 .isInstanceOfSatisfying(WrongPasswordException.class, e -> {
                     assertThat(e.action()).isEqualTo(WrongPasswordException.Action.DELETE_ACCOUNT);
                     assertThat(e.action().field()).isEqualTo("password");
@@ -261,7 +264,7 @@ class AccountServiceTest {
                     .isInstanceOf(WrongPasswordException.class);
         }
         for (int i = 0; i < 2; i++) {
-            assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest("wrong")))
+            assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest("wrong", null)))
                     .isInstanceOf(WrongPasswordException.class);
         }
 
@@ -271,7 +274,7 @@ class AccountServiceTest {
                     assertThat(e.email()).isEqualTo("bob@example.com");
                     assertThat(e.retryAfterSeconds()).isBetween(1L, 900L);
                 });
-        assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD)))
+        assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD, null)))
                 .isInstanceOf(RateLimitedException.class);
         verify(userRepository, never()).delete(any());
         verify(userRepository, never()).saveAndFlush(any());
@@ -283,7 +286,7 @@ class AccountServiceTest {
     @Test
     void rightPasswordResetsTheCounter() {
         for (int i = 0; i < 4; i++) {
-            assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest("wrong")))
+            assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest("wrong", null)))
                     .isInstanceOf(WrongPasswordException.class);
         }
         accountService.changePassword(1L, new ChangePasswordRequest(PASSWORD, PASSWORD), RENEWAL);
@@ -294,7 +297,127 @@ class AccountServiceTest {
                     .isInstanceOf(WrongPasswordException.class);
         }
 
-        accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD));
+        accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD, null));
         verify(userRepository).delete(bob);
+    }
+
+    // --- 0.8.0: accounts without a password (specs/google-sign-in.md AC9, AC10, AC14, AC15) ---
+
+    private User googleOnly(long id, String email) {
+        User user = User.withoutPassword(email, "G" + id, NOW);
+        ReflectionTestUtils.setField(user, "id", id);
+        when(userRepository.findById(id)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(id)).thenReturn(Optional.of(user));
+        return user;
+    }
+
+    @Test
+    void changePasswordWithoutPasswordIs409BeforeTheRateLimitAndCountsNothing() {
+        googleOnly(5L, "gina@gmail.com");
+        for (int i = 0; i < 7; i++) {
+            assertThatThrownBy(() -> accountService.changePassword(5L,
+                    new ChangePasswordRequest("anything", "new-password"), RENEWAL))
+                    .isInstanceOfSatisfying(PasswordRequiredException.class, e -> assertThat(e.getMessage())
+                            .isEqualTo("Your account has no password. Set one with 'Forgot password?' on the"
+                                    + " sign-in page."));
+        }
+        verify(userRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void deleteWithoutPasswordNeedsTheEmail() {
+        googleOnly(5L, "gina@gmail.com");
+        for (DeleteAccountRequest body : List.of(new DeleteAccountRequest(null, null),
+                new DeleteAccountRequest("a-password", "   "), new DeleteAccountRequest(PASSWORD, null))) {
+            assertThatThrownBy(() -> accountService.deleteAccount(5L, body))
+                    .isInstanceOfSatisfying(InvalidFieldsException.class, e -> {
+                        assertThat(e.bindingResult().getFieldErrors()).hasSize(1);
+                        assertThat(e.bindingResult().getFieldError().getField()).isEqualTo("email");
+                        assertThat(e.bindingResult().getFieldError().getCode()).isEqualTo("NotBlank");
+                        assertThat(e.bindingResult().getFieldError().getDefaultMessage())
+                                .isEqualTo("Email is required");
+                    });
+        }
+        verify(userRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteWithPasswordStillNeedsThePasswordEvenWithAnEmail() {
+        assertThatThrownBy(() -> accountService.deleteAccount(1L, new DeleteAccountRequest(" ", "bob@example.com")))
+                .isInstanceOfSatisfying(InvalidFieldsException.class, e -> {
+                    assertThat(e.bindingResult().getFieldError().getField()).isEqualTo("password");
+                    assertThat(e.bindingResult().getFieldError().getDefaultMessage())
+                            .isEqualTo("Password is required");
+                });
+    }
+
+    @Test
+    void deleteWithoutPasswordComparesTheEmailInTheDatabaseLowercased() {
+        User gina = googleOnly(5L, "gina@gmail.com");
+        when(userRepository.existsByIdAndEmail(5L, "gína@gmail.com")).thenReturn(true);
+
+        UserResponse deleted = accountService.deleteAccount(5L, new DeleteAccountRequest(null, "Gína@Gmail.com"));
+
+        assertThat(deleted.hasPassword()).isFalse();
+        verify(userRepository).delete(gina);
+    }
+
+    @Test
+    void wrongEmailIsAMismatchCountedOnTheSharedLimit() {
+        User gina = googleOnly(5L, "gina@gmail.com");
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> accountService.deleteAccount(5L, new DeleteAccountRequest(null, "x@gmail.com")))
+                    .isInstanceOfSatisfying(EmailMismatchException.class,
+                            e -> assertThat(e.email()).isEqualTo("gina@gmail.com"));
+        }
+        when(userRepository.existsByIdAndEmail(5L, "gina@gmail.com")).thenReturn(true);
+
+        assertThatThrownBy(() -> accountService.deleteAccount(5L, new DeleteAccountRequest(null, "gina@gmail.com")))
+                .isInstanceOfSatisfying(RateLimitedException.class,
+                        e -> assertThat(e.limit()).isEqualTo(RateLimitedException.Limit.PASSWORD_CHECK_USER));
+        verify(userRepository, never()).delete(gina);
+    }
+
+    @Test
+    void disconnectRemovesTheConnectionByIdAndReturnsTheUser() {
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(bob));
+        UserConnection connection = new UserConnection(bob, UserConnection.GOOGLE, "sub-1", "bob@gmail.com", NOW);
+        ReflectionTestUtils.setField(connection, "id", 77L);
+        when(connections.findByUserIdAndProvider(1L, "google")).thenReturn(Optional.of(connection));
+
+        UserResponse user = accountService.disconnectGoogle(1L);
+
+        verify(connections).deleteByIdNow(77L);
+        assertThat(user.id()).isEqualTo(1L);
+        assertThat(user.connections()).isEmpty();
+    }
+
+    @Test
+    void disconnectWithoutConnectionIs404BeforeThePasswordCheck() {
+        googleOnly(5L, "gina@gmail.com");
+        when(connections.findByUserIdAndProvider(5L, "google")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> accountService.disconnectGoogle(5L))
+                .isInstanceOf(ConnectionNotFoundException.class)
+                .hasMessage("No Google account is connected");
+    }
+
+    @Test
+    void disconnectWithoutPasswordIs409AndKeepsTheConnection() {
+        User gina = googleOnly(5L, "gina@gmail.com");
+        UserConnection connection = new UserConnection(gina, UserConnection.GOOGLE, "sub-5", "gina@gmail.com", NOW);
+        when(connections.findByUserIdAndProvider(5L, "google")).thenReturn(Optional.of(connection));
+
+        assertThatThrownBy(() -> accountService.disconnectGoogle(5L))
+                .isInstanceOf(PasswordRequiredException.class)
+                .hasMessage("Set a password first so you don't lose access to your account.");
+        verify(connections, never()).deleteByIdNow(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void disconnectForAMissingUserIsUnauthenticated() {
+        when(userRepository.findByIdForUpdate(9L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> accountService.disconnectGoogle(9L)).isInstanceOf(UnauthenticatedException.class);
     }
 }

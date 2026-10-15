@@ -301,4 +301,100 @@ class RequiredSettingsCheckTest {
             assertThat(ctx.getEnvironment().getProperty("springdoc.api-docs.enabled")).isEqualTo("false");
         }
     }
+
+    // --- specs/google-sign-in.md: optional, but never half-configured; https issuer when HTTPS is required
+
+    private static boolean noGoogleEnvVars() {
+        return java.util.stream.Stream.of("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ISSUER_URI")
+                .allMatch(name -> System.getenv(name) == null);
+    }
+
+    @Test
+    void googleIsOptional() {
+        check.postProcessEnvironment(envWith(dbAnd()), new SpringApplication());
+        check.postProcessEnvironment(envWith(dbAnd("app.google.client-id", " ", "app.google.client-secret", "")),
+                new SpringApplication());
+    }
+
+    @Test
+    void googleClientIdWithoutSecretFailsNamingTheMissingOne() {
+        var onlyId = envWith(dbAnd("app.google.client-id", "abc.apps.googleusercontent.com"));
+        var onlySecret = envWith(dbAnd("app.google.client-secret", "s3cret"));
+
+        assertThatThrownBy(() -> check.postProcessEnvironment(onlyId, new SpringApplication()))
+                .isInstanceOfSatisfying(InvalidSettingException.class, e -> {
+                    assertThat(e.getSetting()).isEqualTo("GOOGLE_CLIENT_SECRET");
+                    assertThat(e.getMessage()).doesNotContain("abc.apps");
+                });
+        assertThatThrownBy(() -> check.postProcessEnvironment(onlySecret, new SpringApplication()))
+                .isInstanceOfSatisfying(InvalidSettingException.class, e -> {
+                    assertThat(e.getSetting()).isEqualTo("GOOGLE_CLIENT_ID");
+                    assertThat(e.getMessage()).doesNotContain("s3cret");
+                });
+    }
+
+    @Test
+    void googleIssuerMustBeHttpsWhenHttpsIsRequired() {
+        var plain = envWith(dbAnd("app.google.client-id", "id", "app.google.client-secret", "secret",
+                "app.google.issuer-uri", "http://localhost:8090/default"));
+        var notSet = envWith(dbAnd("app.google.client-id", "id", "app.google.client-secret", "secret",
+                "app.google.issuer-uri", " "));
+
+        assertThatThrownBy(() -> check.postProcessEnvironment(plain, new SpringApplication()))
+                .isInstanceOfSatisfying(InvalidSettingException.class,
+                        e -> assertThat(e.getSetting()).isEqualTo("GOOGLE_ISSUER_URI"));
+        assertThatThrownBy(() -> check.postProcessEnvironment(notSet, new SpringApplication()))
+                .isInstanceOf(InvalidSettingException.class);
+        check.postProcessEnvironment(envWith(dbAnd("app.google.client-id", "id", "app.google.client-secret",
+                "secret", "app.google.issuer-uri", "https://accounts.google.com")), new SpringApplication());
+    }
+
+    @Test
+    void googleIssuerMayBePlainHttpOnlyWhenHttpsIsNotRequired() {
+        check.postProcessEnvironment(envWith(dbAnd("app.security.require-https", "false",
+                "app.email.base-url", "http://localhost:4200", "app.google.client-id", "id",
+                "app.google.client-secret", "secret", "app.google.issuer-uri", "http://localhost:8090/default")),
+                new SpringApplication());
+        var notAUrl = envWith(dbAnd("app.security.require-https", "false", "app.email.base-url",
+                "http://localhost:4200", "app.google.client-id", "id", "app.google.client-secret", "secret",
+                "app.google.issuer-uri", "localhost:8090"));
+        assertThatThrownBy(() -> check.postProcessEnvironment(notAUrl, new SpringApplication()))
+                .isInstanceOf(InvalidSettingException.class);
+    }
+
+    @Test
+    void productionGoogleSettingsComeFromEnvironmentVariablesAndDefaultToTheRealGoogle() {
+        assumeTrue(noDbEnvVars() && noGoogleEnvVars(), "DB_* / GOOGLE_* env vars are set in this shell");
+
+        try (ConfigurableApplicationContext ctx = app().run(productionArgs())) {
+            assertThat(ctx.getEnvironment().getProperty("app.google.client-id")).isEmpty();
+            assertThat(ctx.getEnvironment().getProperty("app.google.issuer-uri"))
+                    .isEqualTo("https://accounts.google.com");
+        }
+        try (ConfigurableApplicationContext ctx = app().run(productionArgs("--GOOGLE_CLIENT_ID=id",
+                "--GOOGLE_CLIENT_SECRET=secret"))) {
+            assertThat(ctx.getEnvironment().getProperty("app.google.client-id")).isEqualTo("id");
+        }
+        assertThatThrownBy(() -> app().run(productionArgs("--GOOGLE_CLIENT_ID=id")))
+                .isInstanceOfSatisfying(InvalidSettingException.class,
+                        e -> assertThat(e.getSetting()).isEqualTo("GOOGLE_CLIENT_SECRET"));
+        assertThatThrownBy(() -> app().run(productionArgs("--GOOGLE_CLIENT_ID=id", "--GOOGLE_CLIENT_SECRET=secret",
+                "--GOOGLE_ISSUER_URI=http://accounts.example.com")))
+                .isInstanceOfSatisfying(InvalidSettingException.class,
+                        e -> assertThat(e.getSetting()).isEqualTo("GOOGLE_ISSUER_URI"));
+    }
+
+    @Test
+    void devProfileUsesTheFakeGoogle() {
+        assumeTrue(noDbEnvVars() && noGoogleEnvVars(), "DB_* / GOOGLE_* env vars are set in this shell");
+
+        try (ConfigurableApplicationContext ctx = app().run(
+                "--spring.config.location=classpath:application.yml,classpath:application-dev.yml",
+                "--spring.profiles.active=dev")) {
+            var env = ctx.getEnvironment();
+            assertThat(env.getProperty("app.google.client-id")).isEqualTo("task-app-dev");
+            assertThat(env.getProperty("app.google.client-secret")).isEqualTo("task-app-dev-secret");
+            assertThat(env.getProperty("app.google.issuer-uri")).isEqualTo("http://localhost:8090/default");
+        }
+    }
 }

@@ -102,18 +102,20 @@ public class AuthService {
     }
 
     /**
-     * Throws {@link InvalidCredentialsException} for unknown email and wrong password alike, and counts both
-     * as a failure for that email. Too many recent failures for the email throw
+     * Throws {@link InvalidCredentialsException} for unknown email, an account without a password and wrong password
+     * alike, and counts each as a failure for that email. The first two are compared against a dummy hash, so all
+     * three cost one BCrypt check. Too many recent failures for the email throw
      * {@link com.taskapp.security.ratelimit.RateLimitedException} before the password is checked.
      */
     @Transactional(readOnly = true)
     public UserResponse login(LoginRequest request) {
         rateLimiter.checkLoginAllowed(request.email());
         User user = userRepository.findByEmail(request.email()).orElse(null);
-        if (user == null) {
+        if (user == null || !user.hasPassword()) {
             passwordEncoder.matches(request.password(), dummyHash);
             rateLimiter.recordLoginFailure(request.email());
-            throw new InvalidCredentialsException(InvalidCredentialsException.Reason.UNKNOWN_EMAIL, request.email());
+            throw new InvalidCredentialsException(user == null ? InvalidCredentialsException.Reason.UNKNOWN_EMAIL
+                    : InvalidCredentialsException.Reason.NO_PASSWORD, request.email());
         }
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             rateLimiter.recordLoginFailure(request.email());

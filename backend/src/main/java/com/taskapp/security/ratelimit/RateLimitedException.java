@@ -17,7 +17,11 @@ public class RateLimitedException extends RuntimeException {
         RESEND_VERIFICATION_USER("resend-verification-user"),
         VERIFY_EMAIL_IP("verify-email-ip"),
         CHECK_RESET_TOKEN_IP("check-reset-token-ip"),
-        RESET_PASSWORD_IP("reset-password-ip");
+        RESET_PASSWORD_IP("reset-password-ip"),
+        /** Google flow start; answered with the failure redirect, never a 429. */
+        GOOGLE_START_IP("google-start-ip"),
+        /** Google flow callback; answered with the failure redirect, never a 429. */
+        GOOGLE_CALLBACK_IP("google-callback-ip");
 
         private final String logValue;
 

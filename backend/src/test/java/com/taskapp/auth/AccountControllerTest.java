@@ -107,7 +107,7 @@ class AccountControllerTest {
 
     @Test
     void changeDisplayNameReturnsUpdatedUserAndLogsOnce() throws Exception {
-        UserResponse bobby = new UserResponse(1L, "bob@example.com", "Bobby", false);
+        UserResponse bobby = new UserResponse(1L, "bob@example.com", "Bobby", false, true, List.of());
         when(accountService.changeDisplayName(eq(1L), any())).thenReturn(new DisplayNameChange(bobby, true));
 
         mockMvc.perform(json(put(DISPLAY_NAME), "{\"displayName\":\"  Bobby \"}")
@@ -128,7 +128,7 @@ class AccountControllerTest {
     @Test
     void unchangedDisplayNameIsNotLogged() throws Exception {
         when(accountService.changeDisplayName(eq(1L), any()))
-                .thenReturn(new DisplayNameChange(new UserResponse(1L, "bob@example.com", "Bob", false), false));
+                .thenReturn(new DisplayNameChange(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()), false));
 
         mockMvc.perform(json(put(DISPLAY_NAME), "{\"displayName\":\"Bob\"}").with(csrf()).with(signedIn()))
                 .andExpect(status().isOk())
@@ -163,7 +163,7 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.errors[0].message").value("Display name must be at most 50 characters"));
 
         when(accountService.changeDisplayName(eq(1L), any())).thenReturn(new DisplayNameChange(
-                new UserResponse(1L, "bob@example.com", "x".repeat(50), false), true));
+                new UserResponse(1L, "bob@example.com", "x".repeat(50), false, true, List.of()), true));
         mockMvc.perform(json(put(DISPLAY_NAME), "{\"displayName\":\"  " + "x".repeat(50) + "  \"}")
                         .with(csrf()).with(signedIn()))
                 .andExpect(status().isOk());
@@ -205,7 +205,7 @@ class AccountControllerTest {
 
     @Test
     void changePasswordReturns204WithoutBodyOrCookiesAndLogs() throws Exception {
-        when(accountService.changePassword(eq(1L), any(), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false));
+        when(accountService.changePassword(eq(1L), any(), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
 
         mockMvc.perform(json(put(PASSWORD), "{\"currentPassword\":\"correct-horse\",\"newPassword\":\"battery-staple-42\"}")
                         .with(csrf()).with(signedIn()).with(from("10.2.0.2")))
@@ -305,7 +305,7 @@ class AccountControllerTest {
 
     @Test
     void deleteReturns204SignsOutAndLogs() throws Exception {
-        when(accountService.deleteAccount(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false));
+        when(accountService.deleteAccount(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
 
         mockMvc.perform(json(post(DELETE), "{\"password\":\"correct-horse\"}")
                         .with(csrf()).with(signedIn()).with(from("10.2.0.5")))
@@ -314,23 +314,89 @@ class AccountControllerTest {
                 .andExpect(header().stringValues("Set-Cookie", hasItem(containsString("JSESSIONID=; Path=/; Max-Age=0"))))
                 .andExpect(cookie().exists("XSRF-TOKEN"));
 
-        verify(accountService).deleteAccount(1L, new DeleteAccountRequest("correct-horse"));
+        verify(accountService).deleteAccount(1L, new DeleteAccountRequest("correct-horse", null));
         assertThat(capture.lines()).containsExactly(
                 "SECURITY event=ACCOUNT_DELETED email=bob@example.com ip=10.2.0.5 path=/api/account/delete");
         assertThat(capture.events().get(0).getLevel()).isEqualTo(Level.INFO);
     }
 
+    /**
+     * 0.8.0: which field is required depends on the account, so the service validates (AccountServiceTest); its
+     * InvalidFieldsException renders exactly like a @Valid failure.
+     */
     @Test
-    void deleteValidation() throws Exception {
-        for (String body : List.of("{\"password\":\"\"}", "{\"password\":\"  \"}", "{}")) {
-            mockMvc.perform(json(post(DELETE), body).with(csrf()).with(signedIn()))
+    void deleteValidationErrorsFromTheServiceKeepTheValidationShape() throws Exception {
+        for (String field : List.of("password", "email")) {
+            org.springframework.validation.DirectFieldBindingResult errors =
+                    new org.springframework.validation.DirectFieldBindingResult(
+                            new DeleteAccountRequest(null, null), "deleteAccountRequest");
+            String message = field.equals("password") ? "Password is required" : "Email is required";
+            errors.rejectValue(field, "NotBlank", message);
+            when(accountService.deleteAccount(eq(1L), any())).thenThrow(new InvalidFieldsException(errors));
+
+            mockMvc.perform(json(post(DELETE), "{}").with(csrf()).with(signedIn()))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                     .andExpect(jsonPath("$.errors", hasSize(1)))
-                    .andExpect(jsonPath("$.errors[0].field").value("password"))
+                    .andExpect(jsonPath("$.errors[0].field").value(field))
                     .andExpect(jsonPath("$.errors[0].code").value("REQUIRED"))
-                    .andExpect(jsonPath("$.errors[0].message").value("Password is required"));
+                    .andExpect(jsonPath("$.errors[0].message").value(message))
+                    .andExpect(cookie().doesNotExist("JSESSIONID"));
         }
+    }
+
+    @Test
+    void deletePassesBothFieldsToTheServiceWithTheEmailTrimmed() throws Exception {
+        when(accountService.deleteAccount(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@gmail.com", "Bob",
+                true, false, List.of()));
+
+        mockMvc.perform(json(post(DELETE), "{\"email\":\"  Bob@Gmail.com \",\"password\":\"x\"}")
+                        .with(csrf()).with(signedIn()))
+                .andExpect(status().isNoContent());
+
+        verify(accountService).deleteAccount(1L, new DeleteAccountRequest("x", "Bob@Gmail.com"));
+    }
+
+    @Test
+    void wrongDeleteEmailIs400EmailMismatchKeepsSessionAndLogsFailure() throws Exception {
+        when(accountService.deleteAccount(eq(1L), any())).thenThrow(new EmailMismatchException("bob@gmail.com"));
+
+        mockMvc.perform(json(post(DELETE), "{\"email\":\"someone@else.com\"}")
+                        .with(csrf()).with(signedIn()).with(from("10.2.0.9")))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("EMAIL_MISMATCH"))
+                .andExpect(jsonPath("$.detail").value("Email doesn't match"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("email"))
+                .andExpect(jsonPath("$.errors[0].code").value("EMAIL_MISMATCH"))
+                .andExpect(jsonPath("$.errors[0].message").value("Email doesn't match"))
+                .andExpect(cookie().doesNotExist("JSESSIONID"));
+
+        assertThat(capture.lines()).containsExactly("SECURITY event=PASSWORD_CHECK_FAILURE action=delete_account_email"
+                + " email=bob@gmail.com ip=10.2.0.9 path=/api/account/delete");
+    }
+
+    @Test
+    void changePasswordWithoutPasswordIs409PasswordRequired() throws Exception {
+        when(accountService.changePassword(eq(1L), any(), any())).thenThrow(
+                new PasswordRequiredException(PasswordRequiredException.Action.CHANGE_PASSWORD));
+
+        mockMvc.perform(json(put(PASSWORD), "{\"currentPassword\":\"anything\",\"newPassword\":\"battery-staple-42\"}")
+                        .with(csrf()).with(signedIn()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PASSWORD_REQUIRED"))
+                .andExpect(jsonPath("$.detail")
+                        .value("Your account has no password. Set one with 'Forgot password?' on the sign-in page."))
+                .andExpect(jsonPath("$.instance").value(PASSWORD))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
+    @Test
+    void changePasswordValidationRunsBeforePasswordRequired() throws Exception {
+        mockMvc.perform(json(put(PASSWORD), "{}").with(csrf()).with(signedIn()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         verifyNoInteractions(accountService);
     }
 
@@ -366,7 +432,7 @@ class AccountControllerTest {
 
     @Test
     void logoutOtherSessionsReturns204RenewsTheSessionAndLogs() throws Exception {
-        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false));
+        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
         Instant signedInAt = Instant.now().minus(Duration.ofHours(1));
         MockHttpSession session = sessionValidFrom(signedInAt);
         session.setAttribute(SessionAttributes.REMEMBER_ME_SERIES, "A".repeat(42) + "Q");
@@ -392,7 +458,7 @@ class AccountControllerTest {
 
     @Test
     void logoutOtherSessionsIgnoresABody() throws Exception {
-        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false));
+        when(accountService.logoutOtherSessions(eq(1L), any())).thenReturn(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of()));
 
         mockMvc.perform(json(post(LOGOUT_OTHERS), "{not json").with(csrf()).with(signedIn()))
                 .andExpect(status().isNoContent());
@@ -494,6 +560,6 @@ class AccountControllerTest {
         assertThat(String.join("\n", capture.lines())).doesNotContain("Secret-Current-1", "Secret-New-22");
         assertThat(new ChangePasswordRequest("Secret-Current-1", "Secret-New-22").toString())
                 .doesNotContain("Secret-Current-1", "Secret-New-22");
-        assertThat(new DeleteAccountRequest("Secret-Current-1").toString()).doesNotContain("Secret-Current-1");
+        assertThat(new DeleteAccountRequest("Secret-Current-1", null).toString()).doesNotContain("Secret-Current-1");
     }
 }

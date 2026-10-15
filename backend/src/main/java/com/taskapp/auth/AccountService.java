@@ -1,10 +1,13 @@
 package com.taskapp.auth;
 
+import java.util.Locale;
+
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.DirectFieldBindingResult;
 
 import com.taskapp.auth.dto.ChangeDisplayNameRequest;
 import com.taskapp.auth.dto.ChangePasswordRequest;
@@ -25,13 +28,16 @@ public class AccountService {
     private final PasswordEncoder passwordEncoder;
     private final AuthRateLimiter rateLimiter;
     private final RememberMeTokenRepository rememberMeTokens;
+    private final UserConnectionRepository connections;
 
     public AccountService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-            AuthRateLimiter rateLimiter, RememberMeTokenRepository rememberMeTokens) {
+            AuthRateLimiter rateLimiter, RememberMeTokenRepository rememberMeTokens,
+            UserConnectionRepository connections) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.rateLimiter = rateLimiter;
         this.rememberMeTokens = rememberMeTokens;
+        this.connections = connections;
     }
 
     /**
@@ -68,6 +74,10 @@ public class AccountService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public UserResponse changePassword(long userId, ChangePasswordRequest request, SessionRenewal renewal) {
         User user = loadForRenewal(userId, renewal);
+        if (!user.hasPassword()) {
+            // Before the rate limit: nothing is checked or counted.
+            throw new PasswordRequiredException(PasswordRequiredException.Action.CHANGE_PASSWORD);
+        }
         verifyPassword(user, request.currentPassword(), WrongPasswordException.Action.CHANGE_PASSWORD);
         user.changePasswordHash(passwordEncoder.encode(request.newPassword()));
         endOtherSessions(user, renewal);
@@ -110,14 +120,24 @@ public class AccountService {
     }
 
     /**
-     * Hard-deletes the user; the database deletes their tasks ({@code fk_tasks_owner ON DELETE CASCADE}) and
-     * remember-me logins ({@code fk_remember_me_tokens_user ON DELETE CASCADE}).
-     * Returns the deleted user (for the security log).
+     * Hard-deletes the user; the database deletes their tasks ({@code fk_tasks_owner ON DELETE CASCADE}), remember-me
+     * logins ({@code fk_remember_me_tokens_user ON DELETE CASCADE}) and connections
+     * ({@code fk_user_connections_user ON DELETE CASCADE}). Returns the deleted user (for the security log).
+     * <p>
+     * An account with a password confirms with {@code password}; one without a password with {@code email}. Order:
+     * the confirming field is required (400 VALIDATION_FAILED, nothing counted) > per-user limit (429) > the check
+     * (400 WRONG_PASSWORD / EMAIL_MISMATCH, counted as one failure on the shared counter).
      */
     @Transactional
     public UserResponse deleteAccount(long userId, DeleteAccountRequest request) {
         User user = load(userId);
-        verifyPassword(user, request.password(), WrongPasswordException.Action.DELETE_ACCOUNT);
+        if (user.hasPassword()) {
+            requireField(request, "password", request.password(), "Password is required");
+            verifyPassword(user, request.password(), WrongPasswordException.Action.DELETE_ACCOUNT);
+        } else {
+            requireField(request, "email", request.email(), "Email is required");
+            verifyEmail(user, request.email());
+        }
         UserResponse deleted = UserResponse.from(user);
         userRepository.delete(user);
         userRepository.flush();
@@ -133,6 +153,45 @@ public class AccountService {
         if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
             rateLimiter.recordPasswordCheckFailure(user.getId());
             throw new WrongPasswordException(action, user.getEmail());
+        }
+        rateLimiter.recordPasswordCheckSuccess(user.getId());
+    }
+
+    /**
+     * Removes the user's Google connection and returns the updated user. 404 when the user has none, 409
+     * {@code PASSWORD_REQUIRED} when the account has no password (it would lose its only way to sign in). Locks the
+     * user's row first and deletes by primary key (see {@link UserConnectionRepository}).
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public UserResponse disconnectGoogle(long userId) {
+        User user = userRepository.findByIdForUpdate(userId).orElseThrow(UnauthenticatedException::new);
+        UserConnection connection = connections.findByUserIdAndProvider(userId, UserConnection.GOOGLE)
+                .orElseThrow(() -> new ConnectionNotFoundException("No Google account is connected"));
+        if (!user.hasPassword()) {
+            throw new PasswordRequiredException(PasswordRequiredException.Action.DISCONNECT_GOOGLE);
+        }
+        connections.deleteByIdNow(connection.getId());
+        return UserResponse.from(userRepository.findById(userId).orElseThrow(UnauthenticatedException::new));
+    }
+
+    /** 400 VALIDATION_FAILED ({@code field} / REQUIRED) unless {@code value} is non-blank. Nothing is counted. */
+    private static void requireField(DeleteAccountRequest request, String field, String value, String message) {
+        if (value == null || value.isBlank()) {
+            DirectFieldBindingResult errors = new DirectFieldBindingResult(request, "deleteAccountRequest");
+            errors.rejectValue(field, "NotBlank", message);
+            throw new InvalidFieldsException(errors);
+        }
+    }
+
+    /**
+     * Like {@link #verifyPassword}, for accounts without a password: the typed email must be the account's, compared
+     * like login (ignoring letter case and accents, by the database collation). Same per-user counter.
+     */
+    private void verifyEmail(User user, String typedEmail) {
+        rateLimiter.checkPasswordCheckAllowed(user.getId(), user.getEmail());
+        if (!userRepository.existsByIdAndEmail(user.getId(), typedEmail.toLowerCase(Locale.ROOT))) {
+            rateLimiter.recordPasswordCheckFailure(user.getId());
+            throw new EmailMismatchException(user.getEmail());
         }
         rateLimiter.recordPasswordCheckSuccess(user.getId());
     }

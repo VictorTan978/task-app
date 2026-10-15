@@ -3,7 +3,7 @@
 # Never activate this profile in production: it contains the docker-compose dev password.
 # Without a profile the app uses production settings (application.yml) and requires
 # DB_URL, DB_USERNAME, DB_PASSWORD, DB_MIGRATION_USERNAME, DB_MIGRATION_PASSWORD, MAIL_HOST, MAIL_FROM and
-# APP_BASE_URL to be set.
+# APP_BASE_URL to be set (Google sign-in is off there unless GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are set).
 spring:
   datasource:
     # Matches the "db" service in ../docker-compose.yml. Env vars still override these defaults.
@@ -30,6 +30,14 @@ app:
     # The Angular dev server (npm start).
     base-url: ${APP_BASE_URL:http://localhost:4200}
     from: '${MAIL_FROM:Task App <no-reply@taskapp.local>}'
+  # Sign in with Google: the fake OpenID Connect provider, the "oidc" service in ../docker-compose.yml
+  # (docker compose up -d oidc, http://localhost:8090). Its login page accepts any user; type the claims as JSON, e.g.
+  # {"email": "ana@example.com", "email_verified": true, "name": "Ana"}. Nothing reaches the real Google.
+  # For the real Google set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_ISSUER_URI=https://accounts.google.com.
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:task-app-dev}
+    client-secret: ${GOOGLE_CLIENT_SECRET:task-app-dev-secret}
+    issuer-uri: ${GOOGLE_ISSUER_URI:http://localhost:8090/default}
   # Swagger UI + /v3/api-docs on by default in dev (set API_DOCS_ENABLED=false to turn them off).
   api-docs-enabled: ${API_DOCS_ENABLED:true}
   security:

@@ -69,10 +69,11 @@ public class AccountController {
         SecurityEventLogger.log(SecurityEvent.OTHER_SESSIONS_LOGGED_OUT, "trigger", "button", request, user.email());
     }
 
+    /** The body is validated by the service: which field is required depends on the account (contract 0.8.0). */
     @PostMapping("/delete")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteAccount(@AuthenticationPrincipal AuthenticatedUser principal,
-            @Valid @RequestBody DeleteAccountRequest body, HttpServletRequest request,
+            @RequestBody DeleteAccountRequest body, HttpServletRequest request,
             HttpServletResponse response) {
         UserResponse deleted = accountService.deleteAccount(principal.id(), body);
         sessionAuthenticator.signOut(request, response);

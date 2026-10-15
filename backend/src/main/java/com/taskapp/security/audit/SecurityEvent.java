@@ -16,11 +16,15 @@ public enum SecurityEvent {
     /** Only when the stored display name actually changed (a case-only change counts). */
     DISPLAY_NAME_CHANGED(Level.INFO),
     ACCOUNT_DELETED(Level.INFO),
-    /** Wrong current password on an account endpoint. Field {@code action=change_password|delete_account}. */
+    /**
+     * Wrong confirmation on an account endpoint. Field {@code action=change_password|delete_account} (wrong password)
+     * or {@code action=delete_account_email} (wrong email, accounts without a password).
+     */
     PASSWORD_CHECK_FAILURE(Level.WARN),
     /**
      * Field {@code limit=login-ip|login-email|register-ip|password-check-user|forgot-password-ip|
-     * reset-email-account|resend-verification-user|verify-email-ip|check-reset-token-ip|reset-password-ip}.
+     * reset-email-account|resend-verification-user|verify-email-ip|check-reset-token-ip|reset-password-ip|
+     * google-start-ip|google-callback-ip}.
      */
     RATE_LIMITED(Level.WARN),
     /** 401 from the security chain or from a session whose user no longer exists. */
@@ -60,7 +64,26 @@ public enum SecurityEvent {
      * An email could not be sent. Fields {@code kind=verify_email|reset_password} and
      * {@code reason=smtp|queue_full|error}.
      */
-    EMAIL_SEND_FAILED(Level.WARN);
+    EMAIL_SEND_FAILED(Level.WARN),
+    /**
+     * Signed in with Google (existing, linked or new account); written after {@code GOOGLE_ACCOUNT_CREATED} or
+     * {@code GOOGLE_LINKED} when those happened.
+     */
+    GOOGLE_LOGIN_SUCCESS(Level.INFO),
+    /**
+     * A Google sign-in or connect ended without success. Fields {@code intent=login|connect|-} and
+     * {@code reason=cancelled|provider_error|request_not_found|invalid_state|invalid_request|invalid_token|
+     * token_error|provider_unavailable|invalid_intent|no_session|invalid_identity|google_email_unverified|
+     * account_email_unconfirmed|other_google_connected|google_in_use|already_connected_other|user_gone|error}.
+     * Never contains a code, state, nonce or token.
+     */
+    GOOGLE_LOGIN_FAILURE(Level.WARN),
+    /** An account was created by signing in with Google. */
+    GOOGLE_ACCOUNT_CREATED(Level.INFO),
+    /** A Google account was connected to a user. Field {@code trigger=login|connect}. */
+    GOOGLE_LINKED(Level.INFO),
+    /** The user disconnected their Google account. */
+    GOOGLE_UNLINKED(Level.INFO);
 
     private final Level level;
 

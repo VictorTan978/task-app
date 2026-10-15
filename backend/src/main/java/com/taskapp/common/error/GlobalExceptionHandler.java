@@ -24,10 +24,13 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import com.taskapp.auth.AlreadyVerifiedException;
+import com.taskapp.auth.ConnectionNotFoundException;
 import com.taskapp.auth.DisplayNameTakenException;
+import com.taskapp.auth.EmailMismatchException;
 import com.taskapp.auth.EmailTokenInvalidException;
 import com.taskapp.auth.InvalidFieldsException;
 import com.taskapp.auth.InvalidCredentialsException;
+import com.taskapp.auth.PasswordRequiredException;
 import com.taskapp.auth.RegistrationConflictException;
 import com.taskapp.auth.UnauthenticatedException;
 import com.taskapp.auth.WrongPasswordException;
@@ -92,6 +95,32 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.badRequest().body(Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.WRONG_PASSWORD,
                 action.message(), List.of(new ApiFieldError(action.field(), ErrorCode.WRONG_PASSWORD,
                         action.message()))));
+    }
+
+    /**
+     * Delete account without a password, wrong email: 400 with one field error. Logged like a wrong password, and
+     * counted on the same per-user limit by the service.
+     */
+    @ExceptionHandler(EmailMismatchException.class)
+    ResponseEntity<ProblemDetail> handleEmailMismatch(EmailMismatchException ex, HttpServletRequest request) {
+        SecurityEventLogger.log(SecurityEvent.PASSWORD_CHECK_FAILURE, "action", "delete_account_email", request,
+                ex.email());
+        return ResponseEntity.badRequest().body(Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.EMAIL_MISMATCH,
+                EmailMismatchException.MESSAGE, List.of(new ApiFieldError("email", ErrorCode.EMAIL_MISMATCH,
+                        EmailMismatchException.MESSAGE))));
+    }
+
+    /** The account has no password: change password and disconnect Google refuse. */
+    @ExceptionHandler(PasswordRequiredException.class)
+    ResponseEntity<ProblemDetail> handlePasswordRequired(PasswordRequiredException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                Problems.of(HttpStatus.CONFLICT, ErrorCode.PASSWORD_REQUIRED, ex.getMessage()));
+    }
+
+    @ExceptionHandler(ConnectionNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleConnectionNotFound(ConnectionNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                Problems.of(HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND, ex.getMessage()));
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)

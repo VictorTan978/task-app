@@ -4,9 +4,12 @@ import java.time.Instant;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 /**
  * Lookups compare with the column collation (utf8mb4_0900_ai_ci, see V4): case- and accent-insensitive,
@@ -18,6 +21,24 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
 
     boolean existsByEmail(String email);
+
+    /** The id of the user with this email (same collation rules), without loading it. Must be normalized. */
+    @Query("select u.id from User u where u.email = :email")
+    Optional<Long> findIdByEmail(@Param("email") String email);
+
+    /**
+     * Whether user {@code id} has this email, compared like login (ignoring letter case and accents).
+     * {@code email} must already be normalized.
+     */
+    boolean existsByIdAndEmail(Long id, String email);
+
+    /**
+     * Loads the user and locks its row ({@code SELECT ... FOR UPDATE}) until the transaction ends. Writes of a user's
+     * connections take this lock first (see {@link UserConnectionRepository}).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> findByIdForUpdate(@Param("id") long id);
 
     /** {@code displayName} must already be trimmed. */
     boolean existsByDisplayName(String displayName);

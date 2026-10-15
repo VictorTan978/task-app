@@ -13,7 +13,8 @@ import org.springframework.core.env.ConfigurableEnvironment;
 /**
  * Secure by default: application.yml has no database or mail defaults, so outside the {@code dev} profile the
  * app must be given its database and mail settings ({@code MAIL_HOST}, {@code MAIL_FROM}, {@code APP_BASE_URL}).
- * With {@code REQUIRE_HTTPS=true}, {@code APP_BASE_URL} must also be {@code https://}. Without this check a missing variable surfaces later as an
+ * With {@code REQUIRE_HTTPS=true}, {@code APP_BASE_URL} must also be {@code https://}. Google sign-in settings must be
+ * complete when used ({@link #checkGoogleSettings}). Without this check a missing variable surfaces later as an
  * unrelated error (e.g. "'url' must start with \"jdbc\"") instead of naming the variable.
  *
  * <p>Runs after the config files (including profile-specific ones) are loaded. A setting counts as
@@ -52,6 +53,56 @@ public class RequiredSettingsCheck implements EnvironmentPostProcessor, Ordered 
             throw new MissingRequiredSettingsException(missing);
         }
         checkBaseUrlUsesHttps(environment);
+        checkGoogleSettings(environment);
+    }
+
+    static final String GOOGLE_CLIENT_ID = "app.google.client-id";
+    static final String GOOGLE_CLIENT_SECRET = "app.google.client-secret";
+    static final String GOOGLE_ISSUER_URI = "app.google.issuer-uri";
+
+    /**
+     * Sign in with Google is optional (specs/google-sign-in.md): off with neither {@code GOOGLE_CLIENT_ID} nor
+     * {@code GOOGLE_CLIENT_SECRET}. Only one of them is a mistake that would otherwise show up only at the first
+     * sign-in. With {@code REQUIRE_HTTPS=true}, the issuer (where the ID token's keys come from) must be https.
+     */
+    private static void checkGoogleSettings(ConfigurableEnvironment environment) {
+        boolean clientId = isSet(environment, GOOGLE_CLIENT_ID);
+        boolean clientSecret = isSet(environment, GOOGLE_CLIENT_SECRET);
+        if (clientId != clientSecret) {
+            throw new InvalidSettingException(clientId ? "GOOGLE_CLIENT_SECRET" : "GOOGLE_CLIENT_ID",
+                    "must be set when " + (clientId ? "GOOGLE_CLIENT_ID" : "GOOGLE_CLIENT_SECRET")
+                            + " is set (set both to turn on sign in with Google, or neither)");
+        }
+        if (!clientId) {
+            return;
+        }
+        String issuer = isSet(environment, GOOGLE_ISSUER_URI)
+                ? environment.getProperty(GOOGLE_ISSUER_URI).strip() : "";
+        if (startsWith(issuer, "https://")) {
+            return;
+        }
+        if (requireHttps(environment)) {
+            throw new InvalidSettingException("GOOGLE_ISSUER_URI",
+                    "must start with https:// when REQUIRE_HTTPS is true (the sign-in keys would otherwise be fetched"
+                            + " over plain http)");
+        }
+        if (!startsWith(issuer, "http://")) {
+            throw new InvalidSettingException("GOOGLE_ISSUER_URI", "must start with https:// or http://");
+        }
+    }
+
+    private static boolean startsWith(String value, String prefix) {
+        return value.regionMatches(true, 0, prefix, 0, prefix.length());
+    }
+
+    private static boolean requireHttps(ConfigurableEnvironment environment) {
+        String requireHttps;
+        try {
+            requireHttps = environment.getProperty(REQUIRE_HTTPS, "true");
+        } catch (IllegalArgumentException unresolvablePlaceholder) {
+            requireHttps = "true";
+        }
+        return !"false".equalsIgnoreCase(requireHttps.strip());
     }
 
     /**
@@ -59,13 +110,7 @@ public class RequiredSettingsCheck implements EnvironmentPostProcessor, Ordered 
      * over plain http could be read on the network.
      */
     private static void checkBaseUrlUsesHttps(ConfigurableEnvironment environment) {
-        String requireHttps;
-        try {
-            requireHttps = environment.getProperty(REQUIRE_HTTPS, "true");
-        } catch (IllegalArgumentException unresolvablePlaceholder) {
-            requireHttps = "true";
-        }
-        if (!"false".equalsIgnoreCase(requireHttps.strip())) {
+        if (requireHttps(environment)) {
             String baseUrl = environment.getProperty(BASE_URL, "").strip();
             if (!baseUrl.regionMatches(true, 0, "https://", 0, "https://".length())) {
                 throw new InvalidSettingException("APP_BASE_URL",

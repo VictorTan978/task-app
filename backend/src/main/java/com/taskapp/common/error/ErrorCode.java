@@ -20,6 +20,10 @@ public final class ErrorCode {
     public static final String TOKEN_INVALID = "TOKEN_INVALID";
     /** 409 on resend-verification: the email is already confirmed. */
     public static final String ALREADY_VERIFIED = "ALREADY_VERIFIED";
+    /** 409: the account has no password (change password, disconnect Google). */
+    public static final String PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
+    /** 400 on delete account for accounts without a password: the typed email is wrong. Also a field-level code. */
+    public static final String EMAIL_MISMATCH = "EMAIL_MISMATCH";
 
     /** Field-level codes used inside {@code errors[]}. */
     public static final String REQUIRED = "REQUIRED";

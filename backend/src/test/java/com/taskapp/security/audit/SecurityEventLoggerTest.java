@@ -73,7 +73,10 @@ class SecurityEventLoggerTest {
                     // specs/email-auth.md (PASSWORD_RESET_REQUESTED is logged whatever the outcome).
                     || event == SecurityEvent.EMAIL_VERIFICATION_SENT || event == SecurityEvent.EMAIL_VERIFIED
                     || event == SecurityEvent.PASSWORD_RESET_REQUESTED
-                    || event == SecurityEvent.PASSWORD_RESET_COMPLETED;
+                    || event == SecurityEvent.PASSWORD_RESET_COMPLETED
+                    // specs/google-sign-in.md
+                    || event == SecurityEvent.GOOGLE_LOGIN_SUCCESS || event == SecurityEvent.GOOGLE_ACCOUNT_CREATED
+                    || event == SecurityEvent.GOOGLE_LINKED || event == SecurityEvent.GOOGLE_UNLINKED;
             assertThat(event.level().name()).as(event.name()).isEqualTo(success ? "INFO" : "WARN");
         }
     }
