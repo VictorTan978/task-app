@@ -1532,7 +1532,7 @@ test.describe('Google on', () => {
     await expect(dialog.getByRole('alert')).toHaveText(GENERIC);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(b.page.getByTestId('google-connection-status')).toHaveText('Google: not connected');
-    expect(text).toBe(GENERIC); // AC20 wording for the in-page connect error (asserted last; see report)
+    expect(text).toBe(CONNECT_FAILED); // AC20 (updated 2026-10-15): in-page connect error uses the connect-specific text
     await a.ctx.close();
     await b.ctx.close();
   });

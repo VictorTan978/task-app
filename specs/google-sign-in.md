@@ -1,6 +1,6 @@
 # Feature: Sign in with Google
 
-**Status:** APPROVED 2026-10-15, in build. **Depends on:** `specs/auth.md`, `specs/account-settings.md`, `specs/sessions.md`, `specs/email-auth.md` (all DONE). **Branch:** `feature/google-sign-in`
+**Status:** DONE 2026-10-15. **Depends on:** `specs/auth.md`, `specs/account-settings.md`, `specs/sessions.md`, `specs/email-auth.md` (all DONE). **Branch:** `feature/google-sign-in`
 
 ## Why
 Many people would rather not create another password. Signing in with a Google account is faster, and Google has already checked that the email address is theirs.
@@ -11,47 +11,47 @@ As a visitor or user, I want to sign in with my Google account, so that I don't 
 ## Acceptance criteria
 
 ### Sign in / sign up with Google
-- [ ] AC1: Given Google sign-in is configured, `/login` and `/register` show a "Continue with Google" button (Google's standard look) below the form, separated by "or". When it isn't configured, the button doesn't show and nothing else changes.
-- [ ] AC2: Given I click "Continue with Google" and approve on Google's page, when no account uses my Google account or my Google email yet, then a new account is created and I land on `/tasks` signed in:
+- [x] AC1: Given Google sign-in is configured, `/login` and `/register` show a "Continue with Google" button (Google's standard look) below the form, separated by "or". When it isn't configured, the button doesn't show and nothing else changes.
+- [x] AC2: Given I click "Continue with Google" and approve on Google's page, when no account uses my Google account or my Google email yet, then a new account is created and I land on `/tasks` signed in:
   - The email is my Google email, and it counts as confirmed (no banner).
   - The display name is my Google name (see AC4).
   - The account has no password.
-- [ ] AC3: Given I already signed up with Google, when I click "Continue with Google" again, then I am signed in to the same account and land on `/tasks`.
-- [ ] AC4: The display name follows the existing rules (1–50 characters after trimming, unique ignoring case and accents):
+- [x] AC3: Given I already signed up with Google, when I click "Continue with Google" again, then I am signed in to the same account and land on `/tasks`.
+- [x] AC4: The display name follows the existing rules (1–50 characters after trimming, unique ignoring case and accents):
   - A Google name longer than 50 characters is shortened to 50.
   - A taken name gets a number added ("José 2", "José 3", …).
   - An empty Google name uses the part of the email before "@".
   - I can change the name later on `/account`.
-- [ ] AC5: Given an account already exists for my Google email (matched ignoring case and accents):
+- [x] AC5: Given an account already exists for my Google email (matched ignoring case and accents):
   - If Google says the email is verified **and** the account's own email is already confirmed (`specs/email-auth.md`), then Google is connected to that account and I am signed in to it.
   - Otherwise nothing is connected or created and I land on `/login` with "Google hasn't confirmed this email address, or it belongs to an account that isn't connected yet. Sign in with your email and password, or create an account." This covers: Google says not verified; the account's email is unconfirmed; the account already has a different Google account connected.
   - The same message shows when no account exists and Google says the email is not verified (nothing is created).
   - An unconfirmed account can still use Google: confirm the email first, or sign in with the password and use "Connect Google" on `/account` (AC12).
-- [ ] AC6: Given I cancel on Google's page, or Google sign-in fails for any reason (error from Google, expired or tampered request), then I land on `/login` with "Google sign-in was cancelled or failed. Please try again." Nothing is created or changed.
-- [ ] AC7: A Google sign-in creates a normal session, the same as a password login: a new session id and CSRF token, a 12-hour maximum and the 30-minute idle timeout. "Remember me" doesn't apply to Google sign-in.
+- [x] AC6: Given I cancel on Google's page, or Google sign-in fails for any reason (error from Google, expired or tampered request), then I land on `/login` with "Google sign-in was cancelled or failed. Please try again." Nothing is created or changed.
+- [x] AC7: A Google sign-in creates a normal session, the same as a password login: a new session id and CSRF token, a 12-hour maximum and the 30-minute idle timeout. "Remember me" doesn't apply to Google sign-in.
 
 ### Accounts without a password
-- [ ] AC8: Given my account was created with Google (no password), when I try to sign in with my email and any password, then I see the usual "Invalid email or password". Nothing reveals that the account exists.
-- [ ] AC9: Given my account has no password, then on `/account` the "Change password" card is replaced by a "Password" card: "You sign in with Google. To also sign in with a password, set one with 'Forgot password?' on the sign-in page." "Forgot password?" works for these accounts (`specs/email-auth.md` AC7–AC11), and afterwards I can sign in with either method.
-- [ ] AC10: Given my account has no password, when I delete my account, then the dialog asks me to type my email address instead of a password. The wrong email shows "Email doesn't match". Everything else matches `specs/account-settings.md` AC10–AC13.
+- [x] AC8: Given my account was created with Google (no password), when I try to sign in with my email and any password, then I see the usual "Invalid email or password". Nothing reveals that the account exists.
+- [x] AC9: Given my account has no password, then on `/account` the "Change password" card is replaced by a "Password" card: "You sign in with Google. To also sign in with a password, set one with 'Forgot password?' on the sign-in page." "Forgot password?" works for these accounts (`specs/email-auth.md` AC7–AC11), and afterwards I can sign in with either method.
+- [x] AC10: Given my account has no password, when I delete my account, then the dialog asks me to type my email address instead of a password. The wrong email shows "Email doesn't match". Everything else matches `specs/account-settings.md` AC10–AC13.
 
 ### Connect and disconnect on /account
-- [ ] AC11: On `/account` there is a "Connected accounts" card. It shows "Google: connected as <google email>" or "Google: not connected".
-- [ ] AC12: Given my account isn't connected, when I click "Connect Google" and approve, then Google is connected to **this** account, I come back to `/account` and see "Google connected". This works even if my Google email differs from my account email.
-- [ ] AC13: Given that Google account is already connected to a **different** account in this app, when I try to connect it, then nothing changes and I see "This Google account is already connected to another account."
-- [ ] AC14: Given Google is connected and my account has a password, when I click "Disconnect" and confirm, then Google is disconnected and I see "Google disconnected". Continuing with that Google account later creates or links an account by the AC2/AC5 rules.
-- [ ] AC15: Given my account has no password, then "Disconnect" is disabled with the hint "Set a password first so you don't lose access to your account."
+- [x] AC11: On `/account` there is a "Connected accounts" card. It shows "Google: connected as <google email>" or "Google: not connected".
+- [x] AC12: Given my account isn't connected, when I click "Connect Google" and approve, then Google is connected to **this** account, I come back to `/account` and see "Google connected". This works even if my Google email differs from my account email.
+- [x] AC13: Given that Google account is already connected to a **different** account in this app, when I try to connect it, then nothing changes and I see "This Google account is already connected to another account."
+- [x] AC14: Given Google is connected and my account has a password, when I click "Disconnect" and confirm, then Google is disconnected and I see "Google disconnected". Continuing with that Google account later creates or links an account by the AC2/AC5 rules.
+- [x] AC15: Given my account has no password, then "Disconnect" is disabled with the hint "Set a password first so you don't lose access to your account."
 
 ### Security
-- [ ] AC16: The Google flow uses the standard OAuth 2.0 / OpenID Connect protections (state, nonce, PKCE). The app trusts only Google's verified token, never an email or ID sent by the browser.
+- [x] AC16: The Google flow uses the standard OAuth 2.0 / OpenID Connect protections (state, nonce, PKCE). The app trusts only Google's verified token, never an email or ID sent by the browser.
   - The Google client secret lives only in backend settings (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) and never reaches the frontend or the logs.
   - Signing in is protected against login CSRF: a sign-in started on another site can't sign me in to someone else's account.
-- [ ] AC17: Accounts are matched by Google's stable account id (`sub`), not by email, after the first sign-in. If I change my Gmail address at Google, I still reach the same account.
-- [ ] AC18: Security events go to the `security.audit` log: `GOOGLE_LOGIN_SUCCESS`, `GOOGLE_LOGIN_FAILURE` (reason), `GOOGLE_ACCOUNT_CREATED`, `GOOGLE_LINKED` (`trigger=login|connect`), `GOOGLE_UNLINKED`. No tokens or codes are logged.
-- [ ] AC19: The new `/api` endpoints return 401 when not signed in (except the public sign-in start and callback), 403 without a valid CSRF token, and follow the existing rate-limit style for the public ones.
+- [x] AC17: Accounts are matched by Google's stable account id (`sub`), not by email, after the first sign-in. If I change my Gmail address at Google, I still reach the same account.
+- [x] AC18: Security events go to the `security.audit` log: `GOOGLE_LOGIN_SUCCESS`, `GOOGLE_LOGIN_FAILURE` (reason), `GOOGLE_ACCOUNT_CREATED`, `GOOGLE_LINKED` (`trigger=login|connect`), `GOOGLE_UNLINKED`. No tokens or codes are logged.
+- [x] AC19: The new `/api` endpoints return 401 when not signed in (except the public sign-in start and callback), 403 without a valid CSRF token, and follow the existing rate-limit style for the public ones.
 
 ### States
-- [ ] AC20: While a redirect to Google is starting, the Google button is disabled and shows a spinner. The connect and disconnect buttons show loading and error states. A connect that fails before leaving the page shows "Couldn't connect Google. Please try again."; the Google button and the disconnect dialog show "Something went wrong, please try again".
+- [x] AC20: While a redirect to Google is starting, the Google button is disabled and shows a spinner. The connect and disconnect buttons show loading and error states. A connect that fails before leaving the page shows "Couldn't connect Google. Please try again."; the Google button and the disconnect dialog show "Something went wrong, please try again".
 
 ## Out of scope
 - Other providers (Apple, GitHub, Microsoft). The design should make adding one easy, but none is built.
@@ -127,4 +127,5 @@ _Filled in by the PM during the build._
 | 2026-10-15 | AC5 narrowed: auto-link only when Google says verified AND the local account's email is already confirmed; otherwise `google_unverified` with the new message. Unconfirmed accounts confirm first or connect from `/account` | Blocks a stranger who registered with someone else's email from receiving that person's Google sign-ins | User |
 | 2026-10-15 | Backend build: V7 exactly as approved. Deleting an account removes its connection rows first (REMOVE cascade; found and fixed during the build). `sub` must be printable ASCII with no spaces, otherwise `invalid_identity`. The audit uses `intent=-` when the pending request is lost. The `oidc` docker-compose service and the CLAUDE.md "OIDC (dev)" row were added by the PM (user-approved infrastructure, outside the backend agent's folders). 520 backend tests pass | Backend BUILD | PM |
 | 2026-10-15 | Test round 1: AC1–AC19 PASS; AC20 failed only on wording. The PM's build brief specified "Couldn't connect Google. Please try again." for in-page connect errors, but the AC20 text still said the generic message. AC20 updated to match the build (the specific text is clearer); AC18 trigger wording aligned to `login|connect`. No code change | Spec/brief mismatch, PM's error | PM |
+| 2026-10-15 | Tester verdict PASS, AC1–AC20 (AC20 re-run after the wording fix: `google-sign-in.spec.ts` 33 passed). Backend 520, unit 390, lint, build; full e2e 165 passed; gated runs (mail down, short links, short sessions, real rate limits, Google off) all passed | Definition of Done | PM |
 
