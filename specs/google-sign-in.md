@@ -47,11 +47,11 @@ As a visitor or user, I want to sign in with my Google account, so that I don't 
   - The Google client secret lives only in backend settings (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) and never reaches the frontend or the logs.
   - Signing in is protected against login CSRF: a sign-in started on another site can't sign me in to someone else's account.
 - [ ] AC17: Accounts are matched by Google's stable account id (`sub`), not by email, after the first sign-in. If I change my Gmail address at Google, I still reach the same account.
-- [ ] AC18: Security events go to the `security.audit` log: `GOOGLE_LOGIN_SUCCESS`, `GOOGLE_LOGIN_FAILURE` (reason), `GOOGLE_ACCOUNT_CREATED`, `GOOGLE_LINKED` (trigger: sign-in or connect), `GOOGLE_UNLINKED`. No tokens or codes are logged.
+- [ ] AC18: Security events go to the `security.audit` log: `GOOGLE_LOGIN_SUCCESS`, `GOOGLE_LOGIN_FAILURE` (reason), `GOOGLE_ACCOUNT_CREATED`, `GOOGLE_LINKED` (`trigger=login|connect`), `GOOGLE_UNLINKED`. No tokens or codes are logged.
 - [ ] AC19: The new `/api` endpoints return 401 when not signed in (except the public sign-in start and callback), 403 without a valid CSRF token, and follow the existing rate-limit style for the public ones.
 
 ### States
-- [ ] AC20: While a redirect to Google is starting, the Google button is disabled and shows a spinner. The connect and disconnect buttons show loading and error states ("Something went wrong, please try again").
+- [ ] AC20: While a redirect to Google is starting, the Google button is disabled and shows a spinner. The connect and disconnect buttons show loading and error states. A connect that fails before leaving the page shows "Couldn't connect Google. Please try again."; the Google button and the disconnect dialog show "Something went wrong, please try again".
 
 ## Out of scope
 - Other providers (Apple, GitHub, Microsoft). The design should make adding one easy, but none is built.
@@ -126,4 +126,5 @@ _Filled in by the PM during the build._
 | 2026-10-15 | Known limitation: if the app starts already signed in on `/login?oauth=…` (rare: a failed connect restored by remember-me, or another tab signed in), `guestGuard` sends the user to `/tasks` and the notice isn't shown. Nothing changed on the server; no guard change | Fixing it needs a new notice channel; low value | PM |
 | 2026-10-15 | AC5 narrowed: auto-link only when Google says verified AND the local account's email is already confirmed; otherwise `google_unverified` with the new message. Unconfirmed accounts confirm first or connect from `/account` | Blocks a stranger who registered with someone else's email from receiving that person's Google sign-ins | User |
 | 2026-10-15 | Backend build: V7 exactly as approved. Deleting an account removes its connection rows first (REMOVE cascade; found and fixed during the build). `sub` must be printable ASCII with no spaces, otherwise `invalid_identity`. The audit uses `intent=-` when the pending request is lost. The `oidc` docker-compose service and the CLAUDE.md "OIDC (dev)" row were added by the PM (user-approved infrastructure, outside the backend agent's folders). 520 backend tests pass | Backend BUILD | PM |
+| 2026-10-15 | Test round 1: AC1–AC19 PASS; AC20 failed only on wording. The PM's build brief specified "Couldn't connect Google. Please try again." for in-page connect errors, but the AC20 text still said the generic message. AC20 updated to match the build (the specific text is clearer); AC18 trigger wording aligned to `login|connect`. No code change | Spec/brief mismatch, PM's error | PM |
 

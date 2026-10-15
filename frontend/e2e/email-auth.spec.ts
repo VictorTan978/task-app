@@ -966,7 +966,7 @@ test.describe('email auth (default run)', () => {
     const b = await newPage(browser);
     await registerApi(b.ctx, b.page, mail);
     const reg = await me(b.page);
-    expect(reg.body).toEqual({ id: expect.any(Number), email: mail, displayName: expect.any(String), emailVerified: false });
+    expect(reg.body).toEqual({ id: expect.any(Number), email: mail, displayName: expect.any(String), emailVerified: false, hasPassword: true, connections: [] }); // 0.8.0 fields
     expect((await post(b.ctx, b.page, '/api/auth/forgot-password', { email: mail })).status()).toBe(202);
     const [m] = await waitForMails(mail, RESET_SUBJECT, 1);
     const { token: rt } = await readLink(m, 'reset-password');

@@ -462,7 +462,8 @@ test.describe('default limits', () => {
     const i = h2s.indexOf('Sessions');
     expect(i).toBeGreaterThan(-1);
     expect(h2s[i - 1]).toBe('Change password');
-    expect(h2s[i + 1]).toBe('Delete account');
+    // 0.8.0 (specs/google-sign-in.md): "Connected accounts" sits between Sessions and Delete account when Google is on
+    expect(h2s.slice(i + 1).filter((h) => h !== 'Connected accounts')[0]).toBe('Delete account');
     await expect(
       page.getByText('Signed in somewhere else, like a shared computer? Log out everywhere except this device.'),
     ).toBeVisible();
