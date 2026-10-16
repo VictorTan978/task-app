@@ -459,7 +459,8 @@ class AdminIntegrationTest {
     void deleteRemovesTheAccountWithItsDataAndEndsItsSessions() throws Exception {
         Browser admin = account("Del", "ADMIN");
         Browser user = account("Vic", "USER");
-        user.post("/api/tasks", "{\"title\":\"Gone soon\"}");
+        long task = user.post("/api/tasks", "{\"title\":\"Gone soon\"}").json().get("id").asLong();
+        expect(user.put("/api/tasks/" + task, "{\"title\":\"Gone soon\",\"tags\":[\"Mine\"]}"), 200, null);
         Browser phone = device(user, true);
         jdbc.update("insert into user_connections (user_id, provider, provider_subject, provider_email)"
                 + " values (?, 'google', 'g-vic', 'vic@gmail.com')", user.id);
@@ -471,6 +472,8 @@ class AdminIntegrationTest {
         assertThat(r.body()).isEmpty();
         assertThat(count("select count(*) from users where id = ?", user.id)).isZero();
         assertThat(count("select count(*) from tasks where owner_id = ?", user.id)).isZero();
+        assertThat(count("select count(*) from tags where owner_id = ?", user.id)).isZero();
+        assertThat(count("select count(*) from task_tags where task_id = ?", task)).isZero();
         assertThat(count("select count(*) from user_connections where user_id = ?", user.id)).isZero();
         assertThat(count("select count(*) from remember_me_tokens where user_id = ?", user.id)).isZero();
         assertThat(count("select count(*) from email_tokens where user_id = ?", user.id)).isZero();
@@ -531,10 +534,12 @@ class AdminIntegrationTest {
         Browser admin = account("Lister", "ADMIN");
         Browser zoe = account("Zoë", "USER");
         Browser zed = account("Zed", "SUPER_ADMIN");
+        // Before she is disabled, so the task and tag really exist.
+        long zoesTask = zoe.post("/api/tasks", "{\"title\":\"Private\"}").json().get("id").asLong();
+        expect(zoe.put("/api/tasks/" + zoesTask, "{\"title\":\"Private\",\"tags\":[\"Secret\"]}"), 200, null);
         jdbc.update("update users set email_verified_at = now(6), disabled_at = now(6) where id = ?", zoe.id);
         jdbc.update("insert into user_connections (user_id, provider, provider_subject, provider_email)"
                 + " values (?, 'google', 'g-zoe', 'zoe@gmail.com')", zoe.id);
-        zoe.post("/api/tasks", "{\"title\":\"Private\"}");
 
         Resp all = admin.get(USERS + "?q=%20ZOE%20");
         expect(all, 200, null);
@@ -553,7 +558,11 @@ class AdminIntegrationTest {
         assertThat(row.get("role").asText()).isEqualTo("USER");
         assertThat(row.get("disabled").asBoolean()).isTrue();
         assertThat(row.size()).isEqualTo(8);
-        assertThat(all.body()).doesNotContain("Private", "password", "$2a$", "g-zoe");
+        assertThat(all.body()).doesNotContain("Private", "Secret", "password", "$2a$", "g-zoe");
+        // T1 AC14: an admin's own task/tag endpoints never show another user's tasks or tags.
+        assertThat(admin.get("/api/tags").json()).isEmpty();
+        assertThat(admin.get("/api/tasks?tag=Secret").json()).isEmpty();
+        expect(admin.get("/api/tasks/" + zoesTask), 404, "NOT_FOUND");
 
         // Newest first, paged.
         Resp first = admin.get(USERS + "?q=z&size=1");

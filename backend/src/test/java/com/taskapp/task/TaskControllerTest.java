@@ -2,7 +2,6 @@ package com.taskapp.task;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -51,8 +50,8 @@ class TaskControllerTest {
 
     private static final long OWNER = 7L;
     private static final Instant CREATED = Instant.parse("2026-10-08T09:15:02.123456Z");
-    private static final TaskResponse MILK = new TaskResponse(12L, "Buy milk", null, false,
-            LocalDate.parse("2026-10-10"), CREATED, CREATED);
+    private static final TaskResponse MILK = new TaskResponse(12L, "Buy milk", null, Priority.NONE, TaskStatus.TODO,
+            List.of(), false, LocalDate.parse("2026-10-10"), CREATED, CREATED);
 
     @Autowired
     private MockMvc mockMvc;
@@ -73,13 +72,14 @@ class TaskControllerTest {
 
     @Test
     void listReturnsBareArrayInContractShape() throws Exception {
-        when(taskService.list(OWNER, TaskFilter.ALL)).thenReturn(List.of(MILK));
+        when(taskService.list(OWNER, TaskFilter.ALL, null)).thenReturn(List.of(MILK));
 
         mockMvc.perform(get("/api/tasks").with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
-                        [{"id":12,"title":"Buy milk","description":null,"done":false,"dueDate":"2026-10-10",
+                        [{"id":12,"title":"Buy milk","description":null,"priority":"NONE","status":"TODO","tags":[],
+                          "done":false,"dueDate":"2026-10-10",
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}]""",
                         true));
     }
@@ -87,23 +87,26 @@ class TaskControllerTest {
     @Test
     void listPassesKnownFilters() throws Exception {
         mockMvc.perform(get("/api/tasks?filter=active").with(signedIn())).andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.ACTIVE);
+        verify(taskService).list(OWNER, TaskFilter.ACTIVE, null);
 
         mockMvc.perform(get("/api/tasks?filter=done").with(signedIn())).andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.DONE);
+        verify(taskService).list(OWNER, TaskFilter.DONE, null);
+
+        mockMvc.perform(get("/api/tasks?filter=in_progress").with(signedIn())).andExpect(status().isOk());
+        verify(taskService).list(OWNER, TaskFilter.IN_PROGRESS, null);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"/api/tasks", "/api/tasks?filter=", "/api/tasks?filter=foo", "/api/tasks?filter=Done",
-            "/api/tasks?filter=all"})
+            "/api/tasks?filter=all", "/api/tasks?filter=In_progress", "/api/tasks?filter=in-progress"})
     void missingOrUnknownFilterMeansAll(String url) throws Exception {
-        when(taskService.list(OWNER, TaskFilter.ALL)).thenReturn(List.of());
+        when(taskService.list(OWNER, TaskFilter.ALL, null)).thenReturn(List.of());
 
         mockMvc.perform(get(url).with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]", true));
 
-        verify(taskService).list(OWNER, TaskFilter.ALL);
+        verify(taskService).list(OWNER, TaskFilter.ALL, null);
     }
 
     // ---- create ----
@@ -242,22 +245,21 @@ class TaskControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(12));
 
-        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("Buy oat milk", null, null, true));
+        verify(taskService).replace(OWNER, 12L,
+                new ReplaceTaskRequest("Buy oat milk", null, null, null, null, true, null));
     }
 
+    /** 0.10.0: done is no longer required. */
     @Test
-    void putRequiresTitleAndDone() throws Exception {
+    void putRequiresTitleButNotDone() throws Exception {
         mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\" \",\"description\":\"" + "d".repeat(2001) + "\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors", hasSize(3)))
+                .andExpect(jsonPath("$.errors", hasSize(2)))
                 .andExpect(jsonPath("$.errors[0].field").value("description"))
                 .andExpect(jsonPath("$.errors[0].code").value("TOO_LONG"))
-                .andExpect(jsonPath("$.errors[1].field").value("done"))
-                .andExpect(jsonPath("$.errors[1].code").value("REQUIRED"))
-                .andExpect(jsonPath("$.errors[1].message").value("Done is required"))
-                .andExpect(jsonPath("$.errors[2].field").value("title"))
-                .andExpect(jsonPath("$.errors[2].code").value("REQUIRED"));
+                .andExpect(jsonPath("$.errors[1].field").value("title"))
+                .andExpect(jsonPath("$.errors[1].code").value("REQUIRED"));
 
         verifyNoInteractions(taskService);
     }
@@ -285,31 +287,31 @@ class TaskControllerTest {
 
     @Test
     void patchSetsDone() throws Exception {
-        when(taskService.setDone(OWNER, 12L, true)).thenReturn(MILK);
+        when(taskService.setStatus(OWNER, 12L, null, true)).thenReturn(MILK);
 
-        mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":true,\"title\":\"ignored\"}"))
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":true,\"title\":\"ignored\",\"tags\":[\"x\"]}"))
                 .andExpect(status().isOk());
 
-        verify(taskService).setDone(OWNER, 12L, true);
+        verify(taskService).setStatus(OWNER, 12L, null, true);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"{}", "{\"done\":null}"})
-    void patchRequiresDone(String body) throws Exception {
+    @ValueSource(strings = {"{}", "{\"done\":null}", "{\"status\":null}", "{\"done\":null,\"status\":null}"})
+    void patchRequiresDoneOrStatus(String body) throws Exception {
         mockMvc.perform(json(patch("/api/tasks/12"), body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.errors", hasSize(1)))
                 .andExpect(jsonPath("$.errors[0].field").value("done"))
                 .andExpect(jsonPath("$.errors[0].code").value("REQUIRED"))
-                .andExpect(jsonPath("$.errors[0].message").value("Done is required"));
+                .andExpect(jsonPath("$.errors[0].message").value("Done or status is required"));
 
         verifyNoInteractions(taskService);
     }
 
     @Test
     void patchOnMissingTaskIs404() throws Exception {
-        when(taskService.setDone(OWNER, 42L, false)).thenThrow(new TaskNotFoundException());
+        when(taskService.setStatus(OWNER, 42L, null, false)).thenThrow(new TaskNotFoundException());
 
         mockMvc.perform(json(patch("/api/tasks/42"), "{\"done\":false}"))
                 .andExpect(status().isNotFound())
@@ -375,12 +377,312 @@ class TaskControllerTest {
     @Test
     void ownerAlwaysComesFromSession() throws Exception {
         when(taskService.create(anyLong(), any())).thenReturn(MILK);
-        when(taskService.setDone(anyLong(), anyLong(), anyBoolean())).thenReturn(MILK);
+        when(taskService.setStatus(anyLong(), anyLong(), any(), any())).thenReturn(MILK);
 
         mockMvc.perform(json(post("/api/tasks"), "{\"title\":\"x\",\"ownerId\":999}")).andExpect(status().isCreated());
         mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":true,\"ownerId\":999}")).andExpect(status().isOk());
 
         verify(taskService).create(eq(OWNER), any());
-        verify(taskService).setDone(OWNER, 12L, true);
+        verify(taskService).setStatus(OWNER, 12L, null, true);
+    }
+
+    // ---- 0.10.0: priority, status, tags ----
+
+    private static String tagsJson(String... raw) {
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < raw.length; i++) {
+            out.append(i == 0 ? "" : ",").append(raw[i] == null ? "null" : "\"" + raw[i] + "\"");
+        }
+        return out.append("]").toString();
+    }
+
+    private static String putWithTags(String tagsArray) {
+        return "{\"title\":\"x\",\"tags\":" + tagsArray + "}";
+    }
+
+    @Test
+    void listReturnsPriorityStatusAndTags() throws Exception {
+        TaskResponse tagged = new TaskResponse(12L, "Buy milk", null, Priority.HIGH, TaskStatus.IN_PROGRESS,
+                List.of("Errands", "Home"), false, null, CREATED, CREATED);
+        when(taskService.list(OWNER, TaskFilter.ALL, null)).thenReturn(List.of(tagged));
+
+        mockMvc.perform(get("/api/tasks").with(signedIn()))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        [{"id":12,"title":"Buy milk","description":null,"priority":"HIGH","status":"IN_PROGRESS",
+                          "tags":["Errands","Home"],"done":false,"dueDate":null,
+                          "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}]""",
+                        true));
+    }
+
+    @Test
+    void listPassesTheFirstRawTagValueAndCombinesWithFilter() throws Exception {
+        mockMvc.perform(get("/api/tasks?tag=Work").with(signedIn())).andExpect(status().isOk());
+        verify(taskService).list(OWNER, TaskFilter.ALL, "Work");
+
+        mockMvc.perform(get("/api/tasks").param("filter", "done").param("tag", " wörk ").with(signedIn()))
+                .andExpect(status().isOk());
+        verify(taskService).list(OWNER, TaskFilter.DONE, " wörk ");
+
+        // Not split on commas, not joined when repeated: the first value as sent.
+        mockMvc.perform(get("/api/tasks").param("tag", "a,b").with(signedIn())).andExpect(status().isOk());
+        verify(taskService).list(OWNER, TaskFilter.ALL, "a,b");
+
+        mockMvc.perform(get("/api/tasks").param("filter", "in_progress").param("tag", "first", "second").with(signedIn()))
+                .andExpect(status().isOk());
+        verify(taskService).list(OWNER, TaskFilter.IN_PROGRESS, "first");
+    }
+
+    @Test
+    void createIgnoresPriorityStatusAndTags() throws Exception {
+        when(taskService.create(eq(OWNER), any())).thenReturn(MILK);
+
+        mockMvc.perform(json(post("/api/tasks"), """
+                        {"title":"x","priority":"URGENT","status":"done","tags":["a,b",1]}"""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.priority").value("NONE"))
+                .andExpect(jsonPath("$.status").value("TODO"))
+                .andExpect(jsonPath("$.tags", hasSize(0)));
+
+        verify(taskService).create(OWNER, new CreateTaskRequest("x", null, null));
+    }
+
+    @Test
+    void putPassesNewFieldsWithRawTags() throws Exception {
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+
+        mockMvc.perform(json(put("/api/tasks/12"), """
+                        {"title":"x","priority":"HIGH","status":"IN_PROGRESS","tags":[" Home ","Errands","errands"]}"""))
+                .andExpect(status().isOk());
+
+        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("x", null, null, Priority.HIGH,
+                TaskStatus.IN_PROGRESS, null, List.of(" Home ", "Errands", "errands")));
+    }
+
+    @Test
+    void putWithoutNewFieldsPassesNullsAndEmptyTagsStaysEmpty() throws Exception {
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+
+        mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\"}")).andExpect(status().isOk());
+        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("x", null, null, null, null, null, null));
+
+        mockMvc.perform(json(put("/api/tasks/12"),
+                "{\"title\":\"y\",\"priority\":null,\"status\":null,\"done\":null,\"tags\":null}")).andExpect(status().isOk());
+        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("y", null, null, null, null, null, null));
+
+        mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"z\",\"tags\":[]}")).andExpect(status().isOk());
+        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("z", null, null, null, null, null, List.of()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"title\":\"x\",\"priority\":\"URGENT\"}",
+            "{\"title\":\"x\",\"priority\":\"high\"}",
+            "{\"title\":\"x\",\"priority\":\"HIGH \"}",
+            "{\"title\":\"x\",\"priority\":0}",
+            "{\"title\":\"x\",\"priority\":\"\"}",
+            "{\"title\":\"x\",\"status\":\"done\"}",
+            "{\"title\":\"x\",\"status\":\"In_Progress\"}",
+            "{\"title\":\"x\",\"status\":1}",
+            "{\"title\":\"x\",\"status\":true}",
+            "{\"title\":\"x\",\"tags\":\"Work\"}",
+            "{\"title\":\"x\",\"tags\":[1]}",
+            "{\"title\":\"x\",\"tags\":[true]}",
+            "{\"title\":\"x\",\"tags\":[\"ok\",{\"name\":\"Work\"}]}",
+            "{\"title\":\"x\",\"tags\":[[\"Work\"]]}",
+            "{\"title\":\"x\",\"tags\":{\"0\":\"Work\"}}"})
+    void putWithBadNewFieldIsMalformed(String body) throws Exception {
+        mockMvc.perform(json(put("/api/tasks/12"), body))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").value("Malformed request body"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+
+        verifyNoInteractions(taskService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"IN_PROGRESS\",\"done\":true", "\"TODO\",\"done\":true", "\"DONE\",\"done\":false"})
+    void putWithDisagreeingStatusAndDoneIsStatusConflict(String statusAndDone) throws Exception {
+        mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\",\"status\":" + statusAndDone + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("status"))
+                .andExpect(jsonPath("$.errors[0].code").value("STATUS_CONFLICT"))
+                .andExpect(jsonPath("$.errors[0].message").value("Status and done don't match"));
+
+        verifyNoInteractions(taskService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"DONE\",\"done\":true", "\"TODO\",\"done\":false", "\"IN_PROGRESS\",\"done\":false"})
+    void putWithAgreeingStatusAndDoneIsAccepted(String statusAndDone) throws Exception {
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+
+        mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\",\"status\":" + statusAndDone + "}"))
+                .andExpect(status().isOk());
+    }
+
+    private void expectTagsError(String tagsArray, String code, String message) throws Exception {
+        mockMvc.perform(json(put("/api/tasks/12"), putWithTags(tagsArray)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("tags"))
+                .andExpect(jsonPath("$.errors[0].code").value(code))
+                .andExpect(jsonPath("$.errors[0].message").value(message));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[null]", "[\"\"]", "[\"   \"]", "[\"ok\",\" \\u00a0\\u2003 \"]", "[\"\\u3000\"]",
+            "[\"\\t\"]", "[\"\\n \\r\"]"})
+    void blankTagIsRequired(String tagsArray) throws Exception {
+        expectTagsError(tagsArray, "REQUIRED", "Tags can't be blank");
+        verifyNoInteractions(taskService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[\"a,b\"]", "[\",\"]", "[\"Work,\"]", "[\"a\\tb\"]", "[\"a\\nb\"]", "[\" Work\\t\"]",
+            "[\"\\u0007bell\"]", "[\"x\\u007f\"]", "[\"x\\u0085\"]", "[\"x\\u0000\"]", "[\"ok\",\"\\u001fx\"]"})
+    void commaOrControlCharacterIsInvalidCharacters(String tagsArray) throws Exception {
+        expectTagsError(tagsArray, "INVALID_CHARACTERS", "Tags can't contain commas or control characters");
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void tagOver30UnitsAfterNormalisingIsTooLong() throws Exception {
+        expectTagsError(tagsJson("t".repeat(31)), "TOO_LONG", "Tags must be 30 characters or fewer");
+        // 16 emoji = 32 UTF-16 code units.
+        expectTagsError(tagsJson("\uD83D\uDE00".repeat(16)), "TOO_LONG", "Tags must be 30 characters or fewer");
+        expectTagsError(tagsJson("a" + " ".repeat(14) + "b".repeat(29)), "TOO_LONG",
+                "Tags must be 30 characters or fewer");
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void tagLengthCountsAfterNormalising() throws Exception {
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        // 30 units after stripping; 15 emoji = 30 UTF-16 units; inner runs of (Unicode) spaces collapse to one.
+        String collapsed = "a" + " \\u00a0\\u2003 ".repeat(10) + "b".repeat(28);
+
+        mockMvc.perform(json(put("/api/tasks/12"), putWithTags("[\"  " + "t".repeat(30) + " \\u00a0\",\""
+                        + "\uD83D\uDE00".repeat(15) + "\",\"" + collapsed + "\"]")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void moreThanTenDifferentTagsIsTooMany() throws Exception {
+        String[] eleven = new String[11];
+        for (int i = 0; i < 11; i++) {
+            eleven[i] = "tag" + i;
+        }
+        expectTagsError(tagsJson(eleven), "TOO_MANY", "A task can have at most 10 tags");
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void duplicatesIgnoringCaseAccentsAndSpacesCountOnce() throws Exception {
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        String[] tags = new String[14];
+        for (int i = 0; i < 10; i++) {
+            tags[i] = "tag" + i;
+        }
+        tags[10] = "TAG0";
+        tags[11] = " t\u00c0g1 ";
+        tags[12] = "ta\u0301g2";
+        tags[13] = "tag3";
+
+        mockMvc.perform(json(put("/api/tasks/12"), putWithTags(tagsJson(tags)))).andExpect(status().isOk());
+    }
+
+    @Test
+    void tagErrorsFollowTheContractOrder() throws Exception {
+        String tooLong = "t".repeat(31);
+        String[] manyLong = new String[11];
+        for (int i = 0; i < 11; i++) {
+            manyLong[i] = tooLong + i;
+        }
+        expectTagsError("[\"a,b\",\"" + tooLong + "\",\" \"]", "REQUIRED", "Tags can't be blank");
+        expectTagsError("[\"" + tooLong + "\",\"a,b\"]", "INVALID_CHARACTERS",
+                "Tags can't contain commas or control characters");
+        expectTagsError(tagsJson(manyLong), "TOO_LONG", "Tags must be 30 characters or fewer");
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void allFieldErrorsAreReportedTogetherSortedByField() throws Exception {
+        String[] eleven = new String[11];
+        for (int i = 0; i < 11; i++) {
+            eleven[i] = "tag" + i;
+        }
+        mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\" \",\"description\":\"" + "d".repeat(2001)
+                        + "\",\"status\":\"TODO\",\"done\":true,\"tags\":" + tagsJson(eleven) + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors", hasSize(4)))
+                .andExpect(jsonPath("$.errors[0].field").value("description"))
+                .andExpect(jsonPath("$.errors[1].field").value("status"))
+                .andExpect(jsonPath("$.errors[1].code").value("STATUS_CONFLICT"))
+                .andExpect(jsonPath("$.errors[2].field").value("tags"))
+                .andExpect(jsonPath("$.errors[2].code").value("TOO_MANY"))
+                .andExpect(jsonPath("$.errors[3].field").value("title"));
+
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void tagLimitIsTheOnlyErrorEntry() throws Exception {
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenThrow(new TagLimitExceededException());
+
+        mockMvc.perform(json(put("/api/tasks/12"), putWithTags("[\"new\"]")))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {"type":"about:blank","title":"Bad Request","status":400,"detail":"Validation failed",
+                         "instance":"/api/tasks/12","code":"VALIDATION_FAILED",
+                         "errors":[{"field":"tags","code":"TAG_LIMIT","message":"You can have at most 200 tags"}]}""",
+                        true));
+    }
+
+    @Test
+    void patchPassesStatusAndOrDone() throws Exception {
+        when(taskService.setStatus(anyLong(), anyLong(), any(), any())).thenReturn(MILK);
+
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"status\":\"IN_PROGRESS\"}")).andExpect(status().isOk());
+        verify(taskService).setStatus(OWNER, 12L, TaskStatus.IN_PROGRESS, null);
+
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"status\":\"DONE\",\"done\":true}")).andExpect(status().isOk());
+        verify(taskService).setStatus(OWNER, 12L, TaskStatus.DONE, true);
+
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"status\":\"TODO\",\"done\":null}")).andExpect(status().isOk());
+        verify(taskService).setStatus(OWNER, 12L, TaskStatus.TODO, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"status\":\"TODO\",\"done\":true}", "{\"status\":\"IN_PROGRESS\",\"done\":true}",
+            "{\"status\":\"DONE\",\"done\":false}"})
+    void patchWithDisagreeingStatusAndDoneIsStatusConflict(String body) throws Exception {
+        mockMvc.perform(json(patch("/api/tasks/12"), body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("status"))
+                .andExpect(jsonPath("$.errors[0].code").value("STATUS_CONFLICT"))
+                .andExpect(jsonPath("$.errors[0].message").value("Status and done don't match"));
+
+        verifyNoInteractions(taskService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"status\":\"done\"}", "{\"status\":\"BLOCKED\"}", "{\"status\":2}", "{\"done\":\"maybe\"}"})
+    void patchWithBadValueIsMalformed(String body) throws Exception {
+        mockMvc.perform(json(patch("/api/tasks/12"), body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+
+        verifyNoInteractions(taskService);
     }
 }

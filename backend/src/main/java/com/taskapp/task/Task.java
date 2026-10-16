@@ -3,8 +3,13 @@ package com.taskapp.task;
 import java.time.Instant;
 import java.time.LocalDate;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -27,6 +32,19 @@ public class Task {
     @Column(length = 2000)
     private String description;
 
+    /** NONE, LOW, MEDIUM or HIGH (V9). */
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "priority", nullable = false, length = 16)
+    private Priority priority;
+
+    /** TODO, IN_PROGRESS or DONE (V9). Always written together with {@link #done}. */
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "status", nullable = false, length = 16)
+    private TaskStatus status;
+
+    /** Mirror of {@code status == DONE} (expand-then-contract; the V9 CHECK enforces it). */
     @Column(nullable = false)
     private boolean done;
 
@@ -42,28 +60,36 @@ public class Task {
     protected Task() {
     }
 
-    /** New tasks are never done; {@code createdAt} and {@code updatedAt} start equal. */
+    /** New tasks are NONE / TODO (never done); {@code createdAt} and {@code updatedAt} start equal. */
     public Task(long ownerId, String title, String description, LocalDate dueDate, Instant now) {
         this.ownerId = ownerId;
         this.title = title;
         this.description = description;
         this.dueDate = dueDate;
+        this.priority = Priority.NONE;
+        this.status = TaskStatus.TODO;
         this.done = false;
         this.createdAt = now;
         this.updatedAt = now;
     }
 
-    /** Full replacement of the editable fields. */
-    public void replace(String title, String description, LocalDate dueDate, boolean done, Instant now) {
+    /** Full replacement of the text fields and due date. Priority, status and tags are set separately. */
+    public void replace(String title, String description, LocalDate dueDate, Instant now) {
         this.title = title;
         this.description = description;
         this.dueDate = dueDate;
-        this.done = done;
         this.updatedAt = now;
     }
 
-    public void setDone(boolean done, Instant now) {
-        this.done = done;
+    public void changePriority(Priority priority, Instant now) {
+        this.priority = priority;
+        this.updatedAt = now;
+    }
+
+    /** Sets the status and its {@code done} mirror together, so they never disagree. */
+    public void changeStatus(TaskStatus status, Instant now) {
+        this.status = status;
+        this.done = status == TaskStatus.DONE;
         this.updatedAt = now;
     }
 
@@ -81,6 +107,14 @@ public class Task {
 
     public String getDescription() {
         return description;
+    }
+
+    public Priority getPriority() {
+        return priority;
+    }
+
+    public TaskStatus getStatus() {
+        return status;
     }
 
     public boolean isDone() {

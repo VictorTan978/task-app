@@ -17,7 +17,8 @@ info:
     - `PATCH /api/tasks/{id}`: accepts `{done}` and/or `{status}` (at least one).
     - `GET /api/tasks`: `filter` gains `in_progress`; new `tag` query parameter. Still a bare
       `Task[]` with the same sort.
-    - New `GET /api/tags`: the signed-in user's tags, for suggestions. A tag is deleted
+    - New `GET /api/tags`: the signed-in user's tags as `Tag` objects (`[{"name": "Work"}]`), for
+      suggestions. `Task.tags` stays a plain array of names. A tag is deleted
       automatically when no task uses it any more.
     - New field codes: `INVALID_CHARACTERS`, `TOO_MANY`, `TAG_LIMIT`, `STATUS_CONFLICT`
       (`TOO_LONG` and `REQUIRED` also apply to `tags`). `FieldError.field` gains `status` and
@@ -41,7 +42,7 @@ info:
        (removing it from its last task, or deleting that task). Adding it again later creates it
        with the spelling sent then.
 
-    Order: wherever a list of tag names is returned (`Task.tags`, `GET /api/tags`) it is sorted
+    Order: wherever tags are returned (`Task.tags`, `GET /api/tags` by `name`) they are sorted
     alphabetically ignoring case and accents (`utf8mb4_0900_ai_ci` order). Clients should show
     it as returned.
 
@@ -2017,8 +2018,8 @@ paths:
     get:
       summary: List my tags
       description: |
-        New in 0.10.0. The names of all tags of the signed-in user, for suggestions in the tag
-        input. Every returned tag is used by at least one of the user's tasks (unused tags are
+        New in 0.10.0. All tags of the signed-in user (`Tag` objects, not bare strings, so fields
+        can be added later without a breaking change), for suggestions in the tag input. Every returned tag is used by at least one of the user's tasks (unused tags are
         deleted automatically, see "Tags"). Sorted alphabetically ignoring case and accents; at
         most 200 entries; no pagination, no query parameters (filtering suggestions by what the
         user typed is done by the client). Never includes another user's tags.
@@ -2026,17 +2027,18 @@ paths:
       tags: [tasks]
       responses:
         '200':
-          description: The user's tag names, possibly an empty array
+          description: The user's tags, possibly an empty array
           content:
             application/json:
               schema:
                 type: array
                 maxItems: 200
                 items:
-                  type: string
-                  minLength: 1
-                  maxLength: 30
-              example: [Errands, Home, Work]
+                  $ref: '#/components/schemas/Tag'
+              example:
+                - name: Errands
+                - name: Home
+                - name: Work
         '401':
           $ref: '#/components/responses/Unauthenticated'
 
@@ -3230,6 +3232,18 @@ components:
       enum: [TODO, IN_PROGRESS, DONE]
       description: New in 0.10.0. Case-sensitive. `TODO` is the default. `DONE` if and only if `done` is true.
       example: IN_PROGRESS
+
+    Tag:
+      type: object
+      required: [name]
+      description: New in 0.10.0. One of the signed-in user's tags (`GET /api/tags`).
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 30
+          description: The stored spelling (the first one the user used), already normalised.
+          example: Work
 
     Task:
       type: object

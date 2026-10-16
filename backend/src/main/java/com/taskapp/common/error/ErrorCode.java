@@ -42,6 +42,14 @@ public final class ErrorCode {
     public static final String OUT_OF_RANGE = "OUT_OF_RANGE";
     /** {@code role} of the admin role change: missing or not USER/ADMIN. */
     public static final String INVALID_ROLE = "INVALID_ROLE";
+    /** {@code tags}: a tag contains a comma or a control character (0.10.0). */
+    public static final String INVALID_CHARACTERS = "INVALID_CHARACTERS";
+    /** {@code tags}: more than 10 different tags on one task (0.10.0). */
+    public static final String TOO_MANY = "TOO_MANY";
+    /** {@code tags}: the user would have more than 200 tags (0.10.0). */
+    public static final String TAG_LIMIT = "TAG_LIMIT";
+    /** {@code status}: status and done both sent and disagreeing (0.10.0). */
+    public static final String STATUS_CONFLICT = "STATUS_CONFLICT";
 
     private ErrorCode() {
     }

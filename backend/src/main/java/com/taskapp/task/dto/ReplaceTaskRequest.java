@@ -1,12 +1,27 @@
 package com.taskapp.task.dto;
 
 import java.time.LocalDate;
+import java.util.List;
+
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.taskapp.task.Priority;
+import com.taskapp.task.TaskStatus;
+import com.taskapp.task.validation.StatusAndDone;
+import com.taskapp.task.validation.StatusMatchesDone;
+import com.taskapp.task.validation.TagsMaxCount;
+import com.taskapp.task.validation.TagsMaxLength;
+import com.taskapp.task.validation.TagsNotBlank;
+import com.taskapp.task.validation.TagsValidCharacters;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-/** Full replacement: a null/omitted description or dueDate clears the field. */
+/**
+ * Full replacement of title, description and due date: a null/omitted description or dueDate clears the field.
+ * {@code priority}, {@code status}, {@code done} and {@code tags} are optional: null/omitted leaves them unchanged
+ * (see {@link TaskStatus#resolve}). {@code tags} elements are kept raw here; the rules normalise them themselves.
+ */
+@StatusMatchesDone
 public record ReplaceTaskRequest(
         @NotBlank(message = "Title is required")
         @Size(max = 200, message = "Title must be 200 characters or fewer")
@@ -17,8 +32,18 @@ public record ReplaceTaskRequest(
 
         LocalDate dueDate,
 
-        @NotNull(message = "Done is required")
-        Boolean done) {
+        Priority priority,
+
+        TaskStatus status,
+
+        Boolean done,
+
+        @TagsNotBlank
+        @TagsValidCharacters
+        @TagsMaxLength
+        @TagsMaxCount
+        @JsonDeserialize(contentUsing = StrictStringDeserializer.class)
+        List<String> tags) implements StatusAndDone {
 
     public ReplaceTaskRequest {
         title = TaskText.title(title);

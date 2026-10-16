@@ -24,6 +24,7 @@ import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.SetTaskDoneRequest;
 import com.taskapp.task.dto.TaskResponse;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 /** Anonymous callers never reach this: the security chain answers 401. */
@@ -37,10 +38,14 @@ public class TaskController {
         this.taskService = taskService;
     }
 
+    /**
+     * {@code tag} is read with {@code getParameter} (the first value): binding it to a String would join repeated
+     * values with commas, and binding to a List would split one value on commas.
+     */
     @GetMapping
     public List<TaskResponse> list(@AuthenticationPrincipal AuthenticatedUser user,
-            @RequestParam(name = "filter", required = false) String filter) {
-        return taskService.list(user.id(), TaskFilter.parse(filter));
+            @RequestParam(name = "filter", required = false) String filter, HttpServletRequest request) {
+        return taskService.list(user.id(), TaskFilter.parse(filter), request.getParameter("tag"));
     }
 
     @PostMapping
@@ -64,7 +69,7 @@ public class TaskController {
     @PatchMapping("/{id}")
     public TaskResponse setDone(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable("id") long id,
             @Valid @RequestBody SetTaskDoneRequest body) {
-        return taskService.setDone(user.id(), id, body.done());
+        return taskService.setStatus(user.id(), id, body.status(), body.done());
     }
 
     @DeleteMapping("/{id}")

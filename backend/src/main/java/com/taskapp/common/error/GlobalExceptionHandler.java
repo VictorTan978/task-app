@@ -43,6 +43,7 @@ import com.taskapp.auth.WrongPasswordException;
 import com.taskapp.security.audit.SecurityEvent;
 import com.taskapp.security.audit.SecurityEventLogger;
 import com.taskapp.security.ratelimit.RateLimitedException;
+import com.taskapp.task.TagLimitExceededException;
 import com.taskapp.task.TaskNotFoundException;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -59,14 +60,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String EMAIL_TAKEN_MESSAGE = "An account with this email already exists";
     private static final String DISPLAY_NAME_TAKEN_MESSAGE = "This display name is already taken";
 
-    /** Lower value wins when one field has several violations. */
+    /** Lower value wins when one field has several violations. Tags: REQUIRED, INVALID_CHARACTERS, TOO_LONG, TOO_MANY. */
     private static final Map<String, Integer> FIELD_CODE_PRIORITY = Map.of(
             ErrorCode.REQUIRED, 0,
             ErrorCode.INVALID_EMAIL, 1,
             ErrorCode.PASSWORD_LENGTH, 1,
             ErrorCode.OUT_OF_RANGE, 1,
             ErrorCode.INVALID_ROLE, 1,
-            ErrorCode.TOO_LONG, 2);
+            ErrorCode.INVALID_CHARACTERS, 1,
+            ErrorCode.TOO_LONG, 2,
+            ErrorCode.TOO_MANY, 3);
 
     /**
      * One 409 for register: top-level code is EMAIL_TAKEN whenever the email is taken (backward compatible),
@@ -228,6 +231,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 Problems.of(HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "Task not found"));
     }
 
+    /** Only reached when every other field was valid, so it is the only entry. Nothing was saved (rolled back). */
+    @ExceptionHandler(TagLimitExceededException.class)
+    ResponseEntity<ProblemDetail> handleTagLimit(TagLimitExceededException ex) {
+        return ResponseEntity.badRequest().body(Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED,
+                "Validation failed", List.of(new ApiFieldError("tags", ErrorCode.TAG_LIMIT,
+                        TagLimitExceededException.MESSAGE))));
+    }
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<ProblemDetail> handleUnexpected(Exception ex) {
         log.error("Unhandled exception", ex);
@@ -299,7 +310,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static String fieldCode(FieldError fe) {
         String constraint = fe.getCode() == null ? "" : fe.getCode();
         return switch (constraint) {
-            case "NotBlank", "NotNull", "NotEmpty" -> ErrorCode.REQUIRED;
+            case "NotBlank", "NotNull", "NotEmpty", "TagsNotBlank", "DoneOrStatusRequired" -> ErrorCode.REQUIRED;
+            case "TagsValidCharacters" -> ErrorCode.INVALID_CHARACTERS;
+            case "TagsMaxLength" -> ErrorCode.TOO_LONG;
+            case "TagsMaxCount" -> ErrorCode.TOO_MANY;
+            case "StatusMatchesDone" -> ErrorCode.STATUS_CONFLICT;
             case "Email" -> ErrorCode.INVALID_EMAIL;
             case "PasswordLength" -> ErrorCode.PASSWORD_LENGTH;
             case "Size" -> ErrorCode.TOO_LONG;
@@ -310,6 +325,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private static int priority(String code) {
-        return FIELD_CODE_PRIORITY.getOrDefault(code, 3);
+        return FIELD_CODE_PRIORITY.getOrDefault(code, 4);
     }
 }
