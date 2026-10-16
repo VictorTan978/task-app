@@ -127,13 +127,22 @@
   }
 }
 
-/* Phone: badges and chips under the title, buttons on their own line. */
+/*
+ * Phone: the checkbox stays left of the title, badges and chips wrap under
+ * the title, and the buttons take their own line. `__main` grows from a zero
+ * basis, so it never pushes the checkbox onto a line of its own.
+ */
 @media (max-width: 640px) {
   .task-row {
     flex-wrap: wrap;
 
+    /* Top-aligned (with its default margin) so it lines up with the title's first line. */
+    &__check {
+      align-self: flex-start;
+    }
+
     &__main {
-      flex-basis: calc(100% - 2rem);
+      flex: 1 1 0;
     }
 
     &__meta {
@@ -141,7 +150,8 @@
     }
 
     &__actions {
-      margin-left: auto;
+      flex-basis: 100%;
+      justify-content: flex-end;
     }
   }
 }
