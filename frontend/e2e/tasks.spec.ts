@@ -394,7 +394,7 @@ test.describe('Edit', () => {
     await expect(dlg.getByLabel('Title')).toHaveValue('Original');
     await expect(dlg.getByLabel('Description')).toHaveValue('Old desc');
     await expect(dlg.getByLabel('Due date')).toHaveValue('2030-01-02');
-    await expect(dlg.getByLabel('Done')).not.toBeChecked();
+    await expect(dlg.getByLabel('Status')).toHaveValue('TODO'); // T1 AC18: Status replaces the Done checkbox
     await page.screenshot({ path: `${SHOTS}/ac8-dialog.png`, fullPage: true });
     await dlg.getByRole('button', { name: 'Cancel' }).click();
     await expect(dlg).toHaveCount(0);
@@ -404,7 +404,7 @@ test.describe('Edit', () => {
     await dlg.getByLabel('Title').fill('  Renamed  ');
     await dlg.getByLabel('Description').fill('New desc');
     await dlg.getByLabel('Due date').fill('2031-03-04');
-    await dlg.getByLabel('Done').check();
+    await dlg.getByLabel('Status').selectOption('DONE'); // T1 AC18
     await dlg.getByRole('button', { name: 'Save' }).click();
     await expect(dlg).toHaveCount(0);
     await expect(row(page, 'Renamed')).toContainText('2031-03-04');
