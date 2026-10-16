@@ -1,8 +1,20 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.10.0
+  version: 0.11.0
   description: |
+    ## Changes in 0.11.0 (tasks search, sort and pagination, specs/tasks-search-sort-pagination.md)
+    **Breaking (approved):** `GET /api/tasks` returns a `TaskPage` object
+    (`{ items, total, nextCursor }`) instead of a bare `Task[]`. Only our own frontend uses it.
+    - New query parameters on `GET /api/tasks`: `q` (search title and description), `sort`
+      (`newest` | `oldest` | `due` | `priority` | `title`) and `cursor` (keyset paging, 50 tasks
+      per page, fixed). `filter` and `tag` keep their meaning; an unknown `filter` or `sort` is
+      still the default, never a 400. An unknown or invalid `tag` gives an empty page.
+    - New 400s on `GET /api/tasks` (`VALIDATION_FAILED`): `q` / `TOO_LONG` (over 100 characters
+      after trimming, same rule as the admin search) and `cursor` / `INVALID_CURSOR`.
+    - New schema `TaskPage`. New field code `INVALID_CURSOR`; `FieldError.field` gains `cursor`.
+    - Every other task endpoint is unchanged.
+
     ## Changes in 0.10.0 (task priority, status and tags, specs/tasks-priority-status-tags.md)
     Additive only: nothing renamed or removed.
     - `Task` gains `priority` (`NONE` | `LOW` | `MEDIUM` | `HIGH`, see `Priority`), `status`
@@ -1728,15 +1740,43 @@ paths:
 
   /api/tasks:
     get:
-      summary: List my tasks
+      summary: List my tasks (one page)
       description: |
-        Returns all tasks owned by the signed-in user (no pagination). Sort order is fixed:
-        not-done tasks first (`TODO` and `IN_PROGRESS` mixed), then done tasks; within each group
-        `createdAt` descending, then `id` descending. Priority and status (other than done) never
-        change the order. Changing the status therefore moves a task between the not-done and
-        done groups but never changes its position inside a group.
+        Returns one page (at most 50) of the tasks owned by the signed-in user, as a `TaskPage`.
+        Changed in 0.11.0 (breaking): the response was a bare `Task[]`.
 
-        `filter` and `tag` combine (AND). Neither ever causes a 400.
+        **Which tasks:** `filter`, `tag` and `q` combine (AND). Only the signed-in user's own
+        tasks, ever (admins see only their own tasks too).
+
+        **Order** (`sort`):
+        1. Group: with `filter=all`, not-done tasks (`TODO` and `IN_PROGRESS` mixed) come first,
+           then done tasks. Other filters contain one group only.
+        2. Inside a group, by `sort`:
+           - `newest` (default): `createdAt` descending, then `id` descending (the 0.10.0 order).
+           - `oldest`: `createdAt` ascending, then `id` ascending (the exact reverse of `newest`).
+           - `due`: `dueDate` ascending (soonest first); tasks without a `dueDate` last.
+           - `priority`: `HIGH`, `MEDIUM`, `LOW`, `NONE`.
+           - `title`: A-Z by `title`, ignoring letter case and accents (MySQL
+             `utf8mb4_0900_ai_ci`), so `café` and `Cafe` are equal and tie.
+        3. Ties (`due`, `priority`, `title`): `createdAt` descending, then `id` descending.
+        Status other than done never changes the order inside a group.
+
+        **Paging (keyset):** the first request has no `cursor`. If more tasks follow, the page has
+        a non-null `nextCursor`; pass it back unchanged as `?cursor=` **with the same `filter`,
+        `tag`, `q` and `sort`** to get the next page. The last page has `nextCursor: null`. The
+        cursor holds the sort position of the last task returned, not an offset, so tasks added,
+        edited, ticked or deleted between requests never make a later page repeat or skip a task
+        that kept its place in the order. A task whose sort position changed after its page was
+        loaded (e.g. retitled under `sort=title`, or ticked under `filter=all`) can be returned
+        again on a later page; clients should de-duplicate by `id`. A page can be empty with
+        `nextCursor: null` (e.g. the remaining tasks were deleted). Page size is fixed at 50; there
+        is no `limit` parameter (unknown parameters are ignored).
+
+        `total` is the number of tasks matching `filter` + `tag` + `q` right now (all pages), not
+        the number on this page. It is recomputed on every page.
+
+        Nothing but `q` and `cursor` can cause a 400: unknown `filter` / `sort` values fall back
+        to the default and an unusable `tag` gives an empty page.
       operationId: listTasks
       tags: [tasks]
       parameters:
@@ -1760,41 +1800,128 @@ paths:
             name (see "Tags") and matched ignoring letter case and accents, so `?tag=work` finds
             tasks tagged `Work`. Only the signed-in user's own tags are searched. A tag the user
             doesn't have (including another user's tag, or a value that could never be a valid
-            tag, e.g. over 30 characters or with a comma) returns `[]`. A missing, empty or blank
-            value means no tag filter. Repeated `tag` parameters: only the first is used.
+            tag, e.g. over 30 characters or with a comma) returns an empty page
+            (`{"items": [], "total": 0, "nextCursor": null}`, changed in 0.11.0: was `[]`). A
+            missing, empty or blank value means no tag filter. Repeated `tag` parameters: only the
+            first is used.
           schema:
             type: string
           example: Work
+        - name: q
+          in: query
+          required: false
+          description: |
+            New in 0.11.0. Search: keeps the tasks whose `title` OR `description` CONTAINS the
+            text, ignoring letter case and accents (`cafe` finds `Café`, `MILK` finds `milk`).
+            Every character is literal: `%`, `_` and `\` are not wildcards (`50%` finds only
+            `50%`). Tags are not searched. Trimmed first; missing, empty or blank = no search.
+            At most 100 characters after trimming (UTF-16 code units, JS `.length`), otherwise
+            400 `VALIDATION_FAILED` with `q` / `TOO_LONG`. Repeated `q`: only the first is used.
+          schema:
+            type: string
+            maxLength: 100
+          example: milk
+        - name: sort
+          in: query
+          required: false
+          description: |
+            New in 0.11.0. See "Order" above. Matching is exact and case-sensitive. A missing,
+            empty or unrecognised value (e.g. `?sort=foo`, `?sort=Due`) is treated as `newest`;
+            it never causes a 400.
+          schema:
+            type: string
+            enum: [newest, oldest, due, priority, title]
+            default: newest
+        - name: cursor
+          in: query
+          required: false
+          description: |
+            New in 0.11.0. The `nextCursor` of the previous page, sent back unchanged. Opaque:
+            clients must not build, parse or change it. Missing or empty = first page.
+            400 `VALIDATION_FAILED` with `cursor` / `INVALID_CURSOR` when it cannot be read
+            (altered, truncated, from another API version) or was issued for a different
+            `filter`, `tag`, `q` or `sort` (compared after the same normalising as the request,
+            e.g. `?filter=foo` and `?filter=all` are the same). The client should then reload
+            from the first page. A cursor never exposes or reaches another user's tasks: the
+            owner always comes from the session.
+          schema:
+            type: string
+            maxLength: 1024
+          example: eyJ2IjoxLCJzIjoibmV3ZXN0IiwiZiI6IjNmYTkiLCJrIjpbMCwiMjAyNi0xMC0wMVQxODowMDowMFoiLDddfQ
       responses:
         '200':
-          description: The user's tasks, possibly an empty array
+          description: One page of the user's tasks (possibly empty).
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskPage'
+              examples:
+                firstPageMoreToCome:
+                  summary: First page of 120 tasks (only 2 of the 50 items shown)
+                  value:
+                    items:
+                      - id: 12
+                        title: Buy milk
+                        description: null
+                        priority: HIGH
+                        status: IN_PROGRESS
+                        tags: [Errands, Home]
+                        done: false
+                        dueDate: '2026-10-10'
+                        createdAt: '2026-10-08T09:15:02.123456Z'
+                        updatedAt: '2026-10-08T09:15:02.123456Z'
+                      - id: 7
+                        title: File taxes
+                        description: Use last year's folder
+                        priority: NONE
+                        status: DONE
+                        tags: []
+                        done: true
+                        dueDate: null
+                        createdAt: '2026-10-01T18:00:00Z'
+                        updatedAt: '2026-10-07T08:30:41.5Z'
+                    total: 120
+                    nextCursor: eyJ2IjoxLCJzIjoibmV3ZXN0IiwiZiI6IjNmYTkiLCJrIjpbMSwiMjAyNi0xMC0wMVQxODowMDowMFoiLDddfQ
+                lastPage:
+                  value:
+                    items:
+                      - id: 3
+                        title: Call Bob
+                        description: null
+                        priority: LOW
+                        status: TODO
+                        tags: []
+                        done: false
+                        dueDate: null
+                        createdAt: '2026-09-20T10:00:00Z'
+                        updatedAt: '2026-09-20T10:00:00Z'
+                    total: 1
+                    nextCursor: null
+                noMatch:
+                  value:
+                    items: []
+                    total: 0
+                    nextCursor: null
+        '400':
+          description: |
+            `VALIDATION_FAILED` with one entry per invalid parameter, sorted by name:
+            - `cursor` / `INVALID_CURSOR` / "The list changed, reload from the first page"
+            - `q` / `TOO_LONG` / "Search must be at most 100 characters"
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
               example:
-                - id: 12
-                  title: Buy milk
-                  description: null
-                  priority: HIGH
-                  status: IN_PROGRESS
-                  tags: [Errands, Home]
-                  done: false
-                  dueDate: '2026-10-10'
-                  createdAt: '2026-10-08T09:15:02.123456Z'
-                  updatedAt: '2026-10-08T09:15:02.123456Z'
-                - id: 7
-                  title: File taxes
-                  description: Use last year's folder
-                  priority: NONE
-                  status: DONE
-                  tags: []
-                  done: true
-                  dueDate: null
-                  createdAt: '2026-10-01T18:00:00Z'
-                  updatedAt: '2026-10-07T08:30:41.5Z'
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/tasks
+                code: VALIDATION_FAILED
+                errors:
+                  - field: q
+                    code: TOO_LONG
+                    message: Search must be at most 100 characters
         '401':
           $ref: '#/components/responses/Unauthenticated'
     post:
@@ -3245,6 +3372,32 @@ components:
           description: The stored spelling (the first one the user used), already normalised.
           example: Work
 
+    TaskPage:
+      type: object
+      description: New in 0.11.0. One page of `GET /api/tasks`.
+      required: [items, total, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          description: At most 50 tasks, in list order. Empty when nothing (more) matches.
+          items:
+            $ref: '#/components/schemas/Task'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Number of tasks matching `filter` + `tag` + `q` on all pages, counted when this page
+            was produced.
+          example: 120
+        nextCursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque. Send back as `?cursor=` (with the same `filter`, `tag`, `q` and `sort`) for
+            the next page. `null` on the last page. Always present.
+
     Task:
       type: object
       required: [id, title, description, priority, status, tags, done, dueDate, createdAt, updatedAt]
@@ -3412,13 +3565,14 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor]
           description: |
-            Name of the request field (exactly as in the request body). `status` and `tags` are
-            new in 0.10.0; a `tags` error refers to the whole array, never to an index.
+            Name of the request field (exactly as in the request body, or the query parameter).
+            `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
+            never to an index. `cursor` is new in 0.11.0 (`GET /api/tasks`).
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR]
           description: |
             Stable machine-readable reason.
             - REQUIRED: missing, null, empty or blank (for `tags`: an element is; for `done` on
@@ -3426,7 +3580,11 @@ components:
             - INVALID_EMAIL: not a valid email address
             - TOO_LONG: displayName > 50, email > 254, title > 200 or description > 2000 characters,
               or the admin search `q` > 100 characters after trimming, or (0.10.0) a tag > 30
-              characters after normalising
+              characters after normalising, or (0.11.0) the task search `q` of `GET /api/tasks`
+              > 100 characters after trimming
+            - INVALID_CURSOR: (new in 0.11.0, field `cursor` of `GET /api/tasks`) the cursor
+              cannot be read or was issued for a different `filter`, `tag`, `q` or `sort`; reload
+              from the first page
             - INVALID_CHARACTERS: (new in 0.10.0, field `tags`) a tag contains a comma or a
               control character
             - TOO_MANY: (new in 0.10.0, field `tags`) more than 10 different tags on one task
