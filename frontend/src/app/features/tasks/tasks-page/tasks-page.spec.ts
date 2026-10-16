@@ -7,7 +7,7 @@ import {
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { Task, TaskStatus } from '../tasks.models';
+import { Task, TaskPage, TaskStatus } from '../tasks.models';
 import { TasksPage } from './tasks-page';
 
 const PAST = '2000-01-01';
@@ -81,18 +81,35 @@ describe('TasksPage', () => {
   const stable = () => harness.fixture.whenStable();
   const text = () => el.textContent ?? '';
 
-  function listReq(filter?: string, tag?: string): TestRequest {
+  interface ListParams {
+    q?: string;
+    sort?: string;
+    cursor?: string;
+  }
+
+  /** The pending GET /api/tasks whose params are exactly these (absent = undefined). */
+  function listReq(filter?: string, tag?: string, extra: ListParams = {}): TestRequest {
     return http.expectOne(
       (r) =>
         r.method === 'GET' &&
         r.url === '/api/tasks' &&
         (r.params.get('filter') ?? undefined) === filter &&
-        (r.params.get('tag') ?? undefined) === tag,
+        (r.params.get('tag') ?? undefined) === tag &&
+        (r.params.get('q') ?? undefined) === extra.q &&
+        (r.params.get('sort') ?? undefined) === extra.sort &&
+        (r.params.get('cursor') ?? undefined) === extra.cursor,
     );
   }
 
-  async function flushList(tasks: Task[], filter?: string, tag?: string) {
-    listReq(filter, tag).flush(tasks);
+  /** A whole list on one page (`total` = its length, no next page). */
+  const onePage = (tasks: Task[]): TaskPage => ({
+    items: tasks,
+    total: tasks.length,
+    nextCursor: null,
+  });
+
+  async function flushList(tasks: Task[], filter?: string, tag?: string, extra: ListParams = {}) {
+    listReq(filter, tag, extra).flush(onePage(tasks));
     await stable();
   }
 
@@ -144,8 +161,8 @@ describe('TasksPage', () => {
       expect(el.querySelector('h1')?.textContent).toContain('Your tasks');
     });
 
-    it('re-sorts the list (not done first, then done, each newest first)', async () => {
-      await openWith([DONE, TAXES, MILK]);
+    it('shows the tasks in the order the server sent them', async () => {
+      await openWith([MILK, TAXES, DONE]);
       expect(titles()).toEqual(['Buy milk', 'File taxes', 'Walk dog']);
       expect(el.querySelector('ul')?.getAttribute('aria-label')).toBe('Tasks');
     });
@@ -956,6 +973,440 @@ describe('TasksPage', () => {
       expect(banner()?.textContent).toContain('This task no longer exists');
       await flushList([MILK]);
       expect(titles()).toEqual(['Buy milk']);
+    });
+  });
+
+  describe('search', () => {
+    const box = () => el.querySelector<HTMLInputElement>('#task-search')!;
+    const clearBtn = () => el.querySelector<HTMLButtonElement>('button[aria-label="Clear search"]');
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const enter = () =>
+      box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    it('has a labelled search box with a placeholder and a 100 character limit', async () => {
+      await openWith([MILK]);
+      expect(el.querySelector('label[for=task-search]')?.textContent?.trim()).toBe('Search tasks');
+      expect(box().placeholder).toBe('Search tasks');
+      expect(box().getAttribute('maxlength')).toBe('100');
+      expect(el.querySelector('[role=search]')).not.toBeNull();
+      expect(clearBtn()).toBeNull();
+    });
+
+    it('searches 300 ms after the last key, replacing the URL entry', async () => {
+      await openWith([MILK, TAXES]);
+      const router = TestBed.inject(Router);
+      const navigate = vi.spyOn(router, 'navigate');
+      type('#task-search', 'MI');
+      await wait(150);
+      type('#task-search', 'MILK');
+      await wait(150);
+      http.expectNone((r) => r.url === '/api/tasks' && r.params.has('q'));
+      await wait(250);
+      await stable();
+      expect(router.url).toBe('/tasks?q=MILK');
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate.mock.calls[0][1]).toMatchObject({ replaceUrl: true });
+      expect(el.querySelector('[role=status]')?.textContent).toContain('Loading tasks');
+      await flushList([MILK], undefined, undefined, { q: 'MILK' });
+      expect(titles()).toEqual(['Buy milk']);
+      expect(box().value).toBe('MILK');
+    });
+
+    it('Enter searches at once (trimmed); typing more spaces does not search again', async () => {
+      await openWith([MILK]);
+      const router = TestBed.inject(Router);
+      type('#task-search', '  milk ');
+      enter();
+      await stable();
+      expect(router.url).toBe('/tasks?q=milk');
+      await flushList([MILK], undefined, undefined, { q: 'milk' });
+      expect(box().value).toBe('  milk ');
+      type('#task-search', '  milk  ');
+      enter();
+      await stable();
+      http.expectNone('/api/tasks');
+    });
+
+    it('?q= in the URL is searched and shown in the box, combined with tab, tag and sort', async () => {
+      await open('/tasks?filter=active&tag=Home&q=caf%C3%A9&sort=due');
+      listReq('active', 'Home', { q: 'café', sort: 'due' }).flush(onePage([]));
+      await stable();
+      expect(box().value).toBe('café');
+      expect(text()).toContain('No tasks match "café"');
+      expect(text()).not.toContain('No tasks with this tag');
+    });
+
+    it('a blank ?q= is no search; a hand-edited one over 100 characters is cut to 100', async () => {
+      await openWith([], '/tasks?q=%20%20');
+      expect(box().value).toBe('');
+      expect(text()).toContain('No tasks yet');
+
+      await harness.navigateByUrl(`/tasks?q=${'a'.repeat(120)}`);
+      await flushList([], undefined, undefined, { q: 'a'.repeat(100) });
+      expect(box().value).toBe('a'.repeat(100));
+    });
+
+    it('"×" clears the search, removes q from the URL and focuses the box', async () => {
+      await open('/tasks?filter=done&q=milk');
+      await flushList([], 'done', undefined, { q: 'milk' });
+      expect(clearBtn()).not.toBeNull();
+      clearBtn()!.click();
+      await stable();
+      expect(TestBed.inject(Router).url).toBe('/tasks?filter=done');
+      expect(box().value).toBe('');
+      expect(document.activeElement).toBe(box());
+      await flushList([DONE], 'done');
+      expect(titles()).toEqual(['Walk dog']);
+      expect(clearBtn()).toBeNull();
+    });
+
+    it('emptying the box by typing clears the search after the pause', async () => {
+      await open('/tasks?q=milk');
+      await flushList([MILK], undefined, undefined, { q: 'milk' });
+      type('#task-search', '');
+      await wait(350);
+      await stable();
+      expect(TestBed.inject(Router).url).toBe('/tasks');
+      await flushList([MILK, TAXES]);
+    });
+
+    it('Back (a URL change) updates the box and cancels a pending search', async () => {
+      await open('/tasks?q=milk');
+      await flushList([MILK], undefined, undefined, { q: 'milk' });
+      type('#task-search', 'milkshake');
+      await harness.navigateByUrl('/tasks?q=tax');
+      await flushList([TAXES], undefined, undefined, { q: 'tax' });
+      expect(box().value).toBe('tax');
+      await wait(350);
+      await stable();
+      expect(TestBed.inject(Router).url).toBe('/tasks?q=tax');
+      http.expectNone('/api/tasks');
+    });
+  });
+
+  describe('sort', () => {
+    const sortSelect = () => el.querySelector<HTMLSelectElement>('#task-sort')!;
+    function pick(value: string) {
+      sortSelect().value = value;
+      sortSelect().dispatchEvent(new Event('change'));
+    }
+
+    it('offers the five sorts with a "Sort" label; Newest is the default', async () => {
+      await openWith([MILK]);
+      expect(el.querySelector('label[for=task-sort]')?.textContent?.trim()).toBe('Sort');
+      expect(Array.from(sortSelect().options).map((o) => [o.value, o.textContent?.trim()])).toEqual(
+        [
+          ['newest', 'Newest'],
+          ['oldest', 'Oldest'],
+          ['due', 'Due date'],
+          ['priority', 'Priority'],
+          ['title', 'Title A–Z'],
+        ],
+      );
+      expect(sortSelect().value).toBe('newest');
+    });
+
+    it('picking a sort adds a history entry with ?sort= and reloads from page 1', async () => {
+      await open('/tasks?filter=active&q=milk');
+      await flushList([MILK], 'active', undefined, { q: 'milk' });
+      const router = TestBed.inject(Router);
+      const navigate = vi.spyOn(router, 'navigate');
+      pick('due');
+      await stable();
+      expect(router.url).toBe('/tasks?filter=active&q=milk&sort=due');
+      expect(navigate.mock.calls[0][1]?.replaceUrl).toBeUndefined();
+      await flushList([MILK], 'active', undefined, { q: 'milk', sort: 'due' });
+      expect(sortSelect().value).toBe('due');
+
+      pick('newest');
+      await stable();
+      expect(router.url).toBe('/tasks?filter=active&q=milk');
+      await flushList([MILK], 'active', undefined, { q: 'milk' });
+    });
+
+    it.each([
+      ['/tasks?sort=title', 'title'],
+      ['/tasks?sort=priority', 'priority'],
+    ])('%s loads with that sort and selects it', async (url, sort) => {
+      await open(url);
+      await flushList([MILK], undefined, undefined, { sort });
+      expect(sortSelect().value).toBe(sort);
+    });
+
+    it.each(['/tasks?sort=foo', '/tasks?sort=Due', '/tasks?sort='])(
+      '%s shows Newest without rewriting the URL',
+      async (url) => {
+        await openWith([MILK], url);
+        expect(sortSelect().value).toBe('newest');
+        expect(TestBed.inject(Router).url).toBe(url);
+      },
+    );
+
+    it('tabs and tag links keep the sort and search', async () => {
+      const WORK = task({ id: 4, title: 'Write report', tags: ['Work'] });
+      await open('/tasks?sort=title&q=r');
+      await flushList([WORK], undefined, undefined, { sort: 'title', q: 'r' });
+      link('Done').click();
+      await stable();
+      expect(TestBed.inject(Router).url).toBe('/tasks?sort=title&q=r&filter=done');
+      await flushList([], 'done', undefined, { sort: 'title', q: 'r' });
+      expect(text()).toContain('No tasks match "r"');
+    });
+  });
+
+  describe('pagination', () => {
+    const many = (from: number, count: number) =>
+      Array.from({ length: count }, (_, i) =>
+        task({
+          id: from - i,
+          title: `T${from - i}`,
+          createdAt: `2026-01-01T00:00:${String(from - i).padStart(2, '0')}Z`,
+          updatedAt: `2026-01-01T00:00:${String(from - i).padStart(2, '0')}Z`,
+        }),
+      );
+    const footer = () =>
+      el.querySelector('[data-testid=tasks-footer]')?.textContent?.replace(/\s+/g, ' ').trim();
+    const loadMore = () => el.querySelector<HTMLButtonElement>('.tasks-footer__more');
+    const footerAlert = () => el.querySelector('.tasks-footer [role=alert]');
+    const added = () => el.querySelector('[data-testid=task-added]');
+
+    async function openPaged(items: Task[], total: number, cursor = 'c1', url = '/tasks') {
+      await open(url);
+      listReq().flush({ items, total, nextCursor: cursor });
+      await stable();
+    }
+
+    it('shows "Showing X of Y" and Load more; the last page shows "N tasks"', async () => {
+      await openPaged(many(50, 3), 5);
+      expect(titles()).toEqual(['T50', 'T49', 'T48']);
+      expect(footer()).toBe('Showing 3 of 5 Load more');
+
+      loadMore()!.click();
+      await stable();
+      const req = listReq(undefined, undefined, { cursor: 'c1' });
+      expect(loadMore()!.getAttribute('aria-disabled')).toBe('true');
+      expect(loadMore()!.textContent).toContain('Loading more…');
+      loadMore()!.click(); // ignored while running
+      await stable();
+      req.flush({ items: many(47, 2), total: 5, nextCursor: null });
+      await stable();
+      expect(titles()).toEqual(['T50', 'T49', 'T48', 'T47', 'T46']);
+      expect(footer()).toBe('5 tasks');
+      expect(loadMore()).toBeNull();
+    });
+
+    it('says "1 task" for a single task and shows no button', async () => {
+      await openWith([MILK]);
+      expect(footer()).toBe('1 task');
+      expect(loadMore()).toBeNull();
+    });
+
+    it('sends the cursor with the same filter, tag, q and sort', async () => {
+      await open('/tasks?filter=active&tag=Work&q=t&sort=priority');
+      const query = { q: 't', sort: 'priority' };
+      listReq('active', 'Work', query).flush({ items: many(50, 2), total: 4, nextCursor: 'abc' });
+      await stable();
+      loadMore()!.click();
+      await stable();
+      listReq('active', 'Work', { ...query, cursor: 'abc' }).flush({
+        items: many(48, 2),
+        total: 4,
+        nextCursor: null,
+      });
+      await stable();
+      expect(titles().length).toBe(4);
+    });
+
+    it('a failed Load more keeps the items and offers Retry', async () => {
+      await openPaged(many(50, 2), 4);
+      loadMore()!.click();
+      await stable();
+      listReq(undefined, undefined, { cursor: 'c1' }).error(new ProgressEvent('error'));
+      await stable();
+      expect(titles()).toEqual(['T50', 'T49']);
+      expect(footerAlert()?.textContent).toContain("Couldn't load more tasks");
+      expect(banner()).toBeNull();
+
+      button('Retry', el.querySelector('.tasks-footer')!).click();
+      await stable();
+      expect(footerAlert()).toBeNull();
+      listReq(undefined, undefined, { cursor: 'c1' }).flush({
+        items: many(48, 2),
+        total: 4,
+        nextCursor: null,
+      });
+      await stable();
+      expect(titles()).toEqual(['T50', 'T49', 'T48', 'T47']);
+    });
+
+    it('INVALID_CURSOR restarts from page 1 without a Retry', async () => {
+      await openPaged(many(50, 2), 4);
+      loadMore()!.click();
+      await stable();
+      listReq(undefined, undefined, { cursor: 'c1' }).flush(
+        problem(400, 'VALIDATION_FAILED', [
+          { field: 'cursor', code: 'INVALID_CURSOR', message: 'The list changed' },
+        ]),
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await stable();
+      expect(footerAlert()).toBeNull();
+      listReq().flush({ items: many(51, 3), total: 5, nextCursor: 'c2' });
+      await stable();
+      expect(titles()).toEqual(['T51', 'T50', 'T49']);
+      expect(footer()).toBe('Showing 3 of 5 Load more');
+    });
+
+    it('changing the tab after Load more restarts from page 1', async () => {
+      await openPaged(many(50, 2), 4);
+      loadMore()!.click();
+      await stable();
+      listReq(undefined, undefined, { cursor: 'c1' }).flush({
+        items: many(48, 1),
+        total: 4,
+        nextCursor: 'c2',
+      });
+      await stable();
+      link('Active').click();
+      await stable();
+      await flushList([MILK], 'active');
+      expect(titles()).toEqual(['Buy milk']);
+      expect(footer()).toBe('1 task');
+    });
+
+    it('re-syncs the total from every page', async () => {
+      await openPaged(many(50, 2), 4);
+      loadMore()!.click();
+      await stable();
+      listReq(undefined, undefined, { cursor: 'c1' }).flush({
+        items: many(48, 1),
+        total: 7,
+        nextCursor: 'c2',
+      });
+      await stable();
+      expect(footer()).toBe('Showing 3 of 7 Load more');
+    });
+
+    it('delete removes the task in place and lowers the total; it is skipped later', async () => {
+      await openPaged(many(50, 3), 6);
+      button('Delete', row('T49')).click();
+      await stable();
+      button('Delete', dialog()!).click();
+      http
+        .expectOne({ method: 'DELETE', url: '/api/tasks/49' })
+        .flush(null, { status: 204, statusText: 'No Content' });
+      await stable();
+      expect(titles()).toEqual(['T50', 'T48']);
+      expect(footer()).toBe('Showing 2 of 5 Load more');
+      loadMore()!.click();
+      await stable();
+      listReq(undefined, undefined, { cursor: 'c1' }).flush({
+        items: [...many(49, 1), ...many(47, 2)],
+        total: 5,
+        nextCursor: null,
+      });
+      await stable();
+      expect(titles()).toEqual(['T50', 'T48', 'T47', 'T46']);
+    });
+
+    it('a ticked task leaves the Active view (total − 1) without a reload', async () => {
+      await open('/tasks?filter=active');
+      listReq('active').flush({ items: many(50, 3), total: 9, nextCursor: 'c1' });
+      await stable();
+      checkbox('T49').click();
+      await stable();
+      const [t49] = many(49, 1);
+      http.expectOne({ method: 'PATCH', url: '/api/tasks/49' }).flush(withStatus(t49, 'DONE'));
+      await stable();
+      expect(titles()).toEqual(['T50', 'T48']);
+      expect(footer()).toBe('Showing 2 of 8 Load more');
+    });
+
+    it('All: a task ticked before the done group is loaded comes back once via Load more', async () => {
+      await openPaged(many(50, 3), 6);
+      checkbox('T49').click();
+      await stable();
+      const done49 = { ...withStatus(many(49, 1)[0], 'DONE'), updatedAt: '2026-02-01T00:00:00Z' };
+      http.expectOne({ method: 'PATCH', url: '/api/tasks/49' }).flush(done49);
+      await stable();
+      expect(titles()).toEqual(['T50', 'T48']);
+      expect(footer()).toBe('Showing 2 of 6 Load more');
+      loadMore()!.click();
+      await stable();
+      listReq(undefined, undefined, { cursor: 'c1' }).flush({
+        items: [...many(47, 2), done49, done49],
+        total: 6,
+        nextCursor: null,
+      });
+      await stable();
+      expect(titles()).toEqual(['T50', 'T48', 'T47', 'T46', 'T49']);
+    });
+
+    describe('quick-add', () => {
+      async function add(created: Task) {
+        type('#task-add-title', created.title);
+        await stable();
+        el.querySelector<HTMLFormElement>('app-task-add-form form')!.dispatchEvent(
+          new Event('submit'),
+        );
+        http.expectOne({ method: 'POST', url: '/api/tasks' }).flush(created);
+        await stable();
+      }
+      const NEW = task({ id: 60, title: 'Brand new', createdAt: '2026-11-01T00:00:00Z' });
+
+      it('Newest: the new task goes to the top and the total goes up', async () => {
+        await openPaged(many(50, 2), 4);
+        await add(NEW);
+        expect(titles()).toEqual(['Brand new', 'T50', 'T49']);
+        expect(footer()).toBe('Showing 3 of 5 Load more');
+        expect(added()).toBeNull();
+      });
+
+      it('Oldest with more to load: created, total + 1, "Task added" instead of a row', async () => {
+        await open('/tasks?sort=oldest');
+        listReq(undefined, undefined, { sort: 'oldest' }).flush({
+          items: many(2, 2).reverse(),
+          total: 4,
+          nextCursor: 'c1',
+        });
+        await stable();
+        await add(NEW);
+        expect(titles()).toEqual(['T1', 'T2']);
+        expect(footer()).toBe('Showing 2 of 5 Load more');
+        expect(added()?.textContent).toContain('Task added');
+        expect(added()?.getAttribute('role')).toBe('status');
+      });
+
+      it('a search the new task does not match: "Task added", total unchanged', async () => {
+        await open('/tasks?q=milk');
+        listReq(undefined, undefined, { q: 'milk' }).flush({
+          items: [MILK],
+          total: 3,
+          nextCursor: 'c1',
+        });
+        await stable();
+        await add(NEW);
+        expect(titles()).toEqual(['Buy milk']);
+        expect(footer()).toBe('Showing 1 of 3 Load more');
+        expect(added()).not.toBeNull();
+      });
+
+      it('a search the new task matches: shown on Newest', async () => {
+        await open('/tasks?q=brand');
+        await flushList([], undefined, undefined, { q: 'brand' });
+        expect(text()).toContain('No tasks match "brand"');
+        await add(NEW);
+        expect(titles()).toEqual(['Brand new']);
+        expect(footer()).toBe('1 task');
+      });
+
+      it('everything loaded: a matching task is shown in its sorted place', async () => {
+        await open('/tasks?sort=title');
+        await flushList([MILK, TAXES], undefined, undefined, { sort: 'title' });
+        await add(task({ id: 7, title: 'Cook dinner' }));
+        expect(titles()).toEqual(['Buy milk', 'Cook dinner', 'File taxes']);
+        expect(footer()).toBe('3 tasks');
+      });
     });
   });
 });

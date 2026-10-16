@@ -1,6 +1,12 @@
 import {
   applyTask,
   compareTasks,
+  matchesQuery,
+  matchesView,
+  normaliseQuery,
+  normaliseSort,
+  searchKey,
+  titleOrderUncertain,
   instantMicros,
   isOverdue,
   isDone,
@@ -197,6 +203,161 @@ describe('tasks.logic', () => {
       ['in progress and past due', { dueDate: '2026-10-01', status: 'IN_PROGRESS' as const }, true],
     ])('%s -> %s', (_label, overrides, expected) => {
       expect(isOverdue(task({ id: 1, ...overrides }), today)).toBe(expected);
+    });
+  });
+
+  describe('normaliseSort', () => {
+    it.each([
+      ['newest', 'newest'],
+      ['oldest', 'oldest'],
+      ['due', 'due'],
+      ['priority', 'priority'],
+      ['title', 'title'],
+      ['Due', 'newest'],
+      ['foo', 'newest'],
+      ['', 'newest'],
+      [null, 'newest'],
+      [undefined, 'newest'],
+    ])('%s -> %s', (input, expected) => {
+      expect(normaliseSort(input)).toBe(expected);
+    });
+  });
+
+  describe('normaliseQuery', () => {
+    it.each([
+      [null, null],
+      [undefined, null],
+      ['', null],
+      ['   ', null],
+      ['  MILK ', 'MILK'],
+      ['50%', '50%'],
+    ])('%j -> %j', (input, expected) => {
+      expect(normaliseQuery(input)).toBe(expected);
+    });
+
+    it('cuts a hand-edited value to 100 characters', () => {
+      expect(normaliseQuery('x'.repeat(150))).toBe('x'.repeat(100));
+      expect(normaliseQuery('  ' + 'y'.repeat(100) + '  ')).toBe('y'.repeat(100));
+      // The cut can leave a trailing space, which is trimmed again.
+      expect(normaliseQuery('a'.repeat(99) + ' bcd')).toBe('a'.repeat(99));
+    });
+
+    it('never splits a surrogate pair when cutting', () => {
+      const q = normaliseQuery('a'.repeat(99) + '😀😀');
+      expect(q).toBe('a'.repeat(99));
+      expect(() => encodeURIComponent(q!)).not.toThrow();
+    });
+  });
+
+  describe('search hint', () => {
+    it('searchKey folds case and accents', () => {
+      expect(searchKey('Café MÜNCHEN')).toBe('cafe munchen');
+    });
+
+    it('matches the title or the description, ignoring case and accents, literally', () => {
+      const milk = task({ id: 1, title: 'Buy milk' });
+      const bob = task({ id: 2, title: 'Call Bob' });
+      const desc = task({ id: 3, title: 'Shop', description: 'oat MILK please' });
+      const cafe = task({ id: 4, title: 'Café meeting' });
+      const pct = task({ id: 5, title: 'Save 50% now', description: 'a_b' });
+      expect([milk, bob, desc].filter((t) => matchesQuery(t, 'MILK'))).toEqual([milk, desc]);
+      expect(matchesQuery(cafe, 'cafe')).toBe(true);
+      expect(matchesQuery(cafe, 'CAFÉ M')).toBe(true);
+      expect(matchesQuery(pct, '50%')).toBe(true);
+      expect(matchesQuery(pct, 'a_b')).toBe(true);
+      expect(matchesQuery(milk, '50%')).toBe(false);
+      expect(matchesQuery(milk, 'b_y')).toBe(false);
+      expect(matchesQuery(milk, null)).toBe(true);
+    });
+
+    it('matchesView combines tab, tag and search', () => {
+      const t = task({ id: 1, title: 'Buy milk', tags: ['Home'] });
+      const q = { filter: 'active', tag: 'home', q: 'milk', sort: 'newest' } as const;
+      expect(matchesView(t, q)).toBe(true);
+      expect(matchesView(t, { ...q, q: 'bread' })).toBe(false);
+      expect(matchesView(t, { ...q, tag: 'Work' })).toBe(false);
+      expect(matchesView(markDone(t), q)).toBe(false);
+    });
+  });
+
+  describe('compareTasks by sort', () => {
+    const at = (day: number) => `2026-10-${String(day).padStart(2, '0')}T09:00:00Z`;
+    const mk = (id: number, o: Partial<Task> = {}) =>
+      task({ id, createdAt: at(id), updatedAt: at(id), ...o });
+    const ids = (tasks: Task[]) => tasks.map((t) => t.id);
+
+    it('newest: createdAt desc, then id desc; oldest is the exact reverse', () => {
+      const a = mk(1);
+      const b = mk(2);
+      const c = mk(3, { createdAt: at(2) }); // same instant as b, higher id
+      expect(ids(sortTasks([a, b, c], 'newest'))).toEqual([3, 2, 1]);
+      expect(ids(sortTasks([a, b, c], 'oldest'))).toEqual([1, 2, 3]);
+      expect(ids(sortTasks([a, b, c]))).toEqual([3, 2, 1]);
+    });
+
+    it('due: soonest first, no date last, ties newest first', () => {
+      const tasks = [
+        mk(1, { dueDate: null }),
+        mk(2, { dueDate: '2026-12-01' }),
+        mk(3, { dueDate: '2026-11-01' }),
+        mk(4, { dueDate: '2026-12-01' }),
+        mk(5, { dueDate: null }),
+      ];
+      expect(ids(sortTasks(tasks, 'due'))).toEqual([3, 4, 2, 5, 1]);
+    });
+
+    it('priority: High, Medium, Low, None, ties newest first', () => {
+      const tasks = [
+        mk(1, { priority: 'NONE' }),
+        mk(2, { priority: 'LOW' }),
+        mk(3, { priority: 'HIGH' }),
+        mk(4, { priority: 'MEDIUM' }),
+        mk(5, { priority: 'HIGH' }),
+      ];
+      expect(ids(sortTasks(tasks, 'priority'))).toEqual([5, 3, 4, 2, 1]);
+    });
+
+    it('title: A-Z ignoring case and accents, equal titles newest first', () => {
+      const tasks = [
+        mk(1, { title: 'banana' }),
+        mk(2, { title: 'Café' }),
+        mk(3, { title: 'apple' }),
+        mk(4, { title: 'cafe' }),
+        mk(5, { title: 'Apple pie' }),
+      ];
+      expect(ids(sortTasks(tasks, 'title'))).toEqual([3, 5, 1, 4, 2]);
+    });
+
+    it.each(['newest', 'oldest', 'due', 'priority', 'title'] as const)(
+      '%s: not-done group first, done after, each in the sort order',
+      (sort) => {
+        const tasks = [
+          mk(1, { title: 'a', priority: 'HIGH', dueDate: '2026-01-01', done: true }),
+          mk(2, { title: 'z', priority: 'NONE', dueDate: null }),
+          mk(3, { title: 'b', priority: 'HIGH', dueDate: '2026-01-02', status: 'IN_PROGRESS' }),
+          mk(4, { title: 'c', priority: 'LOW', dueDate: '2026-01-03', done: true }),
+        ];
+        const sorted = sortTasks(tasks, sort);
+        expect(sorted.slice(0, 2).every((t) => t.status !== 'DONE')).toBe(true);
+        expect(sorted.slice(2).every((t) => t.status === 'DONE')).toBe(true);
+      },
+    );
+
+    it('titleOrderUncertain only for title sort in the same group, on equal or unclear titles', () => {
+      const a = mk(1, { title: 'Café' });
+      const b = mk(2, { title: 'cafe' });
+      const c = mk(3, { title: 'Zebra' });
+      const p = mk(4, { title: 'a-b' });
+      const q = mk(5, { title: 'ab' });
+      expect(titleOrderUncertain(a, b, 'title')).toBe(true);
+      expect(titleOrderUncertain(a, c, 'title')).toBe(false);
+      expect(titleOrderUncertain(a, b, 'newest')).toBe(false);
+      expect(titleOrderUncertain(a, markDone(b), 'title')).toBe(false);
+      // Collator and plain comparison may disagree on punctuation: uncertain.
+      const collated = Math.sign(
+        new Intl.Collator('en', { sensitivity: 'base' }).compare('a-b', 'ab'),
+      );
+      expect(titleOrderUncertain(p, q, 'title')).toBe(collated !== -1);
     });
   });
 });

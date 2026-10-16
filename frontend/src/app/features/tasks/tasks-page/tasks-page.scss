@@ -111,3 +111,153 @@
     }
   }
 }
+
+.tasks-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Search box and Sort select between the add box and the tabs */
+.tasks-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.tasks-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 16rem;
+  min-width: 0;
+
+  &__icon {
+    position: absolute;
+    left: 0.75rem;
+    color: var(--color-muted);
+    pointer-events: none;
+  }
+
+  &__input {
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem 2.5rem 0.5rem 2.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: #fff;
+    font: inherit;
+    appearance: none;
+
+    &::-webkit-search-cancel-button {
+      appearance: none;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 1px;
+    }
+  }
+
+  &__clear {
+    position: absolute;
+    right: 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: var(--color-muted);
+    background: transparent;
+    font: inherit;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--color-text);
+      background: var(--color-bg);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 0;
+    }
+  }
+}
+
+.tasks-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+
+  label {
+    font-weight: 600;
+  }
+
+  select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: #fff;
+    font: inherit;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 1px;
+    }
+  }
+}
+
+/* Phone width: search takes the full row, Sort goes under it */
+@media (max-width: 480px) {
+  .tasks-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tasks-search {
+    flex: none;
+  }
+
+  .tasks-sort select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* "Showing X of Y" + "Load more", or "N tasks" */
+.tasks-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0;
+
+  &__count {
+    margin: 0;
+    color: var(--color-muted);
+  }
+
+  &__more[aria-disabled='true'] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &__error {
+    align-self: stretch;
+    margin: 0;
+  }
+}

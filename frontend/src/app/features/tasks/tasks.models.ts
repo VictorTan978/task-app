@@ -1,4 +1,4 @@
-/** Models matching the task schemas in `contracts/openapi.yaml` (v0.10.0) exactly. */
+/** Models matching the task schemas in `contracts/openapi.yaml` (v0.11.0) exactly. */
 import { Problem } from '../../core/auth/auth.models';
 
 /** `Priority`: `NONE` is the default (no badge). */
@@ -58,8 +58,40 @@ export interface Tag {
 
 export type TaskFilter = 'all' | 'active' | 'in_progress' | 'done';
 
+/** `GET /api/tasks?sort=`. `newest` is the default and is never sent. */
+export type TaskSort = 'newest' | 'oldest' | 'due' | 'priority' | 'title';
+
+/** `TaskPage`: one page (at most 50) of `GET /api/tasks`. */
+export interface TaskPage {
+  items: Task[];
+  /** Tasks matching filter + tag + q on all pages, recounted for every page. */
+  total: number;
+  /** Opaque; `null` on the last page. */
+  nextCursor: string | null;
+}
+
+/** Which tasks the list shows, as read from the URL (already normalised). */
+export interface TaskListQuery {
+  filter: TaskFilter;
+  /** Raw `?tag=` value; null when missing or blank. */
+  tag: string | null;
+  /** Trimmed search text, at most 100 characters; null when blank. */
+  q: string | null;
+  sort: TaskSort;
+}
+
 /** Task-related values of `FieldError.field`. */
 export type TaskFieldName = 'title' | 'description' | 'done' | 'status' | 'tags';
+
+/** `FieldError.field` values of a 400 from `GET /api/tasks`. */
+export type TaskListFieldName = 'q' | 'cursor';
+
+/** `FieldError` of a 400 from `GET /api/tasks` (`q` / `TOO_LONG`, `cursor` / `INVALID_CURSOR`). */
+export interface TaskListFieldError {
+  field: TaskListFieldName;
+  code: 'TOO_LONG' | 'INVALID_CURSOR';
+  message: string;
+}
 
 /** Task-related values of `FieldError.code`. */
 export type TaskFieldErrorCode =
@@ -73,3 +105,6 @@ export interface TaskFieldError {
 
 /** `Problem` whose `errors` refer to task fields. */
 export type TaskProblem = Omit<Problem, 'errors'> & { errors?: TaskFieldError[] };
+
+/** `Problem` from `GET /api/tasks`. */
+export type TaskListProblem = Omit<Problem, 'errors'> & { errors?: TaskListFieldError[] };

@@ -7,6 +7,64 @@
     (failed)="onAddFailed($event)"
   />
 
+  <div class="tasks-toolbar">
+    <div class="tasks-search" role="search">
+      <label for="task-search" class="tasks-sr-only">Search tasks</label>
+      <svg
+        class="tasks-search__icon"
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" />
+        <line
+          x1="16.5"
+          y1="16.5"
+          x2="21"
+          y2="21"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        />
+      </svg>
+      <input
+        #searchInput
+        id="task-search"
+        class="tasks-search__input"
+        type="search"
+        placeholder="Search tasks"
+        autocomplete="off"
+        enterkeyhint="search"
+        [attr.maxlength]="searchMax"
+        [value]="searchText()"
+        (input)="onSearchInput($event)"
+        (keydown.enter)="searchNow()"
+      />
+      @if (searchText()) {
+        <button
+          type="button"
+          class="tasks-search__clear"
+          aria-label="Clear search"
+          (click)="clearSearch()"
+        >
+          ×
+        </button>
+      }
+    </div>
+    <div class="tasks-sort">
+      <label for="task-sort">Sort</label>
+      <select id="task-sort" (change)="onSortChange($event)">
+        @for (option of sortOptions; track option.value) {
+          <option [value]="option.value" [selected]="query().sort === option.value">
+            {{ option.label }}
+          </option>
+        }
+      </select>
+    </div>
+  </div>
+
   <nav class="tasks-tabs" aria-label="Filter tasks">
     @for (tab of tabs; track tab.filter) {
       <a
@@ -46,29 +104,65 @@
     </div>
   }
 
+  @if (addedNotice()) {
+    <p class="notice notice--info" role="status" data-testid="task-added">{{ addedMessage }}</p>
+  }
+
   @if (loading()) {
     <p class="tasks-status" role="status">
       <span class="spinner" aria-hidden="true"></span>
       Loading tasks…
     </p>
   } @else if (loaded()) {
-    @if (tasks().length === 0) {
+    @if (tasks().length === 0 && !hasMore()) {
       <p class="tasks-status tasks-empty">{{ emptyText() }}</p>
     } @else {
-      <ul class="task-list" aria-label="Tasks">
-        @for (task of tasks(); track task.id) {
-          <li class="task-list__item">
-            <app-task-row
-              [task]="task"
-              [today]="today()"
-              [busy]="isBusy(task.id)"
-              (doneChange)="toggle(task, $event)"
-              (edit)="openEdit(task)"
-              (remove)="openDelete(task)"
-            />
-          </li>
+      @if (tasks().length > 0) {
+        <ul class="task-list" aria-label="Tasks">
+          @for (task of tasks(); track task.id) {
+            <li class="task-list__item">
+              <app-task-row
+                [task]="task"
+                [today]="today()"
+                [busy]="isBusy(task.id)"
+                (doneChange)="toggle(task, $event)"
+                (edit)="openEdit(task)"
+                (remove)="openDelete(task)"
+              />
+            </li>
+          }
+        </ul>
+      }
+      <div class="tasks-footer" data-testid="tasks-footer">
+        @if (hasMore()) {
+          <p class="tasks-footer__count" aria-live="polite">
+            Showing {{ tasks().length }} of {{ total() }}
+          </p>
+          @if (loadMoreFailed()) {
+            <div class="notice notice--error notice--action tasks-footer__error" role="alert">
+              <span>{{ loadMoreError }}</span>
+              <button type="button" class="btn btn--secondary" (click)="loadMore()">Retry</button>
+            </div>
+          } @else {
+            <button
+              type="button"
+              class="btn btn--secondary tasks-footer__more"
+              [attr.aria-disabled]="loadingMore()"
+              [attr.aria-busy]="loadingMore()"
+              (click)="loadMore()"
+            >
+              @if (loadingMore()) {
+                <span class="spinner" aria-hidden="true"></span>
+                Loading more…
+              } @else {
+                Load more
+              }
+            </button>
+          }
+        } @else {
+          <p class="tasks-footer__count" aria-live="polite">{{ countText() }}</p>
         }
-      </ul>
+      </div>
     }
   }
 </section>

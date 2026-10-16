@@ -2,7 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { AbstractControl } from '@angular/forms';
 import { readProblem } from '../../core/auth/problem';
 import { maxTrimmed, requiredTrimmed, SERVER_ERROR_KEY } from '../auth/auth-form';
-import { TaskFieldName, TaskProblem } from './tasks.models';
+import { TaskFieldName, TaskListProblem, TaskProblem } from './tasks.models';
 
 export const TITLE_MAX = 200;
 export const DESCRIPTION_MAX = 2000;
@@ -12,6 +12,8 @@ export const descriptionValidators = [maxTrimmed(DESCRIPTION_MAX)];
 
 export const TASK_NOT_FOUND_MESSAGE = 'This task no longer exists';
 export const LOAD_ERROR = "Couldn't load your tasks. Please try again.";
+export const LOAD_MORE_ERROR = "Couldn't load more tasks. Please try again.";
+export const TASK_ADDED_MESSAGE = 'Task added';
 export const ADD_ERROR = "Couldn't add the task. Please try again.";
 export const TOGGLE_ERROR = "Couldn't update the task. Please try again.";
 export const SAVE_ERROR = "Couldn't save the task. Please try again.";
@@ -79,6 +81,16 @@ export function applyTaskFieldErrors(
     }
   }
   return applied;
+}
+
+/** 400 `VALIDATION_FAILED` with `cursor` / `INVALID_CURSOR`: restart the list from page 1. */
+export function isInvalidCursor(error: unknown): boolean {
+  const problem = readProblem(error) as TaskListProblem | null;
+  return (
+    problem?.status === 400 &&
+    problem.code === 'VALIDATION_FAILED' &&
+    (problem.errors ?? []).some((e) => e.field === 'cursor' && e.code === 'INVALID_CURSOR')
+  );
 }
 
 export function isNotFound(error: unknown): boolean {

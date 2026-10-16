@@ -8,7 +8,8 @@ import {
   SetTaskDoneRequest,
   Tag,
   Task,
-  TaskFilter,
+  TaskListQuery,
+  TaskPage,
   TaskStatus,
 } from './tasks.models';
 
@@ -17,16 +18,29 @@ import {
 export class TasksService {
   private readonly http = inject(HttpClient);
 
-  /** `tag` null, empty or blank means no tag filter (the param is left out). */
-  list(filter: TaskFilter, tag: string | null = null): Observable<Task[]> {
+  /**
+   * One page of `GET /api/tasks`. Params at their default are left out: no `filter` for `all`,
+   * no `tag` / `q` when null or blank, no `sort` for `newest`, no `cursor` for the first page.
+   * `cursor` must be the `nextCursor` of a page loaded with the same query.
+   */
+  list(query: TaskListQuery, cursor: string | null = null): Observable<TaskPage> {
     let params = new HttpParams();
-    if (filter !== 'all') {
-      params = params.set('filter', filter);
+    if (query.filter !== 'all') {
+      params = params.set('filter', query.filter);
     }
-    if (tag !== null && tag.trim() !== '') {
-      params = params.set('tag', tag);
+    if (query.tag !== null && query.tag.trim() !== '') {
+      params = params.set('tag', query.tag);
     }
-    return this.http.get<Task[]>(TASKS_API.list, { params });
+    if (query.q !== null && query.q.trim() !== '') {
+      params = params.set('q', query.q);
+    }
+    if (query.sort !== 'newest') {
+      params = params.set('sort', query.sort);
+    }
+    if (cursor) {
+      params = params.set('cursor', cursor);
+    }
+    return this.http.get<TaskPage>(TASKS_API.list, { params });
   }
 
   create(request: CreateTaskRequest): Observable<Task> {
