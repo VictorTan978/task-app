@@ -88,3 +88,4 @@ _Filled in by the PM during the build._
 
 | Date | Decision | Why | Approved by |
 |---|---|---|---|
+| 2026-10-16 | Q1–Q15: all recommendations accepted (search title+description, ignore case/accents, `?q=`, max 100, blank = none; `LIKE '%…%'` with `%` `_` `\` escaped, no FULLTEXT; search 300 ms after typing or on Enter, "×" clears; sorts Newest/Oldest/Due date/Priority/Title A–Z, `?sort=`, ties newest then id; done group stays last in All; "Load more", 50 per page; page object `{ items, total, nextCursor }`, cursor preferred; in-place updates; indexes only if plans need them (V10 gate); keep `done`; quick-add outside the view → "Task added"; ticked task appears via "Load more" if done group not loaded; "N tasks" when all loaded; search typing replaces the URL entry; first page < 300 ms at ~10k tasks) | User answered "yes" to all after asking what escaping and FULLTEXT meant | User |
