@@ -157,10 +157,19 @@ async function getTask(page: Page, id: number): Promise<Task> {
   return t;
 }
 
+/** All matching tasks, in list order: GET /api/tasks is paged since contract 0.11.0. */
 async function listTasks(page: Page, query = ''): Promise<Task[]> {
-  const res = await api(page, 'GET', `/api/tasks${query}`);
-  expect(res.status()).toBe(200);
-  const ts = (await res.json()) as Task[];
+  const ts: Task[] = [];
+  let cursor: string | null = null;
+  do {
+    const sep = query ? '&' : '?';
+    const res = await api(page, 'GET', `/api/tasks${query}${cursor ? `${sep}cursor=${cursor}` : ''}`);
+    expect(res.status()).toBe(200);
+    const body = (await res.json()) as { items: Task[]; total: number; nextCursor: string | null };
+    expect(Object.keys(body).sort()).toEqual(['items', 'nextCursor', 'total']);
+    ts.push(...body.items);
+    cursor = body.nextCursor;
+  } while (cursor);
   ts.forEach(expectTaskShape);
   return ts;
 }

@@ -1,6 +1,6 @@
 # Feature: Tasks — search, sort and pagination
 
-**Status:** APPROVED 2026-10-16 (building). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md` (both DONE). **Branch:** `feature/tasks-search-sort-pagination`
+**Status:** DONE 2026-10-16 (approved 2026-10-16; no migration needed). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md` (both DONE). **Branch:** `feature/tasks-search-sort-pagination`
 
 ## Why
 Once a user has hundreds of tasks, the list loads everything at once, can only be read in one order, and the only way to find a task is to scroll. Search, a choice of sort order and loading the list in pages keep it fast and usable as it grows.
@@ -11,30 +11,30 @@ As a signed-in user, I want to search my tasks, choose how the list is sorted, a
 ## Acceptance criteria
 
 ### Search
-- [ ] AC1: Given I have tasks titled "Buy milk" and "Call Bob", and a task whose description contains "milk", when I type "MILK" in the search box, then after a short pause (about 300 ms, or at once on Enter) only the two tasks mentioning "milk" are shown, and the URL gets `?q=MILK`. A refresh keeps the search and the text in the box.
-- [ ] AC2: Given a task titled "Café meeting", when I search "cafe", then it is found (search ignores case and accents). Searching "50%" or "a_b" matches those characters literally (no wildcards).
-- [ ] AC3: Given a search is active, when I switch tab (All / Active / In progress / Done) or click a tag, then the search stays and combines with them (`?filter=…&tag=…&q=…`). When I click the "×" in the search box (or empty it), then the search is cleared, `q` leaves the URL and the full list for the tab comes back.
-- [ ] AC4: Given a search matches nothing, then I see `No tasks match "<text>"` (instead of the tab's usual empty message). A search of only spaces counts as no search. The box accepts at most 100 characters.
+- [x] AC1: Given I have tasks titled "Buy milk" and "Call Bob", and a task whose description contains "milk", when I type "MILK" in the search box, then after a short pause (about 300 ms, or at once on Enter) only the two tasks mentioning "milk" are shown, and the URL gets `?q=MILK`. A refresh keeps the search and the text in the box.
+- [x] AC2: Given a task titled "Café meeting", when I search "cafe", then it is found (search ignores case and accents). Searching "50%" or "a_b" matches those characters literally (no wildcards).
+- [x] AC3: Given a search is active, when I switch tab (All / Active / In progress / Done) or click a tag, then the search stays and combines with them (`?filter=…&tag=…&q=…`). When I click the "×" in the search box (or empty it), then the search is cleared, `q` leaves the URL and the full list for the tab comes back.
+- [x] AC4: Given a search matches nothing, then I see `No tasks match "<text>"` (instead of the tab's usual empty message). A search of only spaces counts as no search. The box accepts at most 100 characters.
 
 ### Sort
-- [ ] AC5: Given I have tasks, when I open the "Sort" select, then I can pick Newest (default), Oldest, Due date, Priority and Title A–Z; the list re-orders and the URL gets `?sort=oldest|due|priority|title` (Newest = no `sort` in the URL). A refresh keeps it; an unknown `?sort=` value shows Newest.
-- [ ] AC6: Given tasks with and without due dates, when I sort by Due date, then the soonest date comes first and tasks with no date come last. Priority sorts High, Medium, Low, None. Title A–Z ignores case and accents. Tasks that tie are ordered newest first.
-- [ ] AC7: Given the All tab with done and not-done tasks, when any sort is chosen, then not-done tasks still come first and done tasks after them, each group in the chosen order.
-- [ ] AC8: Given a sort, search, tag and tab are all set, then they all apply together, and each survives a refresh and the browser Back button.
+- [x] AC5: Given I have tasks, when I open the "Sort" select, then I can pick Newest (default), Oldest, Due date, Priority and Title A–Z; the list re-orders and the URL gets `?sort=oldest|due|priority|title` (Newest = no `sort` in the URL). A refresh keeps it; an unknown `?sort=` value shows Newest.
+- [x] AC6: Given tasks with and without due dates, when I sort by Due date, then the soonest date comes first and tasks with no date come last. Priority sorts High, Medium, Low, None. Title A–Z ignores case and accents. Tasks that tie are ordered newest first.
+- [x] AC7: Given the All tab with done and not-done tasks, when any sort is chosen, then not-done tasks still come first and done tasks after them, each group in the chosen order.
+- [x] AC8: Given a sort, search, tag and tab are all set, then they all apply together, and each survives a refresh and the browser Back button.
 
 ### Pagination
-- [ ] AC9: Given I have 120 tasks in the current view, when I open `/tasks`, then the first 50 are shown with "Showing 50 of 120" and a "Load more" button. Clicking it appends the next 50 ("Showing 100 of 120"); after the last page the button disappears and the count reads "120 tasks". With 50 or fewer tasks there is no button, only "N tasks".
-- [ ] AC10: Given I have loaded two pages, when I tick, edit or delete a task, then the loaded list is updated in place (no full reload, scroll position kept), the "of N" total adjusts, and a task that no longer matches the tab, tag or search disappears (as today). Clicking "Load more" afterwards shows no task twice and skips none.
-- [ ] AC11: Given the sort is Newest, when I add a task with the quick-add box, then it appears at the top and the total goes up by one. With any other sort, or when a search/tag/Done tab is active, the task is created and the total adjusts, and it appears only if it falls inside what is already loaded (otherwise a short "Task added" message is shown).
-- [ ] AC12: Given I change the tab, tag, search or sort, then the list starts again from the first page.
+- [x] AC9: Given I have 120 tasks in the current view, when I open `/tasks`, then the first 50 are shown with "Showing 50 of 120" and a "Load more" button. Clicking it appends the next 50 ("Showing 100 of 120"); after the last page the button disappears and the count reads "120 tasks". With 50 or fewer tasks there is no button, only "N tasks".
+- [x] AC10: Given I have loaded two pages, when I tick, edit or delete a task, then the loaded list is updated in place (no full reload, scroll position kept), the "of N" total adjusts, and a task that no longer matches the tab, tag or search disappears (as today). Clicking "Load more" afterwards shows no task twice and skips none.
+- [x] AC11: Given the sort is Newest, when I add a task with the quick-add box, then it appears at the top and the total goes up by one. With any other sort, or when a search/tag/Done tab is active, the task is created and the total adjusts, and it appears only if it falls inside what is already loaded (otherwise a short "Task added" message is shown).
+- [x] AC12: Given I change the tab, tag, search or sort, then the list starts again from the first page.
 
 ### States and errors
-- [ ] AC13: While the first page loads, the list shows its loading state; while "Load more" runs, the button is disabled and shows that it is loading. If loading a page fails, an error with "Retry" appears and the items already loaded stay on screen. No browser console errors in normal use.
+- [x] AC13: While the first page loads, the list shows its loading state; while "Load more" runs, the button is disabled and shows that it is loading. If loading a page fails, an error with "Retry" appears and the items already loaded stay on screen. No browser console errors in normal use.
 
 ### Privacy and compatibility
-- [ ] AC14: Given users A and B, then search, sort and pages only ever include the signed-in user's own tasks. Admins still can't see any user's tasks (A5 AC10 stays true).
-- [ ] AC15: Every existing AC in `specs/tasks.md` (AC1–AC15) and `specs/tasks-priority-status-tags.md` (AC1–AC18) still passes.
-- [ ] AC16: Given about 10,000 tasks for one user, each sort/search/tab combination returns the first page in under 300 ms on the dev machine (backend measures with query plans).
+- [x] AC14: Given users A and B, then search, sort and pages only ever include the signed-in user's own tasks. Admins still can't see any user's tasks (A5 AC10 stays true).
+- [x] AC15: Every existing AC in `specs/tasks.md` (AC1–AC15) and `specs/tasks-priority-status-tags.md` (AC1–AC18) still passes.
+- [x] AC16: Given about 10,000 tasks for one user, each sort/search/tab combination returns the first page in under 300 ms on the dev machine (backend measures with query plans).
 
 ## Out of scope
 - Searching tags (they have their own filter), search highlighting, search syntax (`tag:`, quotes, `-word`)
@@ -96,3 +96,5 @@ _Filled in by the PM during the build._
 | 2026-10-16 | Fills spec gaps: Oldest = `createdAt` ASC, `id` ASC (exact reverse of Newest); `due`/`priority`/`title` ties → `createdAt` DESC, `id` DESC; title ties follow the collation ("cafe" = "Café"); search + tag with no results shows `No tasks match "<text>"` | "Ties newest first" doesn't make sense for Oldest; the rest settles details the spec left open | PM |
 | 2026-10-16 | AC10 detail: the client de-duplicates by `id` when a page arrives, and keeps a task whose title position is uncertain rather than dropping it. A task moved before the cursor from another tab/device appears only after the list restarts | Keyset can't see changes made elsewhere; a wrong drop would skip a task, a wrong keep only misplaces a row | PM |
 | 2026-10-16 | Indexes: backend expects no V10 (existing owner indexes + top-N sort); it verifies with EXPLAIN ANALYZE on ~10k tasks during the build | V10 stays an approval gate if the plans miss 300 ms | PM |
+| 2026-10-16 | No V10: worst first page 24 ms (backend) / 34 ms (tester) at 10k tasks per user with existing indexes | Under the 300 ms target | PM |
+| 2026-10-16 | Tester: AC1–AC16 PASS; full e2e 223 passed, 2 failed (email-auth:400, security-logging:36 — timing-flaky under parallel load, pass alone, not T2), 15 env-gated skipped. Pre-existing race (PUT/PATCH racing DELETE on the same task → 500 `ObjectOptimisticLockingFailureException`, 12/300 tries) left out of T2 as a follow-up | Not caused by T2; no unrequested fixes | PM |

@@ -91,7 +91,8 @@ for (const tz of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
       expect(got.createdAt).toBe(saved.createdAt);
       expect(got.updatedAt).toBe(saved.updatedAt);
       expect(got.dueDate).toBe('2031-01-01');
-      const listed = (await (await api(page, 'GET', '/api/tasks')).json()) as { id: number; createdAt: string; updatedAt: string; dueDate: string }[];
+      // GET /api/tasks returns a TaskPage since contract 0.11.0 (this user has one task: one page)
+      const listed = ((await (await api(page, 'GET', '/api/tasks')).json()) as { items: { id: number; createdAt: string; updatedAt: string; dueDate: string }[] }).items;
       const fromList = listed.find((t) => t.id === created.id)!;
       expect(fromList).toMatchObject({ createdAt: saved.createdAt, updatedAt: saved.updatedAt, dueDate: '2031-01-01' });
 
