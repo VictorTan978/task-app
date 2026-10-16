@@ -1,6 +1,6 @@
 # Feature: Tasks — priority, status and tags
 
-**Status:** APPROVED 2026-10-16 (all 14 recommendations accepted). **Depends on:** `specs/tasks.md`, `specs/roles-admin.md` (both DONE). **Branch:** `feature/tasks-priority-status-tags`
+**Status:** DONE 2026-10-16 (approved 2026-10-16; V9 approved and applied). **Depends on:** `specs/tasks.md`, `specs/roles-admin.md` (both DONE). **Branch:** `feature/tasks-priority-status-tags`
 
 ## Why
 A flat list of "done / not done" tasks gets hard to use once it grows: users can't tell what matters most, what they have already started, or which tasks belong together. Priority, a three-step status and personal tags fix that without changing how the list works today.
@@ -20,38 +20,38 @@ As a signed-in user, I want to give my tasks a priority, a status (To do / In pr
 ## Acceptance criteria
 
 ### Create
-- [ ] AC1: Given I am on `/tasks`, when I add a task with the quick-add box, then it is created with no priority, status "To do" and no tags (the quick-add box is unchanged: title only).
+- [x] AC1: Given I am on `/tasks`, when I add a task with the quick-add box, then it is created with no priority, status "To do" and no tags (the quick-add box is unchanged: title only).
 
 ### Priority
-- [ ] AC2: Given a task exists, when I open its edit dialog, pick "High" in the Priority field and click "Save", then the row shows a red "High" badge, which persists after a refresh. Picking "Low" or "Medium" shows a grey "Low" / amber "Medium" badge. Picking "None" removes the badge.
+- [x] AC2: Given a task exists, when I open its edit dialog, pick "High" in the Priority field and click "Save", then the row shows a red "High" badge, which persists after a refresh. Picking "Low" or "Medium" shows a grey "Low" / amber "Medium" badge. Picking "None" removes the badge.
 
 ### Status
-- [ ] AC3: Given a task is "To do", when I open its edit dialog, set Status to "In progress" and save, then the row shows an "In progress" badge, the checkbox stays unticked, and this persists after a refresh.
-- [ ] AC4: Given a task is "To do" or "In progress", when I tick its checkbox, then its status becomes "Done" (struck through, moved into the done group, no "In progress" badge). Given a task is "Done", when I untick it, then its status becomes "To do".
-- [ ] AC5: Given a task is "Done", when I set its status to "To do" or "In progress" in the edit dialog, then it is no longer struck through and moves back into the not-done group. Setting status to "Done" in the dialog has the same result as ticking the checkbox.
-- [ ] AC6: Given an "In progress" task has a due date before today, then it shows "Overdue". A "Done" task never shows "Overdue".
+- [x] AC3: Given a task is "To do", when I open its edit dialog, set Status to "In progress" and save, then the row shows an "In progress" badge, the checkbox stays unticked, and this persists after a refresh.
+- [x] AC4: Given a task is "To do" or "In progress", when I tick its checkbox, then its status becomes "Done" (struck through, moved into the done group, no "In progress" badge). Given a task is "Done", when I untick it, then its status becomes "To do".
+- [x] AC5: Given a task is "Done", when I set its status to "To do" or "In progress" in the edit dialog, then it is no longer struck through and moves back into the not-done group. Setting status to "Done" in the dialog has the same result as ticking the checkbox.
+- [x] AC6: Given an "In progress" task has a due date before today, then it shows "Overdue". A "Done" task never shows "Overdue".
 
 ### Filters
-- [ ] AC7: Given I have tasks in all three statuses, when I pick the tabs All / Active / In progress / Done, then: All shows everything; Active shows "To do" and "In progress"; In progress shows only "In progress"; Done shows only "Done". The URL becomes `/tasks`, `?filter=active`, `?filter=in_progress`, `?filter=done`, and a refresh keeps the tab. An empty In progress tab shows "Nothing in progress". (Existing empty messages for All, Active and Done stay.)
-- [ ] AC8: Given tasks in "To do" and "In progress", when I view All or Active, then the order is unchanged from today: not-done first (To do and In progress mixed), then done, each group newest first. Priority does not change the order.
+- [x] AC7: Given I have tasks in all three statuses, when I pick the tabs All / Active / In progress / Done, then: All shows everything; Active shows "To do" and "In progress"; In progress shows only "In progress"; Done shows only "Done". The URL becomes `/tasks`, `?filter=active`, `?filter=in_progress`, `?filter=done`, and a refresh keeps the tab. An empty In progress tab shows "Nothing in progress". (Existing empty messages for All, Active and Done stay.)
+- [x] AC8: Given tasks in "To do" and "In progress", when I view All or Active, then the order is unchanged from today: not-done first (To do and In progress mixed), then done, each group newest first. Priority does not change the order.
 
 ### Tags
-- [ ] AC9: Given the edit dialog is open, when I type a tag name and press Enter or comma, then it appears as a chip in the Tags field; clicking a chip's "×" removes it. After "Save", the row shows the tags as chips, and they persist after a refresh.
-- [ ] AC10: Given I already used the tag "Work" on another task, when I type "wo" in the Tags field, then "Work" is suggested and picking it adds it. When I type "work" or "wörk" and press Enter, then the existing "Work" chip is used (no duplicate tag is created, and the existing spelling is kept).
-- [ ] AC11: Given the edit dialog is open, when I add a tag that is already on the task (ignoring case and accents), then no second chip is added. When I try to add an 11th tag, then it is rejected with "A task can have at most 10 tags". A tag over 30 characters is rejected with "Tags must be 30 characters or fewer". A blank tag is ignored.
-- [ ] AC12: Given tasks with tags, when I click the tag "Work" on a row, then the list shows only tasks tagged "Work" within the current tab, the URL gets `?tag=Work` (combined with `filter`), and a "Tag: Work ×" bar appears above the list. Clicking "×" clears the tag filter. A refresh keeps it. A tag filter with no matching tasks shows "No tasks with this tag".
-- [ ] AC13: Given the tag "Old" is used by only one task, when I remove it from that task (or delete the task), then "Old" is no longer suggested.
+- [x] AC9: Given the edit dialog is open, when I type a tag name and press Enter or comma, then it appears as a chip in the Tags field; clicking a chip's "×" removes it. After "Save", the row shows the tags as chips, and they persist after a refresh.
+- [x] AC10: Given I already used the tag "Work" on another task, when I type "wo" in the Tags field, then "Work" is suggested and picking it adds it. When I type "work" or "wörk" and press Enter, then the existing "Work" chip is used (no duplicate tag is created, and the existing spelling is kept).
+- [x] AC11: Given the edit dialog is open, when I add a tag that is already on the task (ignoring case and accents), then no second chip is added. When I try to add an 11th tag, then it is rejected with "A task can have at most 10 tags". A tag over 30 characters is rejected with "Tags must be 30 characters or fewer". A blank tag is ignored.
+- [x] AC12: Given tasks with tags, when I click the tag "Work" on a row, then the list shows only tasks tagged "Work" within the current tab, the URL gets `?tag=Work` (combined with `filter`), and a "Tag: Work ×" bar appears above the list. Clicking "×" clears the tag filter. A refresh keeps it. A tag filter with no matching tasks shows "No tasks with this tag".
+- [x] AC13: Given the tag "Old" is used by only one task, when I remove it from that task (or delete the task), then "Old" is no longer suggested.
 
 ### Ownership and privacy
-- [ ] AC14: Given users A and B both have a tag "Work", then each only sees and gets suggestions for their own tags and tasks. A can't filter, read or attach B's tags. Admins still can't see any user's tasks or tags (A5 AC10 stays true).
+- [x] AC14: Given users A and B both have a tag "Work", then each only sees and gets suggestions for their own tags and tasks. A can't filter, read or attach B's tags. Admins still can't see any user's tasks or tags (A5 AC10 stays true).
 
 ### Compatibility
-- [ ] AC15: Given an existing task from before this feature, then after the migration it has priority None, no tags, and status "Done" if it was done, otherwise "To do".
-- [ ] AC16: Given a client sends `PUT /api/tasks/{id}` without `priority`, `status` or `tags`, then those fields are left unchanged. Given a client sends `PATCH {done: true}`, then status becomes Done; `{done: false}` makes it To do.
+- [x] AC15: Given an existing task from before this feature, then after the migration it has priority None, no tags, and status "Done" if it was done, otherwise "To do".
+- [x] AC16: Given a client sends `PUT /api/tasks/{id}` without `priority`, `status` or `tags`, then those fields are left unchanged. Given a client sends `PATCH {done: true}`, then status becomes Done; `{done: false}` makes it To do.
 
 ### States
-- [ ] AC17: While saving priority, status or tags, the dialog's controls are disabled; on failure the dialog stays open with an error banner and "Retry", and my input is kept. Server field errors (e.g. too many tags) appear under the right field. No browser console errors in normal use.
-- [ ] AC18: Every existing AC in `specs/tasks.md` (AC1–AC15) still passes, with "done" read as "status Done" and the dialog's "Done" checkbox replaced by the Status field.
+- [x] AC17: While saving priority, status or tags, the dialog's controls are disabled; on failure the dialog stays open with an error banner and "Retry", and my input is kept. Server field errors (e.g. too many tags) appear under the right field. No browser console errors in normal use.
+- [x] AC18: Every existing AC in `specs/tasks.md` (AC1–AC15) still passes, with "done" read as "status Done" and the dialog's "Done" checkbox replaced by the Status field.
 
 ## Out of scope
 - Sorting by priority or status, text search, pagination (T2)
@@ -115,3 +115,4 @@ _Filled in by the PM during the build._
 | 2026-10-16 | Backend built: V9 SQL unchanged from approval (MySQL 8.4 accepts all CHECKs); `GET /api/tags` → `Tag[]` (`{name}`); `task_tags` via native queries (one query for the list, no N+1); user row lock only on PUT with `tags` and on DELETE; TAG_LIMIT counted after orphan cleanup and only when a tag is created; TOO_MANY uses a Java approximation of the collation (rare ß/ss edge may over-count); strict enum parsing (`"high"`, `"HIGH "` → MALFORMED_REQUEST). `./mvnw test` 794 green | — | PM |
 | 2026-10-16 | Frontend built: checkbox sends `PATCH {status}`; PUT never sends `done`; UI reads `status` only; row tags are links (`?tag=`); text left typed in the Tags field counts on Save; ≤8 suggestions, prefix matches first. Lint, 596 unit tests, build green | — | PM |
 | 2026-10-16 | Fix round 1 (tester FAIL): (a) concurrent tag saves by different users deadlocked (500) — range `DELETE FROM task_tags WHERE task_id=?` and owner-range orphan delete took gap locks across users; now links/tags are written by exact primary key only, orphan cleanup only for tags just removed; bounded `DeadlockRetry` (3 attempts, spring-tx, no new dependency) as a safety net for InnoDB's unavoidable re-create-deleted-unique-key case. Backend 828 tests green, repro 60×200. (b) Phone row: checkbox wrapped above the title; fixed in `task-row.scss`. (c) Save stays blocked after a server STATUS_CONFLICT until Status changes — left as is (same as other fields; unreachable in normal use) | Tester bugs 1–3 | PM |
+| 2026-10-16 | Tester re-test: AC1–AC18 all PASS; bugs 1–2 fixed (repro 5×60×200, mixed 8-user repro no 500s, 0 deadlocks logged; checkbox inline at 375px and 320px, no horizontal scroll). e2e 200 passed / 19 skipped twice (parallel), backend 828, frontend lint/596 unit/build green, no console errors, no contract mismatches | Definition of Done met | PM |

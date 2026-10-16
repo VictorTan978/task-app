@@ -1271,7 +1271,7 @@ test.describe('T1 States', () => {
     await expect(rowTags(page, 'Dbl')).toHaveText(['New', 'Work']);
   });
 
-  test('Phone width 375px: badges/chips wrap under the title, no horizontal scroll', async ({ page }) => {
+  test('Phone width 375px + 320px: badges/chips wrap under the title, no horizontal scroll', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 800 });
     await signUp(page, 'phone');
     await seed(page, 'A rather long task title that needs wrapping on small screens', {
@@ -1318,6 +1318,29 @@ test.describe('T1 States', () => {
       const tb = (await row(page, t).getByRole('button', { name: t, exact: true }).boundingBox())!;
       console.log(`phone ${t.slice(0, 10)}: checkbox y=${c.y.toFixed(0)}-${(c.y + c.height).toFixed(0)}, title y=${tb.y.toFixed(0)}-${(tb.y + tb.height).toFixed(0)}`);
       expect(c.y + c.height, 'checkbox on the same line as the title (not above it)').toBeGreaterThan(tb.y);
+      expect(c.x + c.width, 'checkbox left of the title').toBeLessThanOrEqual(tb.x + 0.5);
+      expect(c.y, 'checkbox top not below the title first line').toBeLessThan(tb.y + 24);
     }
+
+    // 320px (smallest common phone): still no horizontal scroll, checkbox inline with the title
+    await page.setViewportSize({ width: 320, height: 800 });
+    await gotoTasks(page);
+    await expect(row(page, title).getByTestId('task-priority')).toBeVisible();
+    const sw320 = await page.evaluate(() => document.documentElement.scrollWidth);
+    const cw320 = await page.evaluate(() => document.documentElement.clientWidth);
+    expect(sw320, 'no horizontal scroll at 320px').toBeLessThanOrEqual(cw320);
+    for (const t of ['Short', title]) {
+      const over = await row(page, t).evaluate((el) =>
+        [...el.querySelectorAll('*')].filter((n) => n.getBoundingClientRect().right > window.innerWidth + 0.5).length,
+      );
+      expect(over, `nothing in row "${t.slice(0, 10)}" sticks out at 320px`).toBe(0);
+      const c = (await cb(page, t).boundingBox())!;
+      const tb = (await row(page, t).getByRole('button', { name: t, exact: true }).boundingBox())!;
+      console.log(`phone320 ${t.slice(0, 10)}: checkbox x=${c.x.toFixed(0)} y=${c.y.toFixed(0)}-${(c.y + c.height).toFixed(0)}, title x=${tb.x.toFixed(0)} y=${tb.y.toFixed(0)}-${(tb.y + tb.height).toFixed(0)}`);
+      expect(c.y + c.height, '320: checkbox not above the title').toBeGreaterThan(tb.y);
+      expect(c.x + c.width, '320: checkbox left of the title').toBeLessThanOrEqual(tb.x + 0.5);
+      expect(c.y, '320: checkbox top on the title first line').toBeLessThan(tb.y + 24);
+    }
+    await shot(page, 'phone-row-320');
   });
 });
