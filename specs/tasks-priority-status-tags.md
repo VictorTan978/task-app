@@ -111,3 +111,4 @@ _Filled in by the PM during the build._
 | 2026-10-16 | Tag bar shows the stored spelling (from loaded tasks / tags list), falling back to the raw `?tag=` value; with a tag filter set, the empty message is "No tasks with this tag" on every tab; a task that stops matching tab/tag after save disappears (same as tabs today) | Fills gaps in AC12 | PM |
 | 2026-10-16 | Frontend uses its own task error types; no edits under `core/auth` (as in 2026-10-08) | Keeps clear of the auth approval gate | PM |
 | 2026-10-16 | Backend locks the user's row (`SELECT … FOR UPDATE`) in transactions that change tags | Prevents races on new/unused tags; makes the 200 cap exact; read-only on `users`, no auth code change | PM |
+| 2026-10-16 | Migration V9 approved as proposed, including `ck_tasks_status_matches_done` (priority/status columns + strict CHECKs, backfill, index `ix_tasks_owner_status_created`, `tags` and `task_tags` tables; `done` kept) | Storage for AC2–AC15 | User |
