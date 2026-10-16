@@ -1,7 +1,6 @@
 package com.taskapp.task;
 
 import java.net.URI;
-import java.util.List;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +21,7 @@ import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.SetTaskDoneRequest;
+import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,13 +39,15 @@ public class TaskController {
     }
 
     /**
-     * {@code tag} is read with {@code getParameter} (the first value): binding it to a String would join repeated
-     * values with commas, and binding to a List would split one value on commas.
+     * {@code tag}, {@code q}, {@code sort} and {@code cursor} are read with {@code getParameter} (the first value):
+     * binding them to a String would join repeated values with commas. {@code filter} keeps its 0.10.0 binding
+     * (repeated values join into an unknown value, i.e. {@code all}).
      */
     @GetMapping
-    public List<TaskResponse> list(@AuthenticationPrincipal AuthenticatedUser user,
+    public TaskPage list(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(name = "filter", required = false) String filter, HttpServletRequest request) {
-        return taskService.list(user.id(), TaskFilter.parse(filter), request.getParameter("tag"));
+        return taskService.list(user.id(), TaskListQuery.of(filter, request.getParameter("sort"),
+                request.getParameter("tag"), request.getParameter("q"), request.getParameter("cursor")));
     }
 
     @PostMapping

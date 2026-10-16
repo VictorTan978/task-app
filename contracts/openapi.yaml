@@ -1837,7 +1837,9 @@ paths:
           required: false
           description: |
             New in 0.11.0. The `nextCursor` of the previous page, sent back unchanged. Opaque:
-            clients must not build, parse or change it. Missing or empty = first page.
+            clients must not build, parse or change it. Always base64url WITHOUT padding (only
+            `A-Z a-z 0-9 - _`; never `+`, `/` or `=`), so it is URL-safe as is. Missing or empty =
+            first page.
             400 `VALIDATION_FAILED` with `cursor` / `INVALID_CURSOR` when it cannot be read
             (altered, truncated, from another API version) or was issued for a different
             `filter`, `tag`, `q` or `sort` (compared after the same normalising as the request,
@@ -3396,7 +3398,8 @@ components:
           nullable: true
           description: |
             Opaque. Send back as `?cursor=` (with the same `filter`, `tag`, `q` and `sort`) for
-            the next page. `null` on the last page. Always present.
+            the next page. `null` on the last page. Always present. Base64url without padding
+            (only `A-Z a-z 0-9 - _`), at most 1024 characters.
 
     Task:
       type: object

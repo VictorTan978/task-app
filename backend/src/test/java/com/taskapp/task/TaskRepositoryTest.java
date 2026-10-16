@@ -82,6 +82,15 @@ class TaskRepositoryTest {
         return tasks.stream().map(Task::getTitle).toList();
     }
 
+    /** The whole list (newest sort) as {@code GET /api/tasks} orders it. */
+    private List<Task> list(long owner, TaskFilter filter) {
+        return repository.findPage(new TaskSearchCriteria(owner, filter, TaskSort.NEWEST, null, null), null, 1000);
+    }
+
+    private List<Task> list(long owner, TaskFilter filter, long tagId) {
+        return repository.findPage(new TaskSearchCriteria(owner, filter, TaskSort.NEWEST, tagId, null), null, 1000);
+    }
+
     @Test
     void listSortsNotDoneFirstThenNewestFirstWithIdTieBreak() {
         task(alice, "old active", false, T0);
@@ -93,13 +102,13 @@ class TaskRepositoryTest {
         task(bob, "bob's", false, T0.plusSeconds(50));
         em.clear();
 
-        assertThat(titles(repository.findByOwnerIdOrderByDoneAscCreatedAtDescIdDesc(alice)))
+        assertThat(titles(list(alice, TaskFilter.ALL)))
                 .containsExactly("new active", "tie 2", "tie 1", "old active", "new done", "old done");
-        assertThat(titles(repository.findByOwnerIdAndDoneOrderByCreatedAtDescIdDesc(alice, false)))
+        assertThat(titles(list(alice, TaskFilter.ACTIVE)))
                 .containsExactly("new active", "tie 2", "tie 1", "old active");
-        assertThat(titles(repository.findByOwnerIdAndDoneOrderByCreatedAtDescIdDesc(alice, true)))
+        assertThat(titles(list(alice, TaskFilter.DONE)))
                 .containsExactly("new done", "old done");
-        assertThat(titles(repository.findByOwnerIdOrderByDoneAscCreatedAtDescIdDesc(bob))).containsExactly("bob's");
+        assertThat(titles(list(bob, TaskFilter.ALL))).containsExactly("bob's");
     }
 
     @Test
@@ -182,10 +191,10 @@ class TaskRepositoryTest {
         task(bob, "bob's", TaskStatus.IN_PROGRESS, T0.plusSeconds(40));
         em.clear();
 
-        assertThat(titles(repository.findByOwnerIdAndStatusOrderByCreatedAtDescIdDesc(alice, TaskStatus.IN_PROGRESS)))
+        assertThat(titles(list(alice, TaskFilter.IN_PROGRESS)))
                 .containsExactly("tie 2", "tie 1", "old");
         // Active (done = false) mixes TODO and IN_PROGRESS by createdAt only.
-        assertThat(titles(repository.findByOwnerIdAndDoneOrderByCreatedAtDescIdDesc(alice, false)))
+        assertThat(titles(list(alice, TaskFilter.ACTIVE)))
                 .containsExactly("tie 2", "tie 1", "todo", "old");
     }
 
@@ -202,18 +211,16 @@ class TaskRepositoryTest {
         long bobsWork = tag(bob, "Work", bobs);
         em.clear();
 
-        List<String> all = List.of("TODO", "IN_PROGRESS", "DONE");
-        assertThat(titles(repository.findByOwnerIdAndTagId(alice, work, all)))
+        assertThat(titles(list(alice, TaskFilter.ALL, work)))
                 .containsExactly("progress", "todo", "new done", "old done");
-        assertThat(titles(repository.findByOwnerIdAndTagId(alice, work, List.of("TODO", "IN_PROGRESS"))))
-                .containsExactly("progress", "todo");
-        assertThat(titles(repository.findByOwnerIdAndTagId(alice, work, List.of("IN_PROGRESS"))))
-                .containsExactly("progress");
-        assertThat(titles(repository.findByOwnerIdAndTagId(alice, work, List.of("DONE"))))
-                .containsExactly("new done", "old done");
+        assertThat(titles(list(alice, TaskFilter.ACTIVE, work))).containsExactly("progress", "todo");
+        assertThat(titles(list(alice, TaskFilter.IN_PROGRESS, work))).containsExactly("progress");
+        assertThat(titles(list(alice, TaskFilter.DONE, work))).containsExactly("new done", "old done");
         // Scoped by owner even with someone else's tag id.
-        assertThat(repository.findByOwnerIdAndTagId(alice, bobsWork, all)).isEmpty();
-        assertThat(titles(repository.findByOwnerIdAndTagId(bob, bobsWork, all))).containsExactly("bob's");
+        assertThat(list(alice, TaskFilter.ALL, bobsWork)).isEmpty();
+        assertThat(titles(list(bob, TaskFilter.ALL, bobsWork))).containsExactly("bob's");
+        assertThat(repository.countMatching(new TaskSearchCriteria(alice, TaskFilter.ALL, TaskSort.NEWEST, work, null)))
+                .isEqualTo(4);
     }
 
     @ParameterizedTest

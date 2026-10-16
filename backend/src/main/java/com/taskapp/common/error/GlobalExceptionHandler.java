@@ -315,6 +315,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case "TagsMaxLength" -> ErrorCode.TOO_LONG;
             case "TagsMaxCount" -> ErrorCode.TOO_MANY;
             case "StatusMatchesDone" -> ErrorCode.STATUS_CONFLICT;
+            case "InvalidCursor" -> ErrorCode.INVALID_CURSOR;
             case "Email" -> ErrorCode.INVALID_EMAIL;
             case "PasswordLength" -> ErrorCode.PASSWORD_LENGTH;
             case "Size" -> ErrorCode.TOO_LONG;

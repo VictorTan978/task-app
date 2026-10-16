@@ -142,7 +142,7 @@ class TaskIntegrationTest {
 
     private static List<String> titles(Resp list) throws IOException {
         List<String> titles = new ArrayList<>();
-        list.json().forEach(t -> titles.add(t.get("title").asText()));
+        list.json().get("items").forEach(t -> titles.add(t.get("title").asText()));
         return titles;
     }
 
@@ -201,7 +201,7 @@ class TaskIntegrationTest {
         assertThat(badId.json().get("code").asText()).isEqualTo("MALFORMED_REQUEST");
         assertThat(badId.json().get("detail").asText()).isEqualTo("Failed to convert 'id' with value 'abc'");
 
-        assertThat(alice.get("/api/tasks").json()).isEmpty();
+        assertThat(alice.get("/api/tasks").json().get("items")).isEmpty();
     }
 
     @Test
@@ -282,7 +282,7 @@ class TaskIntegrationTest {
         Resp again = alice.delete(path);
         assertThat(again.status()).isEqualTo(404);
         assertThat(again.json().get("code").asText()).isEqualTo("NOT_FOUND");
-        assertThat(alice.get("/api/tasks").json()).isEmpty();
+        assertThat(alice.get("/api/tasks").json().get("items")).isEmpty();
     }
 
     /** AC12 + AC13. */
@@ -484,21 +484,21 @@ class TaskIntegrationTest {
         assertThat(titles(alice.get("/api/tasks?filter=done&tag=work"))).containsExactly("done");
         assertThat(titles(alice.get("/api/tasks?filter=done&tag=home"))).isEmpty();
         // Tasks in a tag-filtered list still carry all their tags.
-        assertThat(texts(alice.get("/api/tasks?tag=home").json().get(0).get("tags"))).containsExactly("Home", "Work");
+        assertThat(texts(alice.get("/api/tasks?tag=home").json().get("items").get(0).get("tags"))).containsExactly("Home", "Work");
 
-        // Unknown or invalid tag → []; missing/empty/blank → no tag filter; repeated → first one.
+        // Unknown or invalid tag → empty page; missing/empty/blank → no tag filter; repeated → first one.
         for (String none : List.of("Nope", q("a,b"), q("Work,"), q("Wo\trk"), "x".repeat(31), "Wor", q("Work  x"))) {
             Resp r = alice.get("/api/tasks?tag=" + none);
             assertThat(r.status()).as(none).isEqualTo(200);
-            assertThat(r.json()).as(none).isEmpty();
+            assertThat(r.json().toString()).as(none).isEqualTo("{\"items\":[],\"total\":0,\"nextCursor\":null}");
         }
         for (String blank : List.of("", "%20", q("   "))) {
             assertThat(titles(alice.get("/api/tasks?filter=in_progress&tag=" + blank))).as(blank)
                     .containsExactly("progress high", "progress");
         }
         assertThat(titles(alice.get("/api/tasks?tag=Home&tag=Nope"))).containsExactly("progress");
-        assertThat(alice.get("/api/tasks?tag=Nope&tag=Home").json()).isEmpty();
-        assertThat(alice.get("/api/tasks?tag=Home,Work").json()).isEmpty();
+        assertThat(alice.get("/api/tasks?tag=Nope&tag=Home").json().get("items")).isEmpty();
+        assertThat(alice.get("/api/tasks?tag=Home,Work").json().get("items")).isEmpty();
     }
 
     /** AC9, AC10, AC11, AC13. */
@@ -616,8 +616,8 @@ class TaskIntegrationTest {
         long alices = alice.create("alice's").get("id").asLong();
 
         assertThat(alice.get("/api/tags").json()).isEmpty();
-        assertThat(alice.get("/api/tasks?tag=Work").json()).isEmpty();
-        assertThat(alice.get("/api/tasks?tag=" + q("Bob only")).json()).isEmpty();
+        assertThat(alice.get("/api/tasks?tag=Work").json().get("items")).isEmpty();
+        assertThat(alice.get("/api/tasks?tag=" + q("Bob only")).json().get("items")).isEmpty();
 
         // "work" is a new tag of Alice's (own spelling), not Bob's "Work".
         JsonNode mine = alice.put("/api/tasks/" + alices, tagsBody("alice's", "[\"work\"]")).json();
@@ -689,7 +689,7 @@ class TaskIntegrationTest {
             assertThat(r.status()).isEqualTo(200);
         }
         assertThat(alice.get("/api/tags").json()).hasSize(1);
-        assertThat(alice.get("/api/tasks?tag=fresh").json()).hasSize(6);
+        assertThat(alice.get("/api/tasks?tag=fresh").json().get("items")).hasSize(6);
 
         // Fill to 199 tags, then several requests each try to add a different new tag: exactly one fits.
         long holder = alice.create("holder").get("id").asLong();
@@ -714,5 +714,240 @@ class TaskIntegrationTest {
             }
         }
         assertThat(alice.get("/api/tags").json()).hasSize(200);
+    }
+
+    // ---- T2: search, sort, pagination (contract 0.11.0) ----
+
+    private static final Instant SEED_T0 = Instant.parse("2026-09-01T08:00:00Z");
+    private static final java.time.LocalDate SEED_D0 = java.time.LocalDate.parse("2026-11-01");
+    private static final java.util.regex.Pattern CURSOR = java.util.regex.Pattern.compile("[A-Za-z0-9_-]{1,1024}");
+
+    /** A seeded task as the list orders it. */
+    record Seeded(long id, String title, String priority, boolean done, java.time.LocalDate due, Instant createdAt) {
+    }
+
+    private long ownerOf(Browser b) throws Exception {
+        long probe = b.create("probe").get("id").asLong();
+        long owner = jdbc.queryForObject("select owner_id from tasks where id = ?", Long.class, probe);
+        jdbc.update("delete from tasks where id = ?", probe);
+        return owner;
+    }
+
+    /** {@code count} tasks with many ties on every sort key (title case, priority, due incl. none, createdAt). */
+    private List<Seeded> seed(long owner, int count) {
+        String[] titles = {"alpha", "Alpha", "beta", "BETA", "gamma", "Delta"};
+        String[] priorities = {"NONE", "LOW", "MEDIUM", "HIGH"};
+        String[] statuses = {"TODO", "IN_PROGRESS", "DONE"};
+        List<Seeded> out = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            String status = statuses[i % 3];
+            java.time.LocalDate due = i % 5 == 0 ? null : SEED_D0.plusDays(i % 7);
+            Instant created = SEED_T0.plusSeconds(i / 4);
+            jdbc.update("insert into tasks (owner_id, title, priority, status, done, due_date, created_at, updated_at)"
+                    + " values (?, ?, ?, ?, ?, ?, ?, ?)", owner, titles[i % 6], priorities[i % 4], status,
+                    status.equals("DONE"), due, java.sql.Timestamp.from(created), java.sql.Timestamp.from(created));
+            long id = jdbc.queryForObject("select last_insert_id()", Long.class);
+            out.add(new Seeded(id, titles[i % 6], priorities[i % 4], status.equals("DONE"), due, created));
+        }
+        return out;
+    }
+
+    private static int rank(String priority) {
+        return List.of("HIGH", "MEDIUM", "LOW", "NONE").indexOf(priority);
+    }
+
+    /** The contract's order for filter=all (ASCII titles: case-insensitive = the column collation). */
+    private static java.util.Comparator<Seeded> order(String sort) {
+        java.util.Comparator<Seeded> newest = java.util.Comparator.comparing(Seeded::createdAt)
+                .thenComparingLong(Seeded::id).reversed();
+        java.util.Comparator<Seeded> group = java.util.Comparator.comparing(Seeded::done);
+        return switch (sort) {
+            case "oldest" -> group.thenComparing(java.util.Comparator.comparing(Seeded::createdAt)
+                    .thenComparingLong(Seeded::id));
+            case "due" -> group.thenComparing(Seeded::due,
+                    java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())).thenComparing(newest);
+            case "priority" -> group.thenComparingInt(t -> rank(t.priority())).thenComparing(newest);
+            case "title" -> group.thenComparing(Seeded::title, String.CASE_INSENSITIVE_ORDER).thenComparing(newest);
+            default -> group.thenComparing(newest);
+        };
+    }
+
+    private static List<Long> ids(JsonNode page) {
+        List<Long> ids = new ArrayList<>();
+        page.get("items").forEach(t -> ids.add(t.get("id").asLong()));
+        return ids;
+    }
+
+    /** Follows nextCursor to the end; checks the page shape on the way. */
+    private List<List<Long>> pages(Browser b, String params, long expectedTotal) throws Exception {
+        List<List<Long>> pages = new ArrayList<>();
+        String cursor = null;
+        for (int n = 0; n < 20; n++) {
+            Resp r = b.get("/api/tasks?" + params + (cursor == null ? "" : "&cursor=" + cursor));
+            assertThat(r.status()).as(params + " page " + n + ": " + r.body()).isEqualTo(200);
+            JsonNode page = r.json();
+            assertThat(page.size()).isEqualTo(3);
+            assertThat(page.get("total").asLong()).isEqualTo(expectedTotal);
+            assertThat(page.get("items").size()).isLessThanOrEqualTo(50);
+            pages.add(ids(page));
+            if (page.get("nextCursor").isNull()) {
+                return pages;
+            }
+            cursor = page.get("nextCursor").asText();
+            assertThat(cursor).matches(CURSOR);
+        }
+        throw new AssertionError("never ended");
+    }
+
+    private static void expectProblem(Resp r, String... fieldAndCode) throws IOException {
+        assertThat(r.status()).as(r.body()).isEqualTo(400);
+        assertThat(r.contentType()).startsWith("application/problem+json");
+        JsonNode body = r.json();
+        assertThat(body.get("code").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(body.get("errors")).hasSize(fieldAndCode.length / 2);
+        for (int i = 0; i < fieldAndCode.length; i += 2) {
+            assertThat(body.get("errors").get(i / 2).get("field").asText()).isEqualTo(fieldAndCode[i]);
+            assertThat(body.get("errors").get(i / 2).get("code").asText()).isEqualTo(fieldAndCode[i + 1]);
+        }
+    }
+
+    /** T2 AC1, AC2, AC4, AC14: search over title and description. */
+    @Test
+    void searchIgnoresCaseAndAccentsAndTreatsWildcardsLiterally() throws Exception {
+        Browser alice = new Browser().signUp("Alice");
+        Browser bob = new Browser().signUp("Bob");
+        alice.create("Buy milk");
+        alice.create("Call Bob");
+        long groceries = alice.create("Groceries").get("id").asLong();
+        alice.put("/api/tasks/" + groceries, "{\"title\":\"Groceries\",\"description\":\"eggs and MILK\"}");
+        // Titles are spliced into raw JSON, so the backslash is escaped there: the stored title is back\slash.
+        for (String title : List.of("Café meeting", "50% off", "5000 off", "a_b", "axb", "back\\\\slash", "backslash")) {
+            alice.create(title);
+        }
+        bob.create("Bob's milk");
+
+        assertThat(titles(alice.get("/api/tasks?q=MILK"))).containsExactly("Groceries", "Buy milk");
+        assertThat(alice.get("/api/tasks?q=MILK").json().get("total").asLong()).isEqualTo(2);
+        assertThat(titles(alice.get("/api/tasks?q=" + q("  milk  ")))).containsExactly("Groceries", "Buy milk");
+        assertThat(titles(alice.get("/api/tasks?q=cafe"))).containsExactly("Café meeting");
+        assertThat(titles(alice.get("/api/tasks?q=" + q("50%")))).containsExactly("50% off");
+        assertThat(titles(alice.get("/api/tasks?q=a_b"))).containsExactly("a_b");
+        assertThat(titles(alice.get("/api/tasks?q=" + q("\\")))).containsExactly("back\\slash");
+        assertThat(alice.get("/api/tasks?q=nothing").json().toString())
+                .isEqualTo("{\"items\":[],\"total\":0,\"nextCursor\":null}");
+        assertThat(titles(bob.get("/api/tasks?q=milk"))).containsExactly("Bob's milk");
+
+        // Blank = no search; repeated = first; 100 characters after trimming is the limit.
+        assertThat(alice.get("/api/tasks?q=" + q("   ")).json().get("total").asLong()).isEqualTo(10);
+        assertThat(titles(alice.get("/api/tasks?q=cafe&q=milk"))).containsExactly("Café meeting");
+        assertThat(alice.get("/api/tasks?q=" + q("  " + "x".repeat(100) + "  ")).status()).isEqualTo(200);
+        Resp tooLong = alice.get("/api/tasks?q=" + "x".repeat(101));
+        expectProblem(tooLong, "q", "TOO_LONG");
+        assertThat(tooLong.json().get("errors").get(0).get("message").asText())
+                .isEqualTo("Search must be at most 100 characters");
+        assertThat(tooLong.json().get("instance").asText()).isEqualTo("/api/tasks");
+    }
+
+    /** T2 AC5, AC6, AC7, AC8, AC9, AC14: every sort pages through 120 tasks without repeats or gaps. */
+    @Test
+    void everySortPagesThrough120TasksInTheContractOrder() throws Exception {
+        Browser alice = new Browser().signUp("Alice");
+        Browser bob = new Browser().signUp("Bob");
+        List<Seeded> tasks = seed(ownerOf(alice), 120);
+        List<Seeded> bobs = seed(ownerOf(bob), 30);
+
+        for (String sort : List.of("newest", "oldest", "due", "priority", "title")) {
+            List<List<Long>> pages = pages(alice, "sort=" + sort, 120);
+            assertThat(pages).extracting(List::size).as(sort).containsExactly(50, 50, 20);
+            List<Long> all = pages.stream().flatMap(List::stream).toList();
+            List<Long> expected = tasks.stream().sorted(order(sort)).map(Seeded::id).toList();
+            assertThat(all).as(sort).isEqualTo(expected);
+        }
+        // Unknown sort = newest, also for the cursor.
+        assertThat(pages(alice, "sort=Title", 120).get(0))
+                .isEqualTo(tasks.stream().sorted(order("newest")).map(Seeded::id).limit(50).toList());
+
+        // Combined with a filter and a search (seeded titles: "alpha", "Alpha", ... → "ALP" matches 40).
+        List<Seeded> activeAlpha = tasks.stream()
+                .filter(t -> !t.done() && t.title().equalsIgnoreCase("alpha")).toList();
+        List<Long> activePaged = pages(alice, "filter=active&q=ALP&sort=due", activeAlpha.size()).stream()
+                .flatMap(List::stream).toList();
+        assertThat(activePaged).isEqualTo(activeAlpha.stream().sorted(order("due")).map(Seeded::id).toList());
+
+        List<Long> bobsIds = bobs.stream().map(Seeded::id).toList();
+        assertThat(pages(bob, "sort=title", 30).stream().flatMap(List::stream).toList())
+                .containsExactlyInAnyOrderElementsOf(bobsIds);
+    }
+
+    /** T2 AC10: the next page is exact even if the last task of the previous page was edited or deleted. */
+    @Test
+    void nextPageIsExactAfterTheBoundaryTaskIsEditedOrDeleted() throws Exception {
+        for (String sort : List.of("newest", "oldest", "due", "priority", "title")) {
+            Browser alice = new Browser().signUp("Alice");
+            List<Long> expected = seed(ownerOf(alice), 120).stream().sorted(order(sort)).map(Seeded::id).toList();
+            JsonNode first = alice.get("/api/tasks?sort=" + sort).json();
+            assertThat(ids(first)).isEqualTo(expected.subList(0, 50));
+            long boundary = expected.get(49);
+            String cursor = first.get("nextCursor").asText();
+
+            // Edited so it moves in every order (it may come back later: clients de-duplicate by id).
+            assertThat(alice.put("/api/tasks/" + boundary, "{\"title\":\"zzz moved\",\"priority\":\"NONE\","
+                    + "\"status\":\"TODO\",\"dueDate\":null}").status()).isEqualTo(200);
+            List<Long> second = ids(alice.get("/api/tasks?sort=" + sort + "&cursor=" + cursor).json()).stream()
+                    .filter(id -> id != boundary).toList();
+            assertThat(second).as(sort + " after edit").isEqualTo(expected.subList(50, 50 + second.size()));
+
+            // Deleted: page 2 is still exactly the next 50, and the total follows.
+            assertThat(alice.delete("/api/tasks/" + boundary).status()).isEqualTo(204);
+            JsonNode again = alice.get("/api/tasks?sort=" + sort + "&cursor=" + cursor).json();
+            assertThat(ids(again)).as(sort + " after delete").isEqualTo(expected.subList(50, 100));
+            assertThat(again.get("total").asLong()).isEqualTo(119);
+        }
+    }
+
+    /** T2 contract: cursor problems are 400 cursor/INVALID_CURSOR; a cursor never reaches another user's tasks. */
+    @Test
+    void invalidOrMismatchedCursorIs400() throws Exception {
+        Browser alice = new Browser().signUp("Alice");
+        Browser bob = new Browser().signUp("Bob");
+        seed(ownerOf(alice), 100);
+        List<Seeded> bobs = seed(ownerOf(bob), 3);
+        String cursor = alice.get("/api/tasks?sort=title&filter=active&q=a").json().get("nextCursor").asText();
+        String base = "/api/tasks?sort=title&filter=active&q=a&cursor=";
+        assertThat(alice.get(base + cursor).status()).isEqualTo(200);
+        // Same list after normalising: ?q= trimmed.
+        assertThat(alice.get("/api/tasks?sort=title&filter=active&q=" + q(" a ") + "&cursor=" + cursor).status())
+                .isEqualTo(200);
+
+        char last = cursor.charAt(cursor.length() - 1);
+        List<String> broken = List.of(
+                cursor.substring(0, cursor.length() - 1),
+                cursor.substring(0, cursor.length() - 1) + (last == 'A' ? 'B' : 'A'),
+                cursor + "AAAA",
+                cursor + "%3D",
+                cursor.replace('-', '+').replace('_', '/') + "%2B",
+                "x".repeat(1025),
+                "not-a-cursor",
+                q("{\"v\":1}"));
+        for (String bad : broken) {
+            Resp r = alice.get(base + bad);
+            expectProblem(r, "cursor", "INVALID_CURSOR");
+            assertThat(r.json().get("errors").get(0).get("message").asText())
+                    .isEqualTo("The list changed, reload from the first page");
+        }
+        for (String other : List.of("sort=due&filter=active&q=a", "sort=title&filter=all&q=a",
+                "sort=title&filter=active&q=b", "sort=title&filter=active", "sort=title&filter=active&q=a&tag=x")) {
+            expectProblem(alice.get("/api/tasks?" + other + "&cursor=" + cursor), "cursor", "INVALID_CURSOR");
+        }
+        // Both problems at once, sorted by field.
+        expectProblem(alice.get("/api/tasks?cursor=nope&q=" + "y".repeat(101)), "cursor", "INVALID_CURSOR", "q", "TOO_LONG");
+        // Empty cursor = first page.
+        assertThat(alice.get(base).json().get("items")).hasSize(50);
+
+        // Alice's cursor in Bob's session only positions within Bob's own list.
+        Resp bobWithAlicesCursor = bob.get(base + cursor);
+        assertThat(bobWithAlicesCursor.status()).isEqualTo(200);
+        List<Long> bobsIds = bobs.stream().map(Seeded::id).toList();
+        assertThat(ids(bobWithAlicesCursor.json())).isSubsetOf(bobsIds);
     }
 }

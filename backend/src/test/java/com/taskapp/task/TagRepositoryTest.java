@@ -158,7 +158,7 @@ class TagRepositoryTest {
         assertThat(tagNames(alice)).isEmpty();
         assertThat(tagNames(bob)).containsExactly("Work");
         assertThat(tagService.namesOf(alice, bobs)).isEmpty();
-        assertThat(tagService.namesByTask(alice)).isEmpty();
+        assertThat(tagService.namesByTask(alice, List.of(a, bobs))).isEmpty();
     }
 
     @Test
@@ -177,16 +177,20 @@ class TagRepositoryTest {
     }
 
     @Test
-    void namesByTaskGroupsAllOfTheOwnersTasksInOneQuery() {
+    void namesByTaskGroupsTheGivenTasksOfTheOwnerInOneQuery() {
         long t1 = task(alice);
         long t2 = task(alice);
         long t3 = task(alice);
+        long t4 = task(alice);
+        long bobs = task(bob);
         tagService.replaceTags(alice, t1, List.of("b", "A"));
         tagService.replaceTags(alice, t2, List.of("c"));
-        tagService.replaceTags(bob, task(bob), List.of("bob"));
+        tagService.replaceTags(alice, t4, List.of("not asked for"));
+        tagService.replaceTags(bob, bobs, List.of("bob"));
 
-        Map<Long, List<String>> byTask = tagService.namesByTask(alice);
+        Map<Long, List<String>> byTask = tagService.namesByTask(alice, List.of(t1, t2, t3, bobs));
 
+        assertThat(tagService.namesByTask(alice, List.of())).isEmpty();
         assertThat(byTask).containsOnlyKeys(t1, t2);
         assertThat(byTask.get(t1)).containsExactly("A", "b");
         assertThat(byTask.get(t2)).containsExactly("c");

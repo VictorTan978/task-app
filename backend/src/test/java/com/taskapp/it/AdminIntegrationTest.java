@@ -383,7 +383,7 @@ class AdminIntegrationTest {
         Browser back = device(user, false);
         Resp tasks = back.get("/api/tasks");
         expect(tasks, 200, null);
-        assertThat(tasks.json().get(0).get("title").asText()).isEqualTo("Keep me");
+        assertThat(tasks.json().get("items").get(0).get("title").asText()).isEqualTo("Keep me");
         assertThat(audit("ADMIN_USER_ENABLED")).hasSize(1);
     }
 
@@ -561,7 +561,7 @@ class AdminIntegrationTest {
         assertThat(all.body()).doesNotContain("Private", "Secret", "password", "$2a$", "g-zoe");
         // T1 AC14: an admin's own task/tag endpoints never show another user's tasks or tags.
         assertThat(admin.get("/api/tags").json()).isEmpty();
-        assertThat(admin.get("/api/tasks?tag=Secret").json()).isEmpty();
+        assertThat(admin.get("/api/tasks?tag=Secret").json().get("items")).isEmpty();
         expect(admin.get("/api/tasks/" + zoesTask), 404, "NOT_FOUND");
 
         // Newest first, paged.

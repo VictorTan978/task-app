@@ -52,11 +52,14 @@ public class TagService {
         return tagRepository.findNamesByTask(ownerId, taskId);
     }
 
-    /** Tag names per task id for all the owner's tasks (one query). Tasks without tags are absent. */
+    /** Tag names per task id for these of the owner's tasks (one query). Tasks without tags are absent. */
     @Transactional(readOnly = true)
-    public Map<Long, List<String>> namesByTask(long ownerId) {
+    public Map<Long, List<String>> namesByTask(long ownerId, Collection<Long> taskIds) {
         Map<Long, List<String>> byTask = new HashMap<>();
-        for (TagRepository.TaskTagName row : tagRepository.findTaskTagNames(ownerId)) {
+        if (taskIds.isEmpty()) {
+            return byTask;
+        }
+        for (TagRepository.TaskTagName row : tagRepository.findTaskTagNames(ownerId, taskIds)) {
             byTask.computeIfAbsent(row.getTaskId(), id -> new ArrayList<>()).add(row.getName());
         }
         return byTask;

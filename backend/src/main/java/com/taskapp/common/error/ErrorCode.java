@@ -50,6 +50,8 @@ public final class ErrorCode {
     public static final String TAG_LIMIT = "TAG_LIMIT";
     /** {@code status}: status and done both sent and disagreeing (0.10.0). */
     public static final String STATUS_CONFLICT = "STATUS_CONFLICT";
+    /** {@code cursor} of the task list: unreadable or issued for another filter/sort/tag/search (0.11.0). */
+    public static final String INVALID_CURSOR = "INVALID_CURSOR";
 
     private ErrorCode() {
     }

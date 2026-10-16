@@ -1,5 +1,6 @@
 package com.taskapp.task;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,12 +43,12 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
             ORDER BY t.name""", nativeQuery = true)
     List<String> findNamesByTask(@Param("ownerId") long ownerId, @Param("taskId") long taskId);
 
-    /** Every (task, tag name) pair of the owner in one query, ordered by task id then name. */
+    /** Every (task, tag name) pair of these tasks in one query, ordered by task id then name. Scoped by owner. */
     @Query(value = """
-            SELECT tt.task_id AS taskId, t.name AS name FROM tags t JOIN task_tags tt ON tt.tag_id = t.id
-            WHERE t.owner_id = :ownerId
+            SELECT tt.task_id AS taskId, t.name AS name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
+            WHERE tt.task_id IN (:taskIds) AND t.owner_id = :ownerId
             ORDER BY tt.task_id, t.name""", nativeQuery = true)
-    List<TaskTagName> findTaskTagNames(@Param("ownerId") long ownerId);
+    List<TaskTagName> findTaskTagNames(@Param("ownerId") long ownerId, @Param("taskIds") Collection<Long> taskIds);
 
     /*
      * Locking rules (bug: concurrent tag saves of different users deadlocked). Under REPEATABLE READ a locking

@@ -3,6 +3,7 @@ package com.taskapp.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -17,6 +18,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,8 +30,10 @@ import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionOperations;
 
+import com.taskapp.auth.InvalidFieldsException;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
+import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
 
 class TaskServiceTest {
@@ -93,56 +97,143 @@ class TaskServiceTest {
         verify(repository).saveAndFlush(org.mockito.ArgumentMatchers.argThat(t -> t.getOwnerId() == OWNER));
     }
 
+    private static List<Task> tasks(int count) {
+        List<Task> tasks = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            tasks.add(existing(i));
+        }
+        return tasks;
+    }
+
+    private static TaskListQuery query(TaskFilter filter, TaskSort sort, String tag, String q, String cursor) {
+        return TaskListQuery.of(filter.name().toLowerCase(), sort.name().toLowerCase(), tag, q, cursor);
+    }
+
+    private static TaskSearchCriteria criteria(TaskFilter filter, TaskSort sort, Long tagId, String search) {
+        return new TaskSearchCriteria(OWNER, filter, sort, tagId, search);
+    }
+
     @Test
-    void listUsesTheQueryForEachFilterAndLoadsTagsOnce() {
+    void firstPageWithEverythingSkipsTheCountAndLoadsTagsOnce() {
         Task a = existing(1L);
         Task b = existing(2L);
-        when(repository.findByOwnerIdOrderByDoneAscCreatedAtDescIdDesc(OWNER)).thenReturn(List.of(a, b));
-        when(repository.findByOwnerIdAndDoneOrderByCreatedAtDescIdDesc(OWNER, false)).thenReturn(List.of());
-        when(repository.findByOwnerIdAndDoneOrderByCreatedAtDescIdDesc(OWNER, true)).thenReturn(List.of(a));
-        when(repository.findByOwnerIdAndStatusOrderByCreatedAtDescIdDesc(OWNER, TaskStatus.IN_PROGRESS))
-                .thenReturn(List.of(b));
-        when(tagService.namesByTask(OWNER)).thenReturn(Map.of(1L, List.of("Home", "Work")));
+        when(repository.findPage(criteria(TaskFilter.DONE, TaskSort.DUE, null, "milk"), null, 51))
+                .thenReturn(List.of(a, b));
+        when(tagService.namesByTask(OWNER, List.of(1L, 2L))).thenReturn(Map.of(1L, List.of("Home", "Work")));
 
-        List<TaskResponse> all = service.list(OWNER, TaskFilter.ALL, null);
-        assertThat(all).extracting(TaskResponse::tags).containsExactly(List.of("Home", "Work"), List.of());
-        assertThat(service.list(OWNER, TaskFilter.ACTIVE, null)).isEmpty();
-        assertThat(service.list(OWNER, TaskFilter.DONE, " ")).hasSize(1);
-        assertThat(service.list(OWNER, TaskFilter.IN_PROGRESS, "")).extracting(TaskResponse::id).containsExactly(2L);
+        TaskPage page = service.list(OWNER, query(TaskFilter.DONE, TaskSort.DUE, " ", "  milk ", ""));
 
-        // One tag query per non-empty list, never one per task; none for an empty list.
-        verify(tagService, times(3)).namesByTask(OWNER);
+        assertThat(page.items()).extracting(TaskResponse::tags).containsExactly(List.of("Home", "Work"), List.of());
+        assertThat(page.total()).isEqualTo(2);
+        assertThat(page.nextCursor()).isNull();
+        verify(repository, never()).countMatching(any());
+        verify(tagService, times(1)).namesByTask(anyLong(), any());
         verify(tagService, never()).namesOf(anyLong(), anyLong());
         verify(tagService, never()).findTagId(anyLong(), any());
     }
 
     @Test
-    void listWithTagFiltersByTheOwnersTagAndTheFilterStatuses() {
-        Task a = existing(1L);
-        when(tagService.findTagId(OWNER, " work ")).thenReturn(Optional.of(55L));
-        when(repository.findByOwnerIdAndTagId(OWNER, 55L, List.of("TODO", "IN_PROGRESS"))).thenReturn(List.of(a));
-        when(repository.findByOwnerIdAndTagId(OWNER, 55L, List.of("TODO", "IN_PROGRESS", "DONE"))).thenReturn(List.of(a));
-        when(repository.findByOwnerIdAndTagId(OWNER, 55L, List.of("IN_PROGRESS"))).thenReturn(List.of());
-        when(repository.findByOwnerIdAndTagId(OWNER, 55L, List.of("DONE"))).thenReturn(List.of());
-        when(tagService.namesByTask(OWNER)).thenReturn(Map.of(1L, List.of("Work")));
+    void fullPageReturns50WithACursorAndTheCount() {
+        List<Task> rows = tasks(51);
+        TaskSearchCriteria criteria = criteria(TaskFilter.ALL, TaskSort.TITLE, null, null);
+        when(repository.findPage(criteria, null, 51)).thenReturn(rows);
+        when(repository.countMatching(criteria)).thenReturn(120L);
+        when(tagService.namesByTask(anyLong(), any())).thenReturn(Map.of());
 
-        assertThat(service.list(OWNER, TaskFilter.ACTIVE, " work ")).extracting(TaskResponse::tags)
-                .containsExactly(List.of("Work"));
-        assertThat(service.list(OWNER, TaskFilter.ALL, " work ")).hasSize(1);
-        assertThat(service.list(OWNER, TaskFilter.IN_PROGRESS, " work ")).isEmpty();
-        assertThat(service.list(OWNER, TaskFilter.DONE, " work ")).isEmpty();
-        verify(repository, never()).findByOwnerIdOrderByDoneAscCreatedAtDescIdDesc(anyLong());
+        TaskListQuery first = query(TaskFilter.ALL, TaskSort.TITLE, null, null, null);
+        TaskPage page = service.list(OWNER, first);
+
+        assertThat(page.items()).hasSize(50).extracting(TaskResponse::id).startsWith(1L).endsWith(50L);
+        assertThat(page.total()).isEqualTo(120);
+        assertThat(page.nextCursor()).matches("[A-Za-z0-9_-]+");
+        assertThat(TaskCursor.decode(page.nextCursor(), TaskSort.TITLE, first.fingerprint()))
+                .contains(TaskCursor.after(rows.get(49), TaskSort.TITLE));
+
+        // The next page starts after that task and is always counted.
+        TaskCursor after = TaskCursor.after(rows.get(49), TaskSort.TITLE);
+        when(repository.findPage(criteria, after, 51)).thenReturn(List.of(existing(51)));
+        TaskPage next = service.list(OWNER, query(TaskFilter.ALL, TaskSort.TITLE, null, null, page.nextCursor()));
+        assertThat(next.items()).extracting(TaskResponse::id).containsExactly(51L);
+        assertThat(next.total()).isEqualTo(120);
+        assertThat(next.nextCursor()).isNull();
     }
 
     @Test
-    void listWithUnknownOrInvalidTagIsEmpty() {
+    void tagIsResolvedToTheOwnersTagId() {
+        when(tagService.findTagId(OWNER, " work ")).thenReturn(Optional.of(55L));
+        when(repository.findPage(any(), any(), anyInt())).thenReturn(List.of());
+
+        TaskPage page = service.list(OWNER, query(TaskFilter.ACTIVE, TaskSort.NEWEST, " work ", null, null));
+
+        assertThat(page).isEqualTo(TaskPage.empty());
+        verify(repository).findPage(criteria(TaskFilter.ACTIVE, TaskSort.NEWEST, 55L, null), null, 51);
+    }
+
+    @Test
+    void unknownOrInvalidTagIsAnEmptyPage() {
         when(tagService.findTagId(anyLong(), any())).thenReturn(Optional.empty());
 
-        assertThat(service.list(OWNER, TaskFilter.ALL, "nope")).isEmpty();
-        assertThat(service.list(OWNER, TaskFilter.ALL, "a,b")).isEmpty();
+        assertThat(service.list(OWNER, query(TaskFilter.ALL, TaskSort.NEWEST, "nope", null, null)))
+                .isEqualTo(TaskPage.empty());
+        assertThat(service.list(OWNER, query(TaskFilter.ALL, TaskSort.NEWEST, "a,b", null, null)))
+                .isEqualTo(TaskPage.empty());
+        verify(repository, never()).findPage(any(), any(), anyInt());
+        verify(repository, never()).countMatching(any());
+    }
 
-        verify(repository, never()).findByOwnerIdAndTagId(anyLong(), anyLong(), any());
-        verify(repository, never()).findByOwnerIdOrderByDoneAscCreatedAtDescIdDesc(anyLong());
+    @Test
+    void searchOver100CharactersAfterTrimmingIs400() {
+        String hundred = "é".repeat(100);
+        when(repository.findPage(any(), any(), anyInt())).thenReturn(List.of());
+        service.list(OWNER, query(TaskFilter.ALL, TaskSort.NEWEST, null, "  " + hundred + "  ", null));
+
+        assertThatThrownBy(() -> service.list(OWNER, query(TaskFilter.ALL, TaskSort.NEWEST, null, hundred + "x", null)))
+                .isInstanceOfSatisfying(InvalidFieldsException.class, e -> {
+                    assertThat(e.bindingResult().getFieldErrors()).hasSize(1);
+                    assertThat(e.bindingResult().getFieldError("q").getCode()).isEqualTo("Size");
+                });
+        // UTF-16 code units, like JavaScript's length: 50 emoji = 100.
+        service.list(OWNER, query(TaskFilter.ALL, TaskSort.NEWEST, null, "😀".repeat(50), null));
+        assertThatThrownBy(() -> service.list(OWNER, query(TaskFilter.ALL, TaskSort.NEWEST, null, "😀".repeat(51), null)))
+                .isInstanceOf(InvalidFieldsException.class);
+    }
+
+    @Test
+    void cursorOfAnotherQueryOrGarbageIs400AndNothingIsRead() {
+        Task last = existing(9L);
+        TaskListQuery issuedFor = query(TaskFilter.ACTIVE, TaskSort.DUE, "Work", "milk", null);
+        String cursor = TaskCursor.after(last, TaskSort.DUE).encode(TaskSort.DUE, issuedFor.fingerprint());
+        when(tagService.findTagId(anyLong(), any())).thenReturn(Optional.of(55L));
+        when(repository.findPage(any(), any(), anyInt())).thenReturn(List.of());
+
+        // Same list after normalising: accepted.
+        service.list(OWNER, query(TaskFilter.ACTIVE, TaskSort.DUE, " WÖRK ", " milk ", cursor));
+
+        List<TaskListQuery> others = List.of(
+                query(TaskFilter.ALL, TaskSort.DUE, "Work", "milk", cursor),
+                query(TaskFilter.ACTIVE, TaskSort.NEWEST, "Work", "milk", cursor),
+                query(TaskFilter.ACTIVE, TaskSort.DUE, "Home", "milk", cursor),
+                query(TaskFilter.ACTIVE, TaskSort.DUE, null, "milk", cursor),
+                query(TaskFilter.ACTIVE, TaskSort.DUE, "Work", "milky", cursor),
+                query(TaskFilter.ACTIVE, TaskSort.DUE, "Work", "milk", cursor + "A"),
+                query(TaskFilter.ACTIVE, TaskSort.DUE, "Work", "milk", "garbage"),
+                query(TaskFilter.ACTIVE, TaskSort.DUE, "Work", "milk", "x".repeat(1025)));
+        for (TaskListQuery other : others) {
+            assertThatThrownBy(() -> service.list(OWNER, other)).as(other.toString())
+                    .isInstanceOfSatisfying(InvalidFieldsException.class, e ->
+                            assertThat(e.bindingResult().getFieldError("cursor").getCode())
+                                    .isEqualTo(TaskService.INVALID_CURSOR_CONSTRAINT));
+        }
+        verify(repository, times(1)).findPage(any(), any(), anyInt());
+    }
+
+    @Test
+    void badCursorAndLongSearchAreReportedTogether() {
+        assertThatThrownBy(() -> service.list(OWNER, query(TaskFilter.ALL, TaskSort.NEWEST, null, "x".repeat(101), "@")))
+                .isInstanceOfSatisfying(InvalidFieldsException.class, e ->
+                        assertThat(e.bindingResult().getFieldErrors()).extracting(f -> f.getField())
+                                .containsExactlyInAnyOrder("cursor", "q"));
+        verifyNoInteractions(repository, tagService);
     }
 
     @Test

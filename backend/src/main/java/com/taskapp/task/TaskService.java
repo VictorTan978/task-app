@@ -3,6 +3,7 @@ package com.taskapp.task;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -13,9 +14,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.validation.MapBindingResult;
 
+import com.taskapp.auth.InvalidFieldsException;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
+import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
 
 /**
@@ -24,6 +28,15 @@ import com.taskapp.task.dto.TaskResponse;
  */
 @Service
 public class TaskService {
+
+    /** Constraint name the error handler maps to {@code INVALID_CURSOR}. */
+    public static final String INVALID_CURSOR_CONSTRAINT = "InvalidCursor";
+
+    /** Fixed page size of {@code GET /api/tasks}. */
+    static final int PAGE_SIZE = 50;
+
+    static final String CURSOR_MESSAGE = "The list changed, reload from the first page";
+    static final String SEARCH_TOO_LONG_MESSAGE = "Search must be at most 100 characters";
 
     private final TaskRepository taskRepository;
     private final TagService tagService;
@@ -43,33 +56,51 @@ public class TaskService {
     }
 
     /**
-     * {@code rawTag} is the first {@code ?tag=} value: null/blank = no tag filter; invalid or not one of the owner's
-     * tags = no tasks.
+     * One page of the owner's tasks (contract 0.11.0). 400 ({@link InvalidFieldsException}) for a search over 100
+     * characters or a cursor that can't be read or was issued for another filter/sort/tag/search. A tag that is
+     * invalid or not one of the owner's gives an empty page. Reads 51 rows to know whether a next page exists; the
+     * total is counted in the same snapshot (skipped when the first page already holds everything). Tags of the
+     * page's tasks: one query.
      */
     @Transactional(readOnly = true)
-    public List<TaskResponse> list(long ownerId, TaskFilter filter, String rawTag) {
-        List<Task> tasks;
-        if (TagNames.isBlank(rawTag)) {
-            tasks = switch (filter) {
-                case ALL -> taskRepository.findByOwnerIdOrderByDoneAscCreatedAtDescIdDesc(ownerId);
-                case ACTIVE -> taskRepository.findByOwnerIdAndDoneOrderByCreatedAtDescIdDesc(ownerId, false);
-                case IN_PROGRESS -> taskRepository.findByOwnerIdAndStatusOrderByCreatedAtDescIdDesc(ownerId,
-                        TaskStatus.IN_PROGRESS);
-                case DONE -> taskRepository.findByOwnerIdAndDoneOrderByCreatedAtDescIdDesc(ownerId, true);
-            };
-        } else {
-            Optional<Long> tagId = tagService.findTagId(ownerId, rawTag);
-            if (tagId.isEmpty()) {
-                return List.of();
+    public TaskPage list(long ownerId, TaskListQuery query) {
+        MapBindingResult errors = new MapBindingResult(new HashMap<>(), "taskListQuery");
+        TaskCursor after = null;
+        byte[] fingerprint = query.fingerprint();
+        if (query.hasCursor()) {
+            after = TaskCursor.decode(query.cursor(), query.sort(), fingerprint).orElse(null);
+            if (after == null) {
+                errors.rejectValue("cursor", INVALID_CURSOR_CONSTRAINT, CURSOR_MESSAGE);
             }
-            tasks = taskRepository.findByOwnerIdAndTagId(ownerId, tagId.get(),
-                    filter.statuses().stream().map(Enum::name).toList());
         }
-        if (tasks.isEmpty()) {
-            return List.of();
+        if (query.q().length() > TaskListQuery.MAX_SEARCH_LENGTH) {
+            errors.rejectValue("q", "Size", SEARCH_TOO_LONG_MESSAGE);
         }
-        Map<Long, List<String>> tags = tagService.namesByTask(ownerId);
-        return tasks.stream().map(task -> TaskResponse.from(task, tags.getOrDefault(task.getId(), List.of()))).toList();
+        if (errors.hasErrors()) {
+            throw new InvalidFieldsException(errors);
+        }
+        Long tagId = null;
+        if (!TagNames.isBlank(query.tag())) {
+            Optional<Long> found = tagService.findTagId(ownerId, query.tag());
+            if (found.isEmpty()) {
+                return TaskPage.empty();
+            }
+            tagId = found.get();
+        }
+        TaskSearchCriteria criteria = new TaskSearchCriteria(ownerId, query.filter(), query.sort(), tagId,
+                query.search());
+        List<Task> rows = taskRepository.findPage(criteria, after, PAGE_SIZE + 1);
+        boolean more = rows.size() > PAGE_SIZE;
+        List<Task> tasks = more ? rows.subList(0, PAGE_SIZE) : rows;
+        long total = after == null && !more ? tasks.size() : taskRepository.countMatching(criteria);
+        String nextCursor = more
+                ? TaskCursor.after(tasks.get(tasks.size() - 1), query.sort()).encode(query.sort(), fingerprint)
+                : null;
+        Map<Long, List<String>> tags = tagService.namesByTask(ownerId, tasks.stream().map(Task::getId).toList());
+        List<TaskResponse> items = tasks.stream()
+                .map(task -> TaskResponse.from(task, tags.getOrDefault(task.getId(), List.of())))
+                .toList();
+        return new TaskPage(items, total, nextCursor);
     }
 
     @Transactional(readOnly = true)

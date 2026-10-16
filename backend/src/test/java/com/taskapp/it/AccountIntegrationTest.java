@@ -383,7 +383,7 @@ class AccountIntegrationTest {
         assertThat(r.setCookies()).isEmpty();
         assertThat(jdbc.queryForObject("select count(*) from users where email = 'hal@example.com'", Integer.class))
                 .isEqualTo(1);
-        assertThat(b.get("/api/tasks").json()).hasSize(1);
+        assertThat(b.get("/api/tasks").json().get("items")).hasSize(1);
     }
 
     @Test
@@ -397,7 +397,7 @@ class AccountIntegrationTest {
         assertThat(a.deleteAccount(PASSWORD).status()).isEqualTo(204);
 
         assertThat(other.get("/api/auth/me").json().get("email").asText()).isEqualTo("jon@example.com");
-        JsonNode tasks = other.get("/api/tasks").json();
+        JsonNode tasks = other.get("/api/tasks").json().get("items");
         assertThat(tasks).hasSize(2);
         assertThat(tasks.findValuesAsText("title")).containsExactlyInAnyOrder("Jon task 1", "Jon task 2");
         assertThat(other.createTask("Jon task 3").status()).isEqualTo(201);

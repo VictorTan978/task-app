@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -36,12 +37,15 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.validation.MapBindingResult;
 
+import com.taskapp.auth.InvalidFieldsException;
 import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.security.SecurityConfig;
 import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
+import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
 
 @WebMvcTest(TaskController.class)
@@ -70,43 +74,108 @@ class TaskControllerTest {
 
     // ---- list ----
 
+    private static TaskListQuery query(TaskFilter filter, String tag) {
+        return new TaskListQuery(filter, TaskSort.NEWEST, tag, "", null);
+    }
+
     @Test
-    void listReturnsBareArrayInContractShape() throws Exception {
-        when(taskService.list(OWNER, TaskFilter.ALL, null)).thenReturn(List.of(MILK));
+    void listReturnsAPageInContractShape() throws Exception {
+        when(taskService.list(OWNER, query(TaskFilter.ALL, null))).thenReturn(new TaskPage(List.of(MILK), 120, "AbC-_9"));
 
         mockMvc.perform(get("/api/tasks").with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
-                        [{"id":12,"title":"Buy milk","description":null,"priority":"NONE","status":"TODO","tags":[],
-                          "done":false,"dueDate":"2026-10-10",
-                          "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}]""",
+                        {"items":[{"id":12,"title":"Buy milk","description":null,"priority":"NONE","status":"TODO",
+                          "tags":[],"done":false,"dueDate":"2026-10-10",
+                          "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
+                         "total":120,"nextCursor":"AbC-_9"}""",
                         true));
+    }
+
+    @Test
+    void lastPageHasAnExplicitNullCursor() throws Exception {
+        when(taskService.list(OWNER, query(TaskFilter.ALL, null))).thenReturn(TaskPage.empty());
+
+        mockMvc.perform(get("/api/tasks").with(signedIn()))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"items\":[],\"total\":0,\"nextCursor\":null}", true))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"nextCursor\":null")));
     }
 
     @Test
     void listPassesKnownFilters() throws Exception {
         mockMvc.perform(get("/api/tasks?filter=active").with(signedIn())).andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.ACTIVE, null);
+        verify(taskService).list(OWNER, query(TaskFilter.ACTIVE, null));
 
         mockMvc.perform(get("/api/tasks?filter=done").with(signedIn())).andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.DONE, null);
+        verify(taskService).list(OWNER, query(TaskFilter.DONE, null));
 
         mockMvc.perform(get("/api/tasks?filter=in_progress").with(signedIn())).andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.IN_PROGRESS, null);
+        verify(taskService).list(OWNER, query(TaskFilter.IN_PROGRESS, null));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"/api/tasks", "/api/tasks?filter=", "/api/tasks?filter=foo", "/api/tasks?filter=Done",
             "/api/tasks?filter=all", "/api/tasks?filter=In_progress", "/api/tasks?filter=in-progress"})
     void missingOrUnknownFilterMeansAll(String url) throws Exception {
-        when(taskService.list(OWNER, TaskFilter.ALL, null)).thenReturn(List.of());
+        when(taskService.list(OWNER, query(TaskFilter.ALL, null))).thenReturn(TaskPage.empty());
 
         mockMvc.perform(get(url).with(signedIn()))
                 .andExpect(status().isOk())
-                .andExpect(content().json("[]", true));
+                .andExpect(jsonPath("$.items", hasSize(0)));
 
-        verify(taskService).list(OWNER, TaskFilter.ALL, null);
+        verify(taskService).list(OWNER, query(TaskFilter.ALL, null));
+    }
+
+    @Test
+    void listPassesSortSearchAndCursorFirstValues() throws Exception {
+        mockMvc.perform(get("/api/tasks").param("filter", "done").param("sort", "title", "due")
+                .param("tag", "Work").param("q", "  milk  ", "bread").param("cursor", "abc", "def").with(signedIn()))
+                .andExpect(status().isOk());
+        verify(taskService).list(OWNER, new TaskListQuery(TaskFilter.DONE, TaskSort.TITLE, "Work", "milk", "abc"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"newest", "oldest", "due", "priority", "title"})
+    void knownSortsArePassed(String sort) throws Exception {
+        mockMvc.perform(get("/api/tasks").param("sort", sort).with(signedIn())).andExpect(status().isOk());
+        verify(taskService).list(OWNER,
+                new TaskListQuery(TaskFilter.ALL, TaskSort.valueOf(sort.toUpperCase()), null, "", null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "foo", "Due", "TITLE", "created", " newest"})
+    void unknownSortMeansNewest(String sort) throws Exception {
+        mockMvc.perform(get("/api/tasks").param("sort", sort).with(signedIn())).andExpect(status().isOk());
+        verify(taskService).list(OWNER, query(TaskFilter.ALL, null));
+    }
+
+    @Test
+    void blankSearchIsNoSearch() throws Exception {
+        mockMvc.perform(get("/api/tasks").param("q", " \t\u00a0\u3000 ").with(signedIn())).andExpect(status().isOk());
+        verify(taskService).list(OWNER, query(TaskFilter.ALL, null));
+    }
+
+    @Test
+    void invalidCursorAndTooLongSearchAre400SortedByField() throws Exception {
+        MapBindingResult errors = new MapBindingResult(new HashMap<>(), "taskListQuery");
+        errors.rejectValue("q", "Size", "Search must be at most 100 characters");
+        errors.rejectValue("cursor", TaskService.INVALID_CURSOR_CONSTRAINT, "The list changed, reload from the first page");
+        when(taskService.list(eq(OWNER), any())).thenThrow(new InvalidFieldsException(errors));
+
+        mockMvc.perform(get("/api/tasks").param("q", "x".repeat(101)).param("cursor", "nope").with(signedIn()))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.instance").value("/api/tasks"))
+                .andExpect(jsonPath("$.errors", hasSize(2)))
+                .andExpect(jsonPath("$.errors[0].field").value("cursor"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_CURSOR"))
+                .andExpect(jsonPath("$.errors[0].message").value("The list changed, reload from the first page"))
+                .andExpect(jsonPath("$.errors[1].field").value("q"))
+                .andExpect(jsonPath("$.errors[1].code").value("TOO_LONG"))
+                .andExpect(jsonPath("$.errors[1].message").value("Search must be at most 100 characters"));
     }
 
     // ---- create ----
@@ -404,33 +473,34 @@ class TaskControllerTest {
     void listReturnsPriorityStatusAndTags() throws Exception {
         TaskResponse tagged = new TaskResponse(12L, "Buy milk", null, Priority.HIGH, TaskStatus.IN_PROGRESS,
                 List.of("Errands", "Home"), false, null, CREATED, CREATED);
-        when(taskService.list(OWNER, TaskFilter.ALL, null)).thenReturn(List.of(tagged));
+        when(taskService.list(OWNER, query(TaskFilter.ALL, null))).thenReturn(new TaskPage(List.of(tagged), 1, null));
 
         mockMvc.perform(get("/api/tasks").with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        [{"id":12,"title":"Buy milk","description":null,"priority":"HIGH","status":"IN_PROGRESS",
-                          "tags":["Errands","Home"],"done":false,"dueDate":null,
-                          "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}]""",
+                        {"items":[{"id":12,"title":"Buy milk","description":null,"priority":"HIGH",
+                          "status":"IN_PROGRESS","tags":["Errands","Home"],"done":false,"dueDate":null,
+                          "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
+                         "total":1,"nextCursor":null}""",
                         true));
     }
 
     @Test
     void listPassesTheFirstRawTagValueAndCombinesWithFilter() throws Exception {
         mockMvc.perform(get("/api/tasks?tag=Work").with(signedIn())).andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.ALL, "Work");
+        verify(taskService).list(OWNER, query(TaskFilter.ALL, "Work"));
 
         mockMvc.perform(get("/api/tasks").param("filter", "done").param("tag", " wörk ").with(signedIn()))
                 .andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.DONE, " wörk ");
+        verify(taskService).list(OWNER, query(TaskFilter.DONE, " wörk "));
 
         // Not split on commas, not joined when repeated: the first value as sent.
         mockMvc.perform(get("/api/tasks").param("tag", "a,b").with(signedIn())).andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.ALL, "a,b");
+        verify(taskService).list(OWNER, query(TaskFilter.ALL, "a,b"));
 
         mockMvc.perform(get("/api/tasks").param("filter", "in_progress").param("tag", "first", "second").with(signedIn()))
                 .andExpect(status().isOk());
-        verify(taskService).list(OWNER, TaskFilter.IN_PROGRESS, "first");
+        verify(taskService).list(OWNER, query(TaskFilter.IN_PROGRESS, "first"));
     }
 
     @Test

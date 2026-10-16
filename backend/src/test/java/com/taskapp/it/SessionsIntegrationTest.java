@@ -310,7 +310,7 @@ class SessionsIntegrationTest {
 
         // The new session and the rotated XSRF token just work.
         assertThat(b.createTask("After restart").status()).isEqualTo(201);
-        assertThat(b.get("/api/tasks").json()).hasSize(1);
+        assertThat(b.get("/api/tasks").json().get("items")).hasSize(1);
     }
 
     @Test
