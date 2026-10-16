@@ -1,9 +1,9 @@
-<div class="task-row" [class.task-row--done]="task().done" [attr.aria-busy]="busy()">
+<div class="task-row" [class.task-row--done]="done()" [attr.aria-busy]="busy()">
   <input
     #checkbox
     type="checkbox"
     class="task-row__check"
-    [checked]="task().done"
+    [checked]="done()"
     [disabled]="busy()"
     [attr.aria-label]="'Done: ' + task().title"
     (change)="onToggle($event)"
@@ -12,13 +12,40 @@
     <button type="button" class="task-row__title" [disabled]="busy()" (click)="edit.emit()">
       {{ task().title }}
     </button>
-    @if (task().dueDate; as due) {
+    @if (hasMeta()) {
       <span class="task-row__meta">
-        <span class="task-row__due"
-          >Due <time [attr.datetime]="due">{{ due }}</time></span
-        >
-        @if (overdue()) {
-          <span class="task-row__overdue">Overdue</span>
+        @if (priorityLabel(); as label) {
+          <span
+            class="task-row__badge task-row__priority"
+            [class]="'task-row__priority--' + task().priority.toLowerCase()"
+            [attr.title]="'Priority: ' + label"
+            data-testid="task-priority"
+            >{{ label }}</span
+          >
+        }
+        @if (inProgress()) {
+          <span class="task-row__badge task-row__in-progress" data-testid="task-in-progress"
+            >In progress</span
+          >
+        }
+        @if (task().dueDate; as due) {
+          <span class="task-row__due"
+            >Due <time [attr.datetime]="due">{{ due }}</time></span
+          >
+          @if (overdue()) {
+            <span class="task-row__overdue">Overdue</span>
+          }
+        }
+        @for (tag of task().tags; track tag) {
+          <a
+            class="task-row__tag"
+            routerLink="."
+            queryParamsHandling="merge"
+            [queryParams]="{ tag: tag }"
+            [attr.title]="'Show tasks tagged ' + tag"
+            data-testid="task-tag"
+            >{{ tag }}</a
+          >
         }
       </span>
     }

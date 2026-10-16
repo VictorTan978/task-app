@@ -1,14 +1,38 @@
-import { Task, TaskFilter } from './tasks.models';
+import { hasTag } from './task-tags';
+import { Priority, Task, TaskFilter, TaskStatus } from './tasks.models';
 
-const FILTERS: readonly TaskFilter[] = ['all', 'active', 'done'];
+const FILTERS: readonly TaskFilter[] = ['all', 'active', 'in_progress', 'done'];
 
 /** Exact, case-sensitive match; anything else (missing, empty, unknown) is `all`. */
 export function normaliseFilter(value: string | null | undefined): TaskFilter {
   return FILTERS.find((f) => f === value) ?? 'all';
 }
 
+/** `?tag=` value: missing, empty or blank means no tag filter. Otherwise the raw value. */
+export function normaliseTagParam(value: string | null | undefined): string | null {
+  return value && value.trim() ? value : null;
+}
+
+export function isDone(task: Task): boolean {
+  return task.status === 'DONE';
+}
+
 export function matchesFilter(task: Task, filter: TaskFilter): boolean {
-  return filter === 'all' || (filter === 'done') === task.done;
+  switch (filter) {
+    case 'all':
+      return true;
+    case 'active':
+      return !isDone(task);
+    case 'in_progress':
+      return task.status === 'IN_PROGRESS';
+    case 'done':
+      return isDone(task);
+  }
+}
+
+/** No tag filter, or the task has the tag (ignoring case and accents, a client-side hint). */
+export function matchesTag(task: Task, tag: string | null): boolean {
+  return tag === null || hasTag(task.tags, tag);
 }
 
 const INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/;
@@ -29,10 +53,13 @@ export function instantMicros(value: string): number {
   return ms * 1000 + micros;
 }
 
-/** Server order: not done first, then done; each group createdAt desc, then id desc. */
+/**
+ * Server order: not done (To do and In progress mixed) first, then done; each group createdAt
+ * desc, then id desc. Priority never changes the order.
+ */
 export function compareTasks(a: Task, b: Task): number {
-  if (a.done !== b.done) {
-    return a.done ? 1 : -1;
+  if (isDone(a) !== isDone(b)) {
+    return isDone(a) ? 1 : -1;
   }
   const byCreated = instantMicros(b.createdAt) - instantMicros(a.createdAt);
   return byCreated !== 0 ? byCreated : b.id - a.id;
@@ -43,11 +70,17 @@ export function sortTasks(tasks: readonly Task[]): Task[] {
 }
 
 /**
- * Inserts or replaces `task`, drops it if it no longer matches `filter`, and re-sorts.
+ * Inserts or replaces `task`, drops it if it no longer matches `filter` and `tag`, and re-sorts.
  */
-export function applyTask(tasks: readonly Task[], task: Task, filter: TaskFilter): Task[] {
+export function applyTask(
+  tasks: readonly Task[],
+  task: Task,
+  filter: TaskFilter,
+  tag: string | null = null,
+): Task[] {
   const others = tasks.filter((t) => t.id !== task.id);
-  return sortTasks(matchesFilter(task, filter) ? [...others, task] : others);
+  const keep = matchesFilter(task, filter) && matchesTag(task, tag);
+  return sortTasks(keep ? [...others, task] : others);
 }
 
 /** Today's date in the browser's local time zone as `YYYY-MM-DD`. */
@@ -58,5 +91,21 @@ export function todayLocal(now: Date = new Date()): string {
 
 /** Not done and due strictly before today. Compares `YYYY-MM-DD` strings (no Date parsing). */
 export function isOverdue(task: Task, today: string): boolean {
-  return !task.done && task.dueDate !== null && task.dueDate < today;
+  return !isDone(task) && task.dueDate !== null && task.dueDate < today;
 }
+
+export const PRIORITY_LABELS: Record<Priority, string> = {
+  NONE: 'None',
+  LOW: 'Low',
+  MEDIUM: 'Medium',
+  HIGH: 'High',
+};
+
+export const STATUS_LABELS: Record<TaskStatus, string> = {
+  TODO: 'To do',
+  IN_PROGRESS: 'In progress',
+  DONE: 'Done',
+};
+
+export const PRIORITIES: readonly Priority[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH'];
+export const STATUSES: readonly TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE'];

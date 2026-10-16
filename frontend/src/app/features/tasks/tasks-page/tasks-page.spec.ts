@@ -7,23 +7,34 @@ import {
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { Task } from '../tasks.models';
+import { Task, TaskStatus } from '../tasks.models';
 import { TasksPage } from './tasks-page';
 
 const PAST = '2000-01-01';
 const FUTURE = '2999-12-31';
 
+/** `done: true` alone means status DONE; `status` wins and `done` always mirrors it. */
 function task(overrides: Partial<Task> & { id: number }): Task {
+  const status = overrides.status ?? (overrides.done ? 'DONE' : 'TODO');
   return {
     title: `Task ${overrides.id}`,
     description: null,
-    done: false,
+    priority: 'NONE',
+    tags: [],
     dueDate: null,
     createdAt: `2026-10-0${overrides.id}T09:00:00Z`,
     updatedAt: `2026-10-0${overrides.id}T09:00:00Z`,
     ...overrides,
+    status,
+    done: status === 'DONE',
   };
 }
+
+const withStatus = (t: Task, status: TaskStatus): Task => ({
+  ...t,
+  status,
+  done: status === 'DONE',
+});
 
 const MILK = task({ id: 3, title: 'Buy milk', dueDate: PAST });
 const TAXES = task({ id: 2, title: 'File taxes', description: 'Old folder', dueDate: FUTURE });
@@ -70,23 +81,24 @@ describe('TasksPage', () => {
   const stable = () => harness.fixture.whenStable();
   const text = () => el.textContent ?? '';
 
-  function listReq(filter?: string): TestRequest {
+  function listReq(filter?: string, tag?: string): TestRequest {
     return http.expectOne(
       (r) =>
         r.method === 'GET' &&
         r.url === '/api/tasks' &&
-        (r.params.get('filter') ?? undefined) === filter,
+        (r.params.get('filter') ?? undefined) === filter &&
+        (r.params.get('tag') ?? undefined) === tag,
     );
   }
 
-  async function flushList(tasks: Task[], filter?: string) {
-    listReq(filter).flush(tasks);
+  async function flushList(tasks: Task[], filter?: string, tag?: string) {
+    listReq(filter, tag).flush(tasks);
     await stable();
   }
 
-  async function openWith(tasks: Task[], url = '/tasks', filter?: string) {
+  async function openWith(tasks: Task[], url = '/tasks', filter?: string, tag?: string) {
     await open(url);
-    await flushList(tasks, filter);
+    await flushList(tasks, filter, tag);
   }
 
   function button(name: string, scope: ParentNode = el): HTMLButtonElement {
@@ -221,6 +233,101 @@ describe('TasksPage', () => {
     });
   });
 
+  describe('In progress tab and tag filter', () => {
+    const tagBar = () => el.querySelector<HTMLElement>('[data-testid=tag-filter-bar]');
+    const clearTag = () =>
+      el.querySelector<HTMLButtonElement>('button[aria-label="Clear tag filter"]')!;
+    const tagLink = (title: string, name: string) =>
+      Array.from(row(title).querySelectorAll<HTMLAnchorElement>('a.task-row__tag')).find(
+        (a) => a.textContent?.trim() === name,
+      )!;
+    const WORK = task({ id: 4, title: 'Write report', status: 'IN_PROGRESS', tags: ['Work'] });
+
+    it('the In progress tab loads ?filter=in_progress and has its own empty text', async () => {
+      await openWith([MILK]);
+      expect(Array.from(el.querySelectorAll('nav a')).map((a) => a.textContent?.trim())).toEqual([
+        'All',
+        'Active',
+        'In progress',
+        'Done',
+      ]);
+      link('In progress').click();
+      await stable();
+      expect(TestBed.inject(Router).url).toBe('/tasks?filter=in_progress');
+      await flushList([], 'in_progress');
+      expect(text()).toContain('Nothing in progress');
+      expect(link('In progress').getAttribute('aria-current')).toBe('page');
+    });
+
+    it('a ticked In progress task becomes Done and leaves the In progress tab', async () => {
+      await openWith([WORK], '/tasks?filter=in_progress', 'in_progress');
+      checkbox('Write report').click();
+      await stable();
+      const req = http.expectOne({ method: 'PATCH', url: '/api/tasks/4' });
+      expect(req.request.body).toEqual({ status: 'DONE' });
+      req.flush(withStatus(WORK, 'DONE'));
+      await stable();
+      expect(titles()).toEqual([]);
+      expect(text()).toContain('Nothing in progress');
+    });
+
+    it('loads ?tag with the filter, shows the stored spelling in the bar', async () => {
+      await openWith([WORK], '/tasks?filter=active&tag=w%C3%B6rk', 'active', 'wörk');
+      expect(tagBar()?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tag: Work ×');
+      expect(titles()).toEqual(['Write report']);
+    });
+
+    it('falls back to the raw value and shows "No tasks with this tag" on every tab', async () => {
+      await openWith([], '/tasks?tag=Nope', undefined, 'Nope');
+      expect(tagBar()?.textContent).toContain('Nope');
+      expect(text()).toContain('No tasks with this tag');
+      expect(text()).not.toContain('No tasks yet');
+
+      link('Done').click();
+      await stable();
+      expect(TestBed.inject(Router).url).toBe('/tasks?tag=Nope&filter=done');
+      await flushList([], 'done', 'Nope');
+      expect(text()).toContain('No tasks with this tag');
+    });
+
+    it.each(['/tasks?tag=', '/tasks?tag=%20%20'])('%s means no tag filter', async (url) => {
+      await openWith([], url);
+      expect(tagBar()).toBeNull();
+      expect(text()).toContain('No tasks yet');
+    });
+
+    it('clicking a row tag filters by it, keeping the tab; × clears it, keeping the tab', async () => {
+      const router = TestBed.inject(Router);
+      await openWith([WORK, MILK], '/tasks?filter=active', 'active');
+      expect(tagBar()).toBeNull();
+      tagLink('Write report', 'Work').click();
+      await stable();
+      expect(router.url).toBe('/tasks?filter=active&tag=Work');
+      await flushList([WORK], 'active', 'Work');
+      expect(titles()).toEqual(['Write report']);
+      expect(tagBar()?.textContent).toContain('Tag: Work');
+
+      clearTag().click();
+      await stable();
+      expect(router.url).toBe('/tasks?filter=active');
+      await flushList([WORK, MILK], 'active');
+      expect(tagBar()).toBeNull();
+      expect(titles()).toEqual(['Write report', 'Buy milk']);
+    });
+
+    it('a new (untagged) task does not appear in a tag view', async () => {
+      await openWith([WORK], '/tasks?tag=Work', undefined, 'Work');
+      type('#task-add-title', 'Untagged');
+      await stable();
+      submit(el.querySelector<HTMLFormElement>('app-task-add-form form')!);
+      http
+        .expectOne({ method: 'POST', url: '/api/tasks' })
+        .flush(task({ id: 5, title: 'Untagged' }));
+      await stable();
+      expect(titles()).toEqual(['Write report']);
+    });
+  });
+
   describe('add', () => {
     const addForm = () => el.querySelector<HTMLFormElement>('app-task-add-form form')!;
     const addInput = () => el.querySelector<HTMLInputElement>('#task-add-title')!;
@@ -337,14 +444,14 @@ describe('TasksPage', () => {
       checkbox('File taxes').click();
       await stable();
       const req = http.expectOne({ method: 'PATCH', url: '/api/tasks/2' });
-      expect(req.request.body).toEqual({ done: true });
+      expect(req.request.body).toEqual({ status: 'DONE' });
       expect(checkbox('File taxes').disabled).toBe(true);
       expect(checkbox('Buy milk').disabled).toBe(false);
       expect(button('Edit', row('Buy milk')).disabled).toBe(false);
       // Not moved until the server confirms.
       expect(titles()).toEqual(['Buy milk', 'File taxes', 'Walk dog']);
 
-      req.flush({ ...TAXES, done: true, updatedAt: '2026-10-09T00:00:00Z' });
+      req.flush({ ...withStatus(TAXES, 'DONE'), updatedAt: '2026-10-09T00:00:00Z' });
       await stable();
       expect(titles()).toEqual(['Buy milk', 'File taxes', 'Walk dog']);
       expect(checkbox('File taxes').checked).toBe(true);
@@ -353,7 +460,9 @@ describe('TasksPage', () => {
 
       checkbox('Walk dog').click();
       await stable();
-      http.expectOne({ method: 'PATCH', url: '/api/tasks/1' }).flush({ ...DONE, done: false });
+      const untick = http.expectOne({ method: 'PATCH', url: '/api/tasks/1' });
+      expect(untick.request.body).toEqual({ status: 'TODO' });
+      untick.flush(withStatus(DONE, 'TODO'));
       await stable();
       expect(titles()).toEqual(['Buy milk', 'Walk dog', 'File taxes']);
     });
@@ -362,7 +471,7 @@ describe('TasksPage', () => {
       await openWith([MILK, TAXES], '/tasks?filter=active', 'active');
       checkbox('Buy milk').click();
       await stable();
-      http.expectOne({ method: 'PATCH', url: '/api/tasks/3' }).flush({ ...MILK, done: true });
+      http.expectOne({ method: 'PATCH', url: '/api/tasks/3' }).flush(withStatus(MILK, 'DONE'));
       await stable();
       expect(titles()).toEqual(['File taxes']);
     });
@@ -382,8 +491,8 @@ describe('TasksPage', () => {
       button('Retry').click();
       await stable();
       const retry = http.expectOne({ method: 'PATCH', url: '/api/tasks/3' });
-      expect(retry.request.body).toEqual({ done: true });
-      retry.flush({ ...MILK, done: true });
+      expect(retry.request.body).toEqual({ status: 'DONE' });
+      retry.flush(withStatus(MILK, 'DONE'));
       await stable();
       expect(checkbox('Buy milk').checked).toBe(true);
     });
@@ -408,9 +517,17 @@ describe('TasksPage', () => {
     const editForm = () => el.querySelector<HTMLFormElement>('dialog form')!;
     const value = (sel: string) => el.querySelector<HTMLInputElement>(sel)!;
 
-    async function openEdit(title: string, via: 'title' | 'button' = 'title') {
+    async function openEdit(title: string, via: 'title' | 'button' = 'title', tags: string[] = []) {
       (via === 'title' ? button(title, row(title)) : button('Edit', row(title))).click();
       await stable();
+      http.expectOne({ method: 'GET', url: '/api/tags' }).flush(tags.map((name) => ({ name })));
+      await stable();
+    }
+
+    function select(selector: string, optionValue: string) {
+      const sel = el.querySelector<HTMLSelectElement>(selector)!;
+      sel.value = optionValue;
+      sel.dispatchEvent(new Event('change'));
     }
 
     it.each(['title', 'button'] as const)('opens prefilled via the %s', async (via) => {
@@ -421,10 +538,21 @@ describe('TasksPage', () => {
       expect(value('#task-edit-title').value).toBe('File taxes');
       expect(value('#task-edit-description').value).toBe('Old folder');
       expect(value('#task-edit-due').value).toBe(FUTURE);
-      expect(value('#task-edit-done').checked).toBe(false);
-      for (const label of ['Title', 'Description', 'Due date', 'Done']) {
-        expect(dialog()?.textContent).toContain(label);
-      }
+      expect(value('#task-edit-priority').value).toBe('NONE');
+      expect(value('#task-edit-status').value).toBe('TODO');
+      expect(el.querySelector('#task-edit-done')).toBeNull();
+      const labels = Array.from(dialog()!.querySelectorAll('label')).map((l) => [
+        l.textContent?.trim(),
+        l.htmlFor,
+      ]);
+      expect(labels).toEqual([
+        ['Title', 'task-edit-title'],
+        ['Description', 'task-edit-description'],
+        ['Priority', 'task-edit-priority'],
+        ['Status', 'task-edit-status'],
+        ['Due date', 'task-edit-due'],
+        ['Tags', 'task-edit-tags'],
+      ]);
     });
 
     it('does not open when the checkbox is ticked', async () => {
@@ -435,13 +563,13 @@ describe('TasksPage', () => {
       http.expectOne({ method: 'PATCH', url: '/api/tasks/2' }).flush(TAXES);
     });
 
-    it('Save PUTs all four fields (trimmed, blank description and cleared date as null)', async () => {
+    it('Save PUTs title, description, dueDate, priority, status and tags (never done)', async () => {
       await openWith([MILK, TAXES]);
       await openEdit('File taxes');
       type('#task-edit-title', '  File taxes now ');
       type('#task-edit-description', '   ');
       button('Clear date').click();
-      value('#task-edit-done').click();
+      select('#task-edit-status', 'DONE');
       await stable();
       submit(editForm());
       await stable();
@@ -451,17 +579,22 @@ describe('TasksPage', () => {
         title: 'File taxes now',
         description: null,
         dueDate: null,
-        done: true,
+        priority: 'NONE',
+        status: 'DONE',
+        tags: [],
       });
       expect(button('Save').disabled).toBe(true);
       expect(button('Cancel', dialog()!).disabled).toBe(true);
+      // Every control is disabled while saving.
+      for (const id of ['title', 'description', 'priority', 'status', 'due', 'tags']) {
+        expect(value(`#task-edit-${id}`).disabled).toBe(true);
+      }
 
       req.flush({
-        ...TAXES,
+        ...withStatus(TAXES, 'DONE'),
         title: 'File taxes now',
         description: null,
         dueDate: null,
-        done: true,
       });
       await stable();
       expect(dialog()).toBeNull();
@@ -479,7 +612,9 @@ describe('TasksPage', () => {
         title: 'Buy milk',
         description: null,
         dueDate: '1999-05-04',
-        done: false,
+        priority: 'NONE',
+        status: 'TODO',
+        tags: [],
       });
       req.flush({ ...MILK, dueDate: '1999-05-04' });
       await stable();
@@ -534,7 +669,8 @@ describe('TasksPage', () => {
       http.expectOne({ method: 'PUT', url: '/api/tasks/2' }).flush(
         problem(400, 'VALIDATION_FAILED', [
           { field: 'description', code: 'TOO_LONG', message: 'Server description text' },
-          { field: 'done', code: 'REQUIRED', message: 'Done is required' },
+          { field: 'status', code: 'STATUS_CONFLICT', message: "Status and done don't match" },
+          { field: 'tags', code: 'TOO_MANY', message: 'A task can have at most 10 tags' },
         ]),
         { status: 400, statusText: 'Bad Request' },
       );
@@ -542,7 +678,14 @@ describe('TasksPage', () => {
       expect(el.querySelector('#task-edit-description-error')?.textContent).toContain(
         'Server description text',
       );
-      expect(el.querySelector('#task-edit-done-error')?.textContent).toContain('Done is required');
+      expect(el.querySelector('#task-edit-status-error')?.textContent).toContain(
+        "Status and done don't match",
+      );
+      expect(el.querySelector('#task-edit-tags-error')?.textContent).toContain(
+        'A task can have at most 10 tags',
+      );
+      expect(value('#task-edit-tags').getAttribute('aria-invalid')).toBe('true');
+      expect(value('#task-edit-tags').disabled).toBe(false);
       expect(dialog()?.querySelector('[role=alert]')).toBeNull();
     });
 
@@ -585,6 +728,158 @@ describe('TasksPage', () => {
       expect(banner()?.querySelector('button')).toBeNull();
       await flushList([MILK]);
       expect(titles()).toEqual(['Buy milk']);
+    });
+    function key(selector: string, k: string) {
+      const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+      el.querySelector(selector)!.dispatchEvent(ev);
+      return ev;
+    }
+
+    const removeTag = (name: string) =>
+      dialog()!
+        .querySelector<HTMLButtonElement>(`button[aria-label="Remove tag ${name}"]`)!
+        .click();
+
+    const chips = () =>
+      Array.from(el.querySelectorAll('dialog .tag-chip__name')).map((c) => c.textContent?.trim());
+
+    it('sets priority and In progress; the row shows both badges and stays unticked', async () => {
+      await openWith([TAXES]);
+      await openEdit('File taxes');
+      select('#task-edit-priority', 'HIGH');
+      select('#task-edit-status', 'IN_PROGRESS');
+      submit(editForm());
+      const req = http.expectOne({ method: 'PUT', url: '/api/tasks/2' });
+      expect(req.request.body).toMatchObject({ priority: 'HIGH', status: 'IN_PROGRESS' });
+      expect(req.request.body.done).toBeUndefined();
+      req.flush({ ...withStatus(TAXES, 'IN_PROGRESS'), priority: 'HIGH' });
+      await stable();
+      expect(row('File taxes').querySelector('[data-testid=task-priority]')?.textContent).toContain(
+        'High',
+      );
+      expect(row('File taxes').textContent).toContain('In progress');
+      expect(checkbox('File taxes').checked).toBe(false);
+    });
+
+    it('a Done task set back to To do in the dialog moves to the not-done group', async () => {
+      await openWith([MILK, DONE]);
+      await openEdit('Walk dog');
+      expect(value('#task-edit-status').value).toBe('DONE');
+      select('#task-edit-status', 'TODO');
+      submit(editForm());
+      http.expectOne({ method: 'PUT', url: '/api/tasks/1' }).flush(withStatus(DONE, 'TODO'));
+      await stable();
+      expect(titles()).toEqual(['Buy milk', 'Walk dog']);
+      expect(row('Walk dog').querySelector('.task-row--done')).toBeNull();
+    });
+
+    it('adds tags with Enter and comma, reuses the known spelling, and saves them', async () => {
+      await openWith([TAXES]);
+      await openEdit('File taxes', 'title', ['Errands', 'Work']);
+      type('#task-edit-tags', 'wörk');
+      expect(key('#task-edit-tags', 'Enter').defaultPrevented).toBe(true);
+      type('#task-edit-tags', ' Home ');
+      key('#task-edit-tags', ',');
+      type('#task-edit-tags', 'WORK');
+      key('#task-edit-tags', 'Enter');
+      await stable();
+      expect(chips()).toEqual(['Work', 'Home']);
+      // Text still typed when saving counts as a tag.
+      type('#task-edit-tags', 'Later');
+      submit(editForm());
+      const req = http.expectOne({ method: 'PUT', url: '/api/tasks/2' });
+      expect(req.request.body.tags).toEqual(['Work', 'Home', 'Later']);
+      req.flush({ ...TAXES, tags: ['Home', 'Later', 'Work'] });
+      await stable();
+      const rowTags = Array.from(row('File taxes').querySelectorAll('a.task-row__tag')).map((a) =>
+        a.textContent?.trim(),
+      );
+      expect(rowTags).toEqual(['Home', 'Later', 'Work']);
+    });
+
+    it('a rejected typed tag blocks Save and shows the error under Tags', async () => {
+      await openWith([TAXES]);
+      await openEdit('File taxes');
+      type('#task-edit-tags', 'x'.repeat(31));
+      submit(editForm());
+      await stable();
+      http.expectNone({ method: 'PUT', url: '/api/tasks/2' });
+      expect(el.querySelector('#task-edit-tags-error')?.textContent).toContain(
+        'Tags must be 30 characters or fewer',
+      );
+    });
+
+    it('shows a TAG_LIMIT server error under Tags; it clears when the tags change', async () => {
+      await openWith([TAXES]);
+      await openEdit('File taxes');
+      type('#task-edit-tags', 'New');
+      key('#task-edit-tags', 'Enter');
+      submit(editForm());
+      http
+        .expectOne({ method: 'PUT', url: '/api/tasks/2' })
+        .flush(
+          problem(400, 'VALIDATION_FAILED', [
+            { field: 'tags', code: 'TAG_LIMIT', message: 'You can have at most 200 tags' },
+          ]),
+          { status: 400, statusText: 'Bad Request' },
+        );
+      await stable();
+      expect(el.querySelector('#task-edit-tags-error')?.textContent).toContain(
+        'You can have at most 200 tags',
+      );
+      expect(chips()).toEqual(['New']);
+      removeTag('New');
+      await stable();
+      expect(chips()).toEqual([]);
+      expect(el.querySelector('#task-edit-tags-error')).toBeNull();
+    });
+
+    it('works without suggestions when loading tags fails', async () => {
+      await openWith([TAXES]);
+      button('File taxes', row('File taxes')).click();
+      await stable();
+      http
+        .expectOne('/api/tags')
+        .flush(problem(500, 'INTERNAL_ERROR'), { status: 500, statusText: 'x' });
+      await stable();
+      expect(dialog()?.querySelector('[role=alert]')).toBeNull();
+      type('#task-edit-tags', 'wo');
+      await stable();
+      expect(el.querySelectorAll('[role=option]').length).toBe(0);
+      key('#task-edit-tags', 'Enter');
+      submit(editForm());
+      const req = http.expectOne({ method: 'PUT', url: '/api/tasks/2' });
+      expect(req.request.body.tags).toEqual(['wo']);
+      req.flush({ ...TAXES, tags: ['wo'] });
+      await stable();
+      expect(dialog()).toBeNull();
+    });
+
+    it('fetches the tags each time the dialog opens', async () => {
+      await openWith([TAXES]);
+      await openEdit('File taxes', 'title', ['Work']);
+      button('Cancel', dialog()!).click();
+      await stable();
+      await openEdit('File taxes', 'button', ['Work', 'Home']);
+      type('#task-edit-tags', 'o');
+      await stable();
+      expect(
+        Array.from(el.querySelectorAll('[role=option]')).map((o) => o.textContent?.trim()),
+      ).toEqual(['Work', 'Home']);
+    });
+
+    it('in a tag view, a task that loses the tag disappears after save', async () => {
+      const tagged = { ...TAXES, tags: ['Work'] };
+      await openWith([tagged], '/tasks?tag=Work', undefined, 'Work');
+      await openEdit('File taxes', 'title', ['Work']);
+      removeTag('Work');
+      submit(editForm());
+      const req = http.expectOne({ method: 'PUT', url: '/api/tasks/2' });
+      expect(req.request.body.tags).toEqual([]);
+      req.flush(TAXES);
+      await stable();
+      expect(titles()).toEqual([]);
+      expect(text()).toContain('No tasks with this tag');
     });
   });
 

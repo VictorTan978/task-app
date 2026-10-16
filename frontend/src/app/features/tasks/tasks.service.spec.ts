@@ -9,6 +9,9 @@ const TASK: Task = {
   id: 12,
   title: 'Buy milk',
   description: null,
+  priority: 'NONE',
+  status: 'TODO',
+  tags: [],
   done: false,
   dueDate: '2026-10-10',
   createdAt: '2026-10-08T09:15:02.123456Z',
@@ -38,12 +41,31 @@ describe('TasksService', () => {
     expect(await result).toEqual([TASK]);
   });
 
-  it.each(['active', 'done'] as const)('list("%s") sends ?filter=%s', async (filter) => {
-    const result = firstValueFrom(service.list(filter));
-    const req = http.expectOne(`/api/tasks?filter=${filter}`);
-    expect(req.request.method).toBe('GET');
+  it.each(['active', 'in_progress', 'done'] as const)(
+    'list("%s") sends ?filter=%s',
+    async (filter) => {
+      const result = firstValueFrom(service.list(filter));
+      const req = http.expectOne(`/api/tasks?filter=${filter}`);
+      expect(req.request.method).toBe('GET');
+      req.flush([]);
+      expect(await result).toEqual([]);
+    },
+  );
+
+  it('list with a tag sends ?tag= (combined with filter) and leaves out blank tags', async () => {
+    service.list('done', 'Wörk').subscribe();
+    const req = http.expectOne((r) => r.url === '/api/tasks');
+    expect(req.request.params.get('filter')).toBe('done');
+    expect(req.request.params.get('tag')).toBe('Wörk');
     req.flush([]);
-    expect(await result).toEqual([]);
+
+    service.list('all', '  ').subscribe();
+    const blank = http.expectOne('/api/tasks');
+    expect(blank.request.params.keys()).toEqual([]);
+    blank.flush([]);
+
+    service.list('all', 'Work').subscribe();
+    http.expectOne('/api/tasks?tag=Work').flush([]);
   });
 
   it('create sends POST /api/tasks and returns the 201 task', async () => {
@@ -55,23 +77,38 @@ describe('TasksService', () => {
     expect(await result).toEqual(TASK);
   });
 
-  it('replace sends PUT /api/tasks/{id} with all four fields', async () => {
-    const body = { title: 'Buy oat milk', description: null, dueDate: null, done: true };
+  it('replace sends PUT /api/tasks/{id} with the given body', async () => {
+    const body = {
+      title: 'Buy oat milk',
+      description: null,
+      dueDate: null,
+      priority: 'HIGH' as const,
+      status: 'IN_PROGRESS' as const,
+      tags: ['Home', 'Errands'],
+    };
     const result = firstValueFrom(service.replace(12, body));
     const req = http.expectOne('/api/tasks/12');
     expect(req.request.method).toBe('PUT');
     expect(req.request.body).toEqual(body);
-    req.flush({ ...TASK, ...body });
-    expect((await result).title).toBe('Buy oat milk');
+    req.flush({ ...TASK, ...body, tags: ['Errands', 'Home'] });
+    expect((await result).tags).toEqual(['Errands', 'Home']);
   });
 
-  it('setDone sends PATCH /api/tasks/{id} with {done}', async () => {
-    const result = firstValueFrom(service.setDone(12, true));
+  it.each(['DONE', 'TODO'] as const)('setStatus sends PATCH {status: %s}', async (status) => {
+    const result = firstValueFrom(service.setStatus(12, status));
     const req = http.expectOne('/api/tasks/12');
     expect(req.request.method).toBe('PATCH');
-    expect(req.request.body).toEqual({ done: true });
-    req.flush({ ...TASK, done: true });
-    expect((await result).done).toBe(true);
+    expect(req.request.body).toEqual({ status });
+    req.flush({ ...TASK, status, done: status === 'DONE' });
+    expect((await result).status).toBe(status);
+  });
+
+  it('listTags sends GET /api/tags and returns the objects', async () => {
+    const result = firstValueFrom(service.listTags());
+    const req = http.expectOne('/api/tags');
+    expect(req.request.method).toBe('GET');
+    req.flush([{ name: 'Errands' }, { name: 'Work' }]);
+    expect(await result).toEqual([{ name: 'Errands' }, { name: 'Work' }]);
   });
 
   it('delete sends DELETE /api/tasks/{id} and completes on 204', async () => {
@@ -83,7 +120,7 @@ describe('TasksService', () => {
   });
 
   it('propagates errors', async () => {
-    const result = firstValueFrom(service.setDone(42, true));
+    const result = firstValueFrom(service.setStatus(42, 'DONE'));
     http
       .expectOne('/api/tasks/42')
       .flush({ status: 404, code: 'NOT_FOUND' }, { status: 404, statusText: 'Not Found' });

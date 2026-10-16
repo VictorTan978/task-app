@@ -13,12 +13,29 @@
         class="tasks-tabs__tab"
         routerLink="."
         [queryParams]="{ filter: tab.param }"
+        queryParamsHandling="merge"
         [class.tasks-tabs__tab--active]="filter() === tab.filter"
         [attr.aria-current]="filter() === tab.filter ? 'page' : null"
         >{{ tab.label }}</a
       >
     }
   </nav>
+
+  @if (tagLabel(); as label) {
+    <div class="tasks-tag-bar" data-testid="tag-filter-bar">
+      <span
+        >Tag: <strong class="tasks-tag-bar__name">{{ label }}</strong></span
+      >
+      <button
+        type="button"
+        class="tasks-tag-bar__clear"
+        aria-label="Clear tag filter"
+        (click)="clearTag()"
+      >
+        ×
+      </button>
+    </div>
+  }
 
   @if (banner(); as b) {
     <div class="notice notice--error notice--action" role="alert">

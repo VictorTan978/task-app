@@ -40,30 +40,59 @@
       }
     </div>
 
+    <div class="dialog__row">
+      <div class="field">
+        <label for="task-edit-priority">Priority</label>
+        <select id="task-edit-priority" formControlName="priority">
+          @for (p of priorities; track p.value) {
+            <option [value]="p.value">{{ p.label }}</option>
+          }
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="task-edit-status">Status</label>
+        <select
+          id="task-edit-status"
+          formControlName="status"
+          [attr.aria-invalid]="fieldError('status') ? true : null"
+          [attr.aria-describedby]="fieldError('status') ? 'task-edit-status-error' : null"
+        >
+          @for (s of statuses; track s.value) {
+            <option [value]="s.value">{{ s.label }}</option>
+          }
+        </select>
+        @if (fieldError('status'); as message) {
+          <p class="field-error" id="task-edit-status-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+
     <div class="field">
       <label for="task-edit-due">Due date</label>
       <div class="dialog__inline">
         <input id="task-edit-due" type="date" formControlName="dueDate" />
         @if (form.controls.dueDate.value) {
-          <button type="button" class="btn btn--secondary" (click)="clearDueDate()">
+          <button
+            type="button"
+            class="btn btn--secondary"
+            [disabled]="pending()"
+            (click)="clearDueDate()"
+          >
             Clear date
           </button>
         }
       </div>
     </div>
 
-    <div class="field field--checkbox">
-      <input
-        id="task-edit-done"
-        type="checkbox"
-        formControlName="done"
-        [attr.aria-invalid]="fieldError('done') ? true : null"
-        [attr.aria-describedby]="fieldError('done') ? 'task-edit-done-error' : null"
+    <div class="field">
+      <label for="task-edit-tags">Tags</label>
+      <app-task-tag-input
+        inputId="task-edit-tags"
+        formControlName="tags"
+        [knownTags]="knownTags()"
+        [error]="fieldError('tags')"
       />
-      <label for="task-edit-done">Done</label>
-      @if (fieldError('done'); as message) {
-        <p class="field-error" id="task-edit-done-error">{{ message }}</p>
-      }
     </div>
 
     <div class="dialog__actions">

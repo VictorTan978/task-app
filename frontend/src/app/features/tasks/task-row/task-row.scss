@@ -14,11 +14,14 @@
   &__main {
     display: flex;
     flex: 1;
-    flex-direction: column;
+    flex-flow: row wrap;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
     min-width: 0;
   }
 
   &__title {
+    max-width: 100%;
     padding: 0;
     border: 0;
     background: none;
@@ -40,19 +43,72 @@
 
   &__meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.25rem 0.5rem;
+    min-width: 0;
     font-size: 0.875rem;
     color: var(--color-muted);
   }
 
-  &__overdue {
+  &__badge,
+  &__overdue,
+  &__tag {
     padding: 0 0.5rem;
+    border: 1px solid transparent;
     border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  &__priority--low {
+    color: #3d4350;
+    background: #e7e9ee;
+  }
+
+  &__priority--medium {
+    color: #7a4a00;
+    background: #fff0cc;
+    border-color: #f5c96b;
+  }
+
+  /* Tinted rose, so it reads differently from the solid red "Overdue". */
+  &__priority--high {
+    color: #9f1239;
+    background: #ffe4e6;
+    border-color: #fda4af;
+  }
+
+  &__in-progress {
+    color: var(--color-primary-hover);
+    background: var(--color-info-bg);
+  }
+
+  &__overdue {
     color: #fff;
     background: var(--color-error);
-    font-weight: 600;
-    font-size: 0.75rem;
+  }
+
+  &__tag {
+    max-width: 100%;
+    overflow: hidden;
+    border-color: var(--color-border);
+    color: var(--color-text);
+    background: #fff;
+    font-weight: 400;
+    text-decoration: none;
+    text-overflow: ellipsis;
+
+    &:hover {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 1px;
+    }
   }
 
   &__actions {
@@ -64,6 +120,29 @@
   &--done &__title {
     text-decoration: line-through;
     color: var(--color-muted);
+  }
+
+  &--done &__badge {
+    opacity: 0.6;
+  }
+}
+
+/* Phone: badges and chips under the title, buttons on their own line. */
+@media (max-width: 640px) {
+  .task-row {
+    flex-wrap: wrap;
+
+    &__main {
+      flex-basis: calc(100% - 2rem);
+    }
+
+    &__meta {
+      flex-basis: 100%;
+    }
+
+    &__actions {
+      margin-left: auto;
+    }
   }
 }
 

@@ -1,0 +1,70 @@
+<div
+  class="tag-input"
+  [class.tag-input--disabled]="disabled()"
+  [class.tag-input--invalid]="!!shownError()"
+>
+  @if (tags().length) {
+    <ul class="tag-input__chips">
+      @for (tag of tags(); track tag) {
+        <li class="tag-chip">
+          <span class="tag-chip__name">{{ tag }}</span>
+          <button
+            type="button"
+            class="tag-chip__remove"
+            [disabled]="disabled()"
+            [attr.aria-label]="'Remove tag ' + tag"
+            (click)="remove(tag)"
+          >
+            ×
+          </button>
+        </li>
+      }
+    </ul>
+  }
+  <input
+    #input
+    class="tag-input__text"
+    type="text"
+    role="combobox"
+    autocomplete="off"
+    aria-autocomplete="list"
+    [id]="inputId()"
+    [value]="text()"
+    [disabled]="disabled()"
+    [attr.aria-expanded]="open()"
+    [attr.aria-controls]="listId()"
+    [attr.aria-activedescendant]="activeId()"
+    [attr.aria-invalid]="shownError() ? true : null"
+    [attr.aria-describedby]="describedBy()"
+    (input)="onInput($event)"
+    (keydown)="onKeydown($event)"
+    (blur)="onBlur()"
+  />
+  <ul
+    class="tag-input__list"
+    role="listbox"
+    aria-label="Tag suggestions"
+    [id]="listId()"
+    [hidden]="!open()"
+  >
+    @if (open()) {
+      @for (name of suggestions(); track name; let i = $index) {
+        <li
+          role="option"
+          class="tag-input__option"
+          [id]="optionId(i)"
+          [class.tag-input__option--active]="i === active()"
+          [attr.aria-selected]="i === active()"
+          (mousedown)="onOptionMouseDown($event, name)"
+        >
+          {{ name }}
+        </li>
+      }
+    }
+  </ul>
+</div>
+<p class="field-hint" [id]="hintId()">Press Enter or comma to add a tag.</p>
+@if (shownError(); as message) {
+  <p class="field-error" [id]="errorId()">{{ message }}</p>
+}
+<div class="tag-input__live" aria-live="polite">{{ announcement() }}</div>

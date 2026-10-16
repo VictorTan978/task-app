@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map, Subscription } from 'rxjs';
 import { ConfirmDeleteDialog } from '../confirm-delete-dialog/confirm-delete-dialog';
 import { AddFailure, TaskAddForm } from '../task-add-form/task-add-form';
@@ -14,7 +14,14 @@ import {
   TOGGLE_ERROR,
 } from '../task-form';
 import { TaskRow } from '../task-row/task-row';
-import { applyTask, normaliseFilter, sortTasks, todayLocal } from '../tasks.logic';
+import { findTag } from '../task-tags';
+import {
+  applyTask,
+  normaliseFilter,
+  normaliseTagParam,
+  sortTasks,
+  todayLocal,
+} from '../tasks.logic';
 import { Task, TaskFilter } from '../tasks.models';
 import { TasksService } from '../tasks.service';
 
@@ -33,8 +40,18 @@ interface FilterTab {
 const EMPTY_TEXT: Record<TaskFilter, string> = {
   all: 'No tasks yet — add your first one above',
   active: 'Nothing left to do',
+  in_progress: 'Nothing in progress',
   done: 'Nothing done yet',
 };
+
+/** Empty text on every tab while a tag filter is set. */
+const NO_TAGGED_TASKS = 'No tasks with this tag';
+
+interface ListQuery {
+  filter: TaskFilter;
+  /** Raw `?tag=` value; null when missing or blank. */
+  tag: string | null;
+}
 
 @Component({
   selector: 'app-tasks-page',
@@ -45,11 +62,14 @@ const EMPTY_TEXT: Record<TaskFilter, string> = {
 export class TasksPage {
   private readonly tasksApi = inject(TasksService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private loadSub: Subscription | null = null;
 
   protected readonly tabs: readonly FilterTab[] = [
     { filter: 'all', label: 'All', param: null },
     { filter: 'active', label: 'Active', param: 'active' },
+    { filter: 'in_progress', label: 'In progress', param: 'in_progress' },
     { filter: 'done', label: 'Done', param: 'done' },
   ];
 
@@ -57,6 +77,10 @@ export class TasksPage {
   protected readonly filter = signal<TaskFilter>('all');
   /** Filter the shown list was loaded with (differs from `filter` only after a failed load). */
   private readonly listFilter = signal<TaskFilter>('all');
+  /** Tag selected in the URL (raw value), or null. */
+  protected readonly tag = signal<string | null>(null);
+  /** Tag the shown list was loaded with. */
+  private readonly listTag = signal<string | null>(null);
 
   protected readonly tasks = signal<Task[]>([]);
   protected readonly loading = signal(false);
@@ -69,17 +93,37 @@ export class TasksPage {
   protected readonly editing = signal<Task | null>(null);
   protected readonly deleting = signal<Task | null>(null);
 
-  protected readonly emptyText = computed(() => EMPTY_TEXT[this.listFilter()]);
+  protected readonly emptyText = computed(() =>
+    this.listTag() === null ? EMPTY_TEXT[this.listFilter()] : NO_TAGGED_TASKS,
+  );
+
+  /** The tag bar shows the stored spelling if a loaded task has the tag, else the raw value. */
+  protected readonly tagLabel = computed(() => {
+    const tag = this.tag();
+    if (tag === null) {
+      return null;
+    }
+    return (
+      findTag(
+        this.tasks().flatMap((t) => t.tags),
+        tag,
+      ) ?? tag
+    );
+  });
 
   constructor() {
-    inject(ActivatedRoute)
-      .queryParamMap.pipe(
-        map((params) => normaliseFilter(params.get('filter'))),
-        distinctUntilChanged(),
+    this.route.queryParamMap
+      .pipe(
+        map((params): ListQuery => ({
+          filter: normaliseFilter(params.get('filter')),
+          tag: normaliseTagParam(params.get('tag')),
+        })),
+        distinctUntilChanged((a, b) => a.filter === b.filter && a.tag === b.tag),
         takeUntilDestroyed(),
       )
-      .subscribe((filter) => {
+      .subscribe(({ filter, tag }) => {
         this.filter.set(filter);
+        this.tag.set(tag);
         this.load();
       });
     this.destroyRef.onDestroy(() => this.loadSub?.unsubscribe());
@@ -94,13 +138,15 @@ export class TasksPage {
       this.banner.set(null);
     }
     const filter = this.filter();
+    const tag = this.tag();
     this.loadSub?.unsubscribe();
     this.loading.set(true);
-    this.loadSub = this.tasksApi.list(filter).subscribe({
+    this.loadSub = this.tasksApi.list(filter, tag).subscribe({
       next: (tasks) => {
         this.loading.set(false);
         this.today.set(todayLocal());
         this.listFilter.set(filter);
+        this.listTag.set(tag);
         this.tasks.set(sortTasks(tasks));
         this.loaded.set(true);
       },
@@ -125,6 +171,16 @@ export class TasksPage {
     this.banner.set({ message: ADD_ERROR, retry: failure.retry });
   }
 
+  /** Removes `?tag`, keeping the tab. */
+  protected clearTag(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tag: null },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  /** Checkbox: ticked → status Done, unticked → To do (also from In progress). */
   protected toggle(task: Task, done: boolean): void {
     if (this.isBusy(task.id)) {
       return;
@@ -132,7 +188,7 @@ export class TasksPage {
     this.banner.set(null);
     this.setBusy(task.id, true);
     this.tasksApi
-      .setDone(task.id, done)
+      .setStatus(task.id, done ? 'DONE' : 'TODO')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (updated) => {
@@ -182,7 +238,7 @@ export class TasksPage {
   }
 
   private apply(task: Task): void {
-    this.tasks.update((tasks) => applyTask(tasks, task, this.listFilter()));
+    this.tasks.update((tasks) => applyTask(tasks, task, this.listFilter(), this.listTag()));
   }
 
   private setBusy(id: number, busy: boolean): void {

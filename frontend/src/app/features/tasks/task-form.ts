@@ -26,6 +26,8 @@ const CLIENT_MESSAGES: Record<TaskFieldName, Record<string, string>> = {
     TOO_LONG: 'Description must be 2,000 characters or fewer',
   },
   done: {},
+  status: {},
+  tags: {},
 };
 
 interface ServerError {

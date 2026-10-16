@@ -2,4 +2,5 @@
 export const TASKS_API = {
   list: '/api/tasks',
   one: (id: number) => `/api/tasks/${id}`,
+  tags: '/api/tags',
 } as const;
