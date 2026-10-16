@@ -49,19 +49,37 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
             ORDER BY tt.task_id, t.name""", nativeQuery = true)
     List<TaskTagName> findTaskTagNames(@Param("ownerId") long ownerId);
 
-    @Modifying(flushAutomatically = true)
-    @Query(value = "DELETE FROM task_tags WHERE task_id = :taskId", nativeQuery = true)
-    int unlinkAll(@Param("taskId") long taskId);
+    /*
+     * Locking rules (bug: concurrent tag saves of different users deadlocked). Under REPEATABLE READ a locking
+     * statement that scans a range, or finds no row, takes next-key/gap locks, and those gaps can border another
+     * user's rows (or the supremum, for the newest task ids). So the writes below only touch rows by their exact
+     * primary key, and the reads that decide what to write are plain (non-locking) reads. They are still exact
+     * because the caller holds the owner lock ({@link #lockOwner}) and its snapshot starts after taking it.
+     */
 
+    /** The task's tag ids. Plain read: no row or gap locks. */
+    @Query(value = "SELECT tag_id FROM task_tags WHERE task_id = :taskId", nativeQuery = true)
+    List<Long> findTagIdsByTask(@Param("taskId") long taskId);
+
+    /** How many tasks have the tag. Plain read: no row or gap locks. */
+    @Query(value = "SELECT COUNT(*) FROM task_tags WHERE tag_id = :tagId", nativeQuery = true)
+    long countLinks(@Param("tagId") long tagId);
+
+    /** Exact primary key of an existing row: an X record lock on that row only, no gap lock. */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "DELETE FROM task_tags WHERE task_id = :taskId AND tag_id = :tagId", nativeQuery = true)
+    int unlink(@Param("taskId") long taskId, @Param("tagId") long tagId);
+
+    /** Insert-intention locks only (they never conflict with each other) plus S record locks on the parent rows. */
     @Modifying(flushAutomatically = true)
     @Query(value = "INSERT INTO task_tags (task_id, tag_id) VALUES (:taskId, :tagId)", nativeQuery = true)
     int link(@Param("taskId") long taskId, @Param("tagId") long tagId);
 
-    /** Deletes the owner's tags that no task uses any more. */
+    /**
+     * Deletes one of the owner's tags by primary key: an X record lock on that row only. (The FK check on
+     * task_tags then takes a gap-only lock, which never waits; it is the last write of the transaction.)
+     */
     @Modifying(flushAutomatically = true)
-    @Query(value = """
-            DELETE FROM tags
-            WHERE owner_id = :ownerId
-              AND NOT EXISTS (SELECT 1 FROM task_tags tt WHERE tt.tag_id = tags.id)""", nativeQuery = true)
-    int deleteUnused(@Param("ownerId") long ownerId);
+    @Query(value = "DELETE FROM tags WHERE id = :tagId AND owner_id = :ownerId", nativeQuery = true)
+    int deleteTag(@Param("ownerId") long ownerId, @Param("tagId") long tagId);
 }

@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -23,7 +24,9 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionOperations;
 
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
@@ -43,7 +46,8 @@ class TaskServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new TaskService(repository, tagService, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new TaskService(repository, tagService, TransactionOperations.withoutTransaction(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
         when(repository.saveAndFlush(any(Task.class))).thenAnswer(inv -> {
             Task task = inv.getArgument(0);
             if (task.getId() == null) {
@@ -272,14 +276,16 @@ class TaskServiceTest {
     @Test
     void deleteLocksRemovesTheTaskAndThenUnusedTags() {
         Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(tagService.tagIdsOf(12L)).thenReturn(List.of(5L, 7L));
 
         service.delete(OWNER, 12L);
 
         InOrder order = inOrder(tagService, repository);
         order.verify(tagService).lockOwner(OWNER);
+        order.verify(tagService).tagIdsOf(12L);
         order.verify(repository).delete(task);
         order.verify(repository).flush();
-        order.verify(tagService).deleteUnused(OWNER);
+        order.verify(tagService).deleteUnused(OWNER, List.of(5L, 7L));
     }
 
     @Test
@@ -295,6 +301,43 @@ class TaskServiceTest {
         verify(repository, never()).saveAndFlush(any());
         verify(repository, never()).delete(any());
         verify(tagService, never()).replaceTags(anyLong(), anyLong(), any());
-        verify(tagService, never()).deleteUnused(anyLong());
+        verify(tagService, never()).deleteUnused(anyLong(), any());
+    }
+
+    private static CannotAcquireLockException lockFailure(String sqlState, int errorCode) {
+        return new CannotAcquireLockException("lock", new SQLException("lock", sqlState, errorCode));
+    }
+
+    @Test
+    void replaceRunsTheWholeTransactionAgainAfterLosingADeadlock() {
+        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(repository.findByIdAndOwnerId(12L, OWNER)).thenThrow(lockFailure("40001", 1213))
+                .thenReturn(Optional.of(task));
+        when(tagService.replaceTags(OWNER, 12L, List.of("Work"))).thenReturn(List.of("Work"));
+
+        assertThat(service.replace(OWNER, 12L, put(null, null, null, List.of("Work"))).tags()).containsExactly("Work");
+
+        verify(tagService, times(2)).lockOwner(OWNER);
+        verify(tagService, times(1)).replaceTags(OWNER, 12L, List.of("Work"));
+    }
+
+    @Test
+    void deleteRetriesADeadlockAtMostThreeTimesInAll() {
+        when(repository.findByIdAndOwnerId(12L, OWNER)).thenThrow(lockFailure("40001", 1213));
+
+        assertThatThrownBy(() -> service.delete(OWNER, 12L)).isInstanceOf(CannotAcquireLockException.class);
+
+        verify(repository, times(DeadlockRetry.MAX_ATTEMPTS)).findByIdAndOwnerId(12L, OWNER);
+    }
+
+    @Test
+    void aLockWaitTimeoutIsNotRetried() {
+        when(repository.findByIdAndOwnerId(12L, OWNER)).thenThrow(lockFailure("HY000", 1205));
+
+        assertThatThrownBy(() -> service.replace(OWNER, 12L, put(null, null, null, List.of("Work"))))
+                .isInstanceOf(CannotAcquireLockException.class);
+        assertThatThrownBy(() -> service.delete(OWNER, 12L)).isInstanceOf(CannotAcquireLockException.class);
+
+        verify(repository, times(2)).findByIdAndOwnerId(12L, OWNER);
     }
 }

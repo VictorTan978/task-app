@@ -9,7 +9,10 @@ import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
@@ -24,16 +27,18 @@ public class TaskService {
 
     private final TaskRepository taskRepository;
     private final TagService tagService;
+    private final TransactionOperations transaction;
     private final Clock clock;
 
     @Autowired
-    public TaskService(TaskRepository taskRepository, TagService tagService) {
-        this(taskRepository, tagService, Clock.systemUTC());
+    public TaskService(TaskRepository taskRepository, TagService tagService, PlatformTransactionManager transactions) {
+        this(taskRepository, tagService, new TransactionTemplate(transactions), Clock.systemUTC());
     }
 
-    TaskService(TaskRepository taskRepository, TagService tagService, Clock clock) {
+    TaskService(TaskRepository taskRepository, TagService tagService, TransactionOperations transaction, Clock clock) {
         this.taskRepository = taskRepository;
         this.tagService = tagService;
+        this.transaction = transaction;
         this.clock = clock;
     }
 
@@ -79,9 +84,15 @@ public class TaskService {
         return TaskResponse.from(taskRepository.saveAndFlush(task), List.of());
     }
 
-    /** Missing/null priority, status/done and tags leave those unchanged; {@code tags} replaces when sent. */
-    @Transactional
+    /**
+     * Missing/null priority, status/done and tags leave those unchanged; {@code tags} replaces when sent. One
+     * transaction, run again if it lost a deadlock ({@link DeadlockRetry}).
+     */
     public TaskResponse replace(long ownerId, long id, ReplaceTaskRequest request) {
+        return DeadlockRetry.run(() -> transaction.execute(status -> replaceOnce(ownerId, id, request)));
+    }
+
+    private TaskResponse replaceOnce(long ownerId, long id, ReplaceTaskRequest request) {
         if (request.tags() != null) {
             tagService.lockOwner(ownerId);
         }
@@ -108,13 +119,26 @@ public class TaskService {
         return withTags(ownerId, task);
     }
 
-    /** The task's task_tags rows go with it (ON DELETE CASCADE); tags it was the last user of are deleted too. */
-    @Transactional
+    /**
+     * The task's task_tags rows go with it (ON DELETE CASCADE); tags it was the last user of are deleted too. Locks:
+     * the owner lock, then X record locks on the task row and its link rows; the FK cascade and the tag deletes add
+     * gap-only locks, which never wait, after which nothing else is written. One transaction, run again if it lost
+     * a deadlock ({@link DeadlockRetry}).
+     */
     public void delete(long ownerId, long id) {
+        DeadlockRetry.run(() -> transaction.execute(status -> {
+            deleteOnce(ownerId, id);
+            return null;
+        }));
+    }
+
+    private void deleteOnce(long ownerId, long id) {
         tagService.lockOwner(ownerId);
-        taskRepository.delete(find(ownerId, id));
+        Task task = find(ownerId, id);
+        List<Long> tagIds = tagService.tagIdsOf(task.getId());
+        taskRepository.delete(task);
         taskRepository.flush();
-        tagService.deleteUnused(ownerId);
+        tagService.deleteUnused(ownerId, tagIds);
     }
 
     private TaskResponse withTags(long ownerId, Task task) {

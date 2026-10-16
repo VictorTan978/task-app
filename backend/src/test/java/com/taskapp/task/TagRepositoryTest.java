@@ -194,16 +194,38 @@ class TagRepositoryTest {
     }
 
     @Test
-    void deleteUnusedOnlyDeletesTheOwnersUnusedTags() {
+    void deleteUnusedOnlyDeletesTheGivenTagsThatNoTaskUses() {
         long a = task(alice);
         tagService.replaceTags(alice, a, List.of("Keep"));
-        jdbc.update("insert into tags (owner_id, name) values (?, 'Orphan')", alice);
-        jdbc.update("insert into tags (owner_id, name) values (?, 'Bob orphan')", bob);
+        long keep = tagRepository.findByOwnerIdAndName(alice, "Keep").orElseThrow().getId();
+        long orphan = tagId(alice, "Orphan");
+        long otherOrphan = tagId(alice, "Not listed");
+        long bobs = tagId(bob, "Bob orphan");
 
-        tagService.deleteUnused(alice);
+        tagService.deleteUnused(alice, List.of(keep, orphan, bobs));
 
-        assertThat(tagNames(alice)).containsExactly("Keep");
+        assertThat(tagNames(alice)).containsExactly("Keep", "Not listed");
+        assertThat(tagRepository.existsById(otherOrphan)).isTrue();
         assertThat(tagNames(bob)).containsExactly("Bob orphan");
+    }
+
+    @Test
+    void replaceWritesOnlyTheLinksThatChange() {
+        long t = task(alice);
+        tagService.replaceTags(alice, t, List.of("A", "B"));
+        long a = tagRepository.findByOwnerIdAndName(alice, "A").orElseThrow().getId();
+        long b = tagRepository.findByOwnerIdAndName(alice, "B").orElseThrow().getId();
+
+        assertThat(tagService.replaceTags(alice, t, List.of("b", "C"))).containsExactly("B", "C");
+
+        assertThat(tagService.tagIdsOf(t)).contains(b).doesNotContain(a).hasSize(2);
+        assertThat(tagRepository.existsById(a)).isFalse();
+        assertThat(tagService.replaceTags(alice, t, List.of("B", "C"))).containsExactly("B", "C");
+    }
+
+    private long tagId(long owner, String name) {
+        jdbc.update("insert into tags (owner_id, name) values (?, ?)", owner, name);
+        return jdbc.queryForObject("select id from tags where owner_id = ? and name = ?", Long.class, owner, name);
     }
 
     private void fillTo(long owner, int count) {
