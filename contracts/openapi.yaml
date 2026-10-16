@@ -1,8 +1,50 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.9.0
+  version: 0.10.0
   description: |
+    ## Changes in 0.10.0 (task priority, status and tags, specs/tasks-priority-status-tags.md)
+    Additive only: nothing renamed or removed.
+    - `Task` gains `priority` (`NONE` | `LOW` | `MEDIUM` | `HIGH`, see `Priority`), `status`
+      (`TODO` | `IN_PROGRESS` | `DONE`, see `Status`) and `tags` (array of tag names), always
+      present. `done` stays and is now a **read-only mirror** of `status == DONE`: the two never
+      disagree. Existing tasks: priority `NONE`, no tags, status `DONE` if done else `TODO`.
+    - `POST /api/tasks`: unchanged. New tasks are always `NONE` / `TODO` / `[]`; `priority`,
+      `status` and `tags` in the body are ignored (like `done`).
+    - `PUT /api/tasks/{id}`: `done` is **no longer required**. New optional `priority`, `status`
+      and `tags`; a missing or `null` one leaves the stored value unchanged, `tags: []` removes
+      all tags. See the operation for how `done` and `status` combine.
+    - `PATCH /api/tasks/{id}`: accepts `{done}` and/or `{status}` (at least one).
+    - `GET /api/tasks`: `filter` gains `in_progress`; new `tag` query parameter. Still a bare
+      `Task[]` with the same sort.
+    - New `GET /api/tags`: the signed-in user's tags, for suggestions. A tag is deleted
+      automatically when no task uses it any more.
+    - New field codes: `INVALID_CHARACTERS`, `TOO_MANY`, `TAG_LIMIT`, `STATUS_CONFLICT`
+      (`TOO_LONG` and `REQUIRED` also apply to `tags`). `FieldError.field` gains `status` and
+      `tags`.
+
+    ## Tags
+    A tag belongs to one user and is never visible to anyone else (admins included). Rules,
+    applied by the server to every tag name it receives (`PUT` `tags[]`, `GET /api/tasks?tag=`):
+    1. Rejected if it contains a comma (`,`) or a control character (Unicode category Cc, e.g.
+       tab or newline), anywhere.
+    2. Normalised: leading/trailing whitespace removed and every inner run of whitespace
+       collapsed to one space (U+0020). "Whitespace" here is Java `Character.isWhitespace` or
+       a Unicode space separator (so no-break spaces count too). Emoji and accents are kept.
+    3. Length after normalising: 1-30 UTF-16 code units (JS `.length`). Blank → error.
+    4. Two names are the same tag when they are equal **ignoring letter case and accents**
+       (MySQL `utf8mb4_0900_ai_ci`, the same rule as display names): `Work` = `work` = `wörk`.
+       The spelling stored is the first one the user used; sending another variant reuses the
+       existing tag and keeps its spelling.
+    5. At most 10 different tags per task and at most 200 different tags per user.
+    6. A tag no task uses is deleted automatically in the same request that made it unused
+       (removing it from its last task, or deleting that task). Adding it again later creates it
+       with the spelling sent then.
+
+    Order: wherever a list of tag names is returned (`Task.tags`, `GET /api/tags`) it is sorted
+    alphabetically ignoring case and accents (`utf8mb4_0900_ai_ci` order). Clients should show
+    it as returned.
+
     ## Changes in 0.9.0 (roles and admin users, specs/roles-admin.md)
     - `User` gains `role` (`USER` | `ADMIN` | `SUPER_ADMIN`, see `Role`), always present in every
       response that returns a `User`. Added, nothing renamed. Existing and new accounts are `USER`.
@@ -1688,9 +1730,12 @@ paths:
       summary: List my tasks
       description: |
         Returns all tasks owned by the signed-in user (no pagination). Sort order is fixed:
-        not-done tasks first, then done tasks; within each group `createdAt` descending, then
-        `id` descending. Toggling `done` therefore moves a task between groups but never changes
-        its position inside a group.
+        not-done tasks first (`TODO` and `IN_PROGRESS` mixed), then done tasks; within each group
+        `createdAt` descending, then `id` descending. Priority and status (other than done) never
+        change the order. Changing the status therefore moves a task between the not-done and
+        done groups but never changes its position inside a group.
+
+        `filter` and `tag` combine (AND). Neither ever causes a 400.
       operationId: listTasks
       tags: [tasks]
       parameters:
@@ -1698,13 +1743,27 @@ paths:
           in: query
           required: false
           description: |
-            `all` (default), `active` (done = false) or `done` (done = true).
+            `all` (default), `active` (status `TODO` or `IN_PROGRESS`, i.e. done = false),
+            `in_progress` (status `IN_PROGRESS` only, new in 0.10.0) or `done` (status `DONE`).
             Matching is exact and case-sensitive. A missing, empty or unrecognised value
             (e.g. `?filter=foo`, `?filter=Done`) is treated as `all`; it never causes a 400.
           schema:
             type: string
-            enum: [all, active, done]
+            enum: [all, active, in_progress, done]
             default: all
+        - name: tag
+          in: query
+          required: false
+          description: |
+            New in 0.10.0. Only tasks that have this tag. The value is normalised like a tag
+            name (see "Tags") and matched ignoring letter case and accents, so `?tag=work` finds
+            tasks tagged `Work`. Only the signed-in user's own tags are searched. A tag the user
+            doesn't have (including another user's tag, or a value that could never be a valid
+            tag, e.g. over 30 characters or with a comma) returns `[]`. A missing, empty or blank
+            value means no tag filter. Repeated `tag` parameters: only the first is used.
+          schema:
+            type: string
+          example: Work
       responses:
         '200':
           description: The user's tasks, possibly an empty array
@@ -1718,6 +1777,9 @@ paths:
                 - id: 12
                   title: Buy milk
                   description: null
+                  priority: HIGH
+                  status: IN_PROGRESS
+                  tags: [Errands, Home]
                   done: false
                   dueDate: '2026-10-10'
                   createdAt: '2026-10-08T09:15:02.123456Z'
@@ -1725,6 +1787,9 @@ paths:
                 - id: 7
                   title: File taxes
                   description: Use last year's folder
+                  priority: NONE
+                  status: DONE
+                  tags: []
                   done: true
                   dueDate: null
                   createdAt: '2026-10-01T18:00:00Z'
@@ -1734,8 +1799,9 @@ paths:
     post:
       summary: Create a task
       description: |
-        Creates a task owned by the signed-in user. New tasks are always `done: false`
-        (a `done` property in the body is ignored). `title` and `description` are stripped of
+        Creates a task owned by the signed-in user. New tasks are always `priority: NONE`,
+        `status: TODO`, `done: false` and `tags: []` (`priority`, `status`, `done` and `tags`
+        properties in the body are ignored; set them with `PUT`). `title` and `description` are stripped of
         leading/trailing whitespace before validation; a blank `description` is stored as `null`.
       operationId: createTask
       tags: [tasks]
@@ -1767,6 +1833,9 @@ paths:
                 id: 12
                 title: Buy milk
                 description: null
+                priority: NONE
+                status: TODO
+                tags: []
                 done: false
                 dueDate: '2026-10-10'
                 createdAt: '2026-10-08T09:15:02.123456Z'
@@ -1801,10 +1870,31 @@ paths:
     put:
       summary: Replace a task
       description: |
-        Full replacement of the editable fields. `title` and `done` are required.
-        `description` and `dueDate` should always be sent; `null` (or omitting the property)
-        clears the field. `title`/`description` are stripped before validation and a blank
-        `description` becomes `null`. `updatedAt` is set to now on every successful call.
+        Replaces the editable fields. `title` is required. `description` and `dueDate` should
+        always be sent; `null` (or omitting the property) clears the field. `title`/`description`
+        are stripped before validation and a blank `description` becomes `null`. `updatedAt` is
+        set to now on every successful call.
+
+        New in 0.10.0 (so older clients can't wipe them):
+        - `priority`: missing or `null` → unchanged.
+        - `tags`: missing or `null` → unchanged; an array **replaces** the task's tags (`[]`
+          removes all). Names follow the "Tags" rules; duplicates in the array (ignoring case and
+          accents) count once. Tags the user already has are reused with their stored spelling;
+          new ones are created. Tags left unused by the change are deleted.
+        - `status` and `done` (`done` is no longer required):
+          | Sent | Result |
+          |---|---|
+          | neither | status/done unchanged |
+          | `status` only | status = the value; done follows it |
+          | `done: true` only | status `DONE` |
+          | `done: false` only | `DONE` → `TODO`; `TODO` / `IN_PROGRESS` stay as they are |
+          | both, agreeing (`done == (status == DONE)`) | as `status` only |
+          | both, disagreeing (e.g. `status: IN_PROGRESS, done: true`) | 400 `status` / `STATUS_CONFLICT` |
+
+        All field errors that `@Valid` can detect (title, description, status conflict, tag
+        names, more than 10 tags) are reported together. `tags` / `TAG_LIMIT` (the user would
+        have more than 200 tags) needs the database, so it is only reported when everything else
+        is valid; nothing is saved in that case.
       operationId: replaceTask
       tags: [tasks]
       security:
@@ -1820,7 +1910,9 @@ paths:
               title: Buy oat milk
               description: null
               dueDate: null
-              done: false
+              priority: HIGH
+              status: IN_PROGRESS
+              tags: [' Home ', Errands, errands]
       responses:
         '200':
           description: The updated task
@@ -1832,6 +1924,9 @@ paths:
                 id: 12
                 title: Buy oat milk
                 description: null
+                priority: HIGH
+                status: IN_PROGRESS
+                tags: [Errands, Home]
                 done: false
                 dueDate: null
                 createdAt: '2026-10-08T09:15:02.123456Z'
@@ -1845,11 +1940,15 @@ paths:
         '404':
           $ref: '#/components/responses/TaskNotFound'
     patch:
-      summary: Set a task's done state
+      summary: Set a task's done state or status
       description: |
-        Sets `done` to the given value (it does not flip it), so repeating the call is safe.
-        Only `done` is read from the body. `updatedAt` is set to now on every successful call,
-        even if the value did not change.
+        Sets `done` and/or `status` to the given value (it does not flip it), so repeating the
+        call is safe. Only `done` and `status` are read from the body; at least one is required
+        (neither → 400 `done` / `REQUIRED`). They combine exactly as in `PUT` (table there):
+        `done: true` → `DONE`; `done: false` turns `DONE` into `TODO` and leaves `TODO` /
+        `IN_PROGRESS` as they are; `status` sets the status; both sent and disagreeing → 400
+        `status` / `STATUS_CONFLICT`. `updatedAt` is set to now on every successful call, even if
+        the value did not change.
       operationId: setTaskDone
       tags: [tasks]
       security:
@@ -1861,8 +1960,13 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SetTaskDoneRequest'
-            example:
-              done: true
+            examples:
+              tick:
+                value:
+                  done: true
+              status:
+                value:
+                  status: IN_PROGRESS
       responses:
         '200':
           description: The updated task
@@ -1874,6 +1978,9 @@ paths:
                 id: 12
                 title: Buy milk
                 description: null
+                priority: NONE
+                status: DONE
+                tags: []
                 done: true
                 dueDate: '2026-10-10'
                 createdAt: '2026-10-08T09:15:02.123456Z'
@@ -1905,6 +2012,33 @@ paths:
           $ref: '#/components/responses/CsrfInvalid'
         '404':
           $ref: '#/components/responses/TaskNotFound'
+
+  /api/tags:
+    get:
+      summary: List my tags
+      description: |
+        New in 0.10.0. The names of all tags of the signed-in user, for suggestions in the tag
+        input. Every returned tag is used by at least one of the user's tasks (unused tags are
+        deleted automatically, see "Tags"). Sorted alphabetically ignoring case and accents; at
+        most 200 entries; no pagination, no query parameters (filtering suggestions by what the
+        user typed is done by the client). Never includes another user's tags.
+      operationId: listTags
+      tags: [tasks]
+      responses:
+        '200':
+          description: The user's tag names, possibly an empty array
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 200
+                items:
+                  type: string
+                  minLength: 1
+                  maxLength: 30
+              example: [Errands, Home, Work]
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
 
   /api/admin/users:
     get:
@@ -2640,10 +2774,25 @@ components:
         - `title` / `REQUIRED` / "Title is required" (missing, null, empty or blank after stripping)
         - `title` / `TOO_LONG` / "Title must be 200 characters or fewer"
         - `description` / `TOO_LONG` / "Description must be 2,000 characters or fewer"
-        - `done` / `REQUIRED` / "Done is required" (PUT and PATCH only; missing or null)
+        - `done` / `REQUIRED` / "Done or status is required" (PATCH only; neither `done` nor
+          `status` sent, or both null. Changed in 0.10.0: PUT no longer requires `done`, and the
+          message used to be "Done is required")
+        - `status` / `STATUS_CONFLICT` / "Status and done don't match" (PUT and PATCH; both sent
+          and `done != (status == DONE)`)
+        - `tags` (PUT only; at most one entry, the first rule that fails in this order):
+          - `REQUIRED` / "Tags can't be blank" (an element is null, empty or blank after
+            normalising)
+          - `INVALID_CHARACTERS` / "Tags can't contain commas or control characters"
+          - `TOO_LONG` / "Tags must be 30 characters or fewer" (after normalising)
+          - `TOO_MANY` / "A task can have at most 10 tags" (more than 10 after removing
+            duplicates)
+          - `TAG_LIMIT` / "You can have at most 200 tags" (the user would have more than 200
+            different tags after this change; only checked when all other fields are valid,
+            so it is then the only entry)
 
         A body that is not valid JSON, or has a value of the wrong type or format (for example
-        `dueDate: "2026-02-30"`, `dueDate: "10/08/2026"`, `done: "maybe"`), returns 400 with
+        `dueDate: "2026-02-30"`, `dueDate: "10/08/2026"`, `done: "maybe"`, `priority: "URGENT"`,
+        `status: "done"` (values are case-sensitive), `tags: "Work"`, `tags: [1]`), returns 400 with
         `code: MALFORMED_REQUEST`, `detail: "Malformed request body"` and **no** `errors` array.
         In that case field validation does not run.
       content:
@@ -3070,9 +3219,21 @@ components:
             check, so a malformed value is simply a mismatch).
           example: bob@gmail.com
 
+    Priority:
+      type: string
+      enum: [NONE, LOW, MEDIUM, HIGH]
+      description: New in 0.10.0. Case-sensitive. `NONE` is the default (no badge).
+      example: HIGH
+
+    Status:
+      type: string
+      enum: [TODO, IN_PROGRESS, DONE]
+      description: New in 0.10.0. Case-sensitive. `TODO` is the default. `DONE` if and only if `done` is true.
+      example: IN_PROGRESS
+
     Task:
       type: object
-      required: [id, title, description, done, dueDate, createdAt, updatedAt]
+      required: [id, title, description, priority, status, tags, done, dueDate, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -3090,8 +3251,26 @@ components:
           maxLength: 2000
           description: Stored stripped; `null` when absent or blank (never an empty string).
           example: null
+        priority:
+          $ref: '#/components/schemas/Priority'
+        status:
+          $ref: '#/components/schemas/Status'
+        tags:
+          type: array
+          maxItems: 10
+          description: |
+            New in 0.10.0. The task's tag names in the user's stored spelling, no duplicates,
+            sorted alphabetically ignoring case and accents (see "Tags"). `[]` when none.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 30
+          example: [Errands, Home]
         done:
           type: boolean
+          description: |
+            Read-only mirror of `status == DONE` (kept for older clients; always equals it).
+            Still accepted as input by `PUT` and `PATCH`, see there.
           example: false
         dueDate:
           type: string
@@ -3140,10 +3319,13 @@ components:
 
     ReplaceTaskRequest:
       type: object
-      required: [title, done]
+      required: [title]
       description: |
-        Full replacement. Clients should always send all four properties. `description` and
-        `dueDate` may be `null`; null or omitted clears the field.
+        Clients should always send `title`, `description` and `dueDate`; `description` and
+        `dueDate` may be `null`, and null or omitted clears them. `priority`, `status`, `done` and
+        `tags` are optional: missing or `null` leaves them unchanged (see `PUT /api/tasks/{id}`
+        for how `status` and `done` combine). New clients should send `status` and not `done`.
+        Changed in 0.10.0: `done` is no longer required.
       properties:
         title:
           type: string
@@ -3162,19 +3344,53 @@ components:
           nullable: true
           description: '`YYYY-MM-DD` or `null` (clears it). Past dates are allowed.'
           example: null
+        priority:
+          allOf:
+            - $ref: '#/components/schemas/Priority'
+          nullable: true
+          description: Optional; missing or `null` → unchanged.
+        status:
+          allOf:
+            - $ref: '#/components/schemas/Status'
+          nullable: true
+          description: Optional; missing or `null` → unchanged (unless `done` is sent).
         done:
           type: boolean
-          description: Required; `null` or missing returns `done` / `REQUIRED`.
+          nullable: true
+          description: |
+            Optional (was required before 0.10.0); missing or `null` → unchanged. `true` → status
+            `DONE`; `false` → a `DONE` task becomes `TODO`, others keep their status. Sent
+            together with `status`, it must agree with it, else `status` / `STATUS_CONFLICT`.
           example: false
+        tags:
+          type: array
+          nullable: true
+          description: |
+            Optional; missing or `null` → unchanged. Otherwise the complete new list of tag
+            names (`[]` removes all). See "Tags" for normalising, matching and limits.
+          items:
+            type: string
+          example: [Errands, Home]
 
     SetTaskDoneRequest:
       type: object
-      required: [done]
+      description: |
+        At least one of `done` and `status` (neither, or both null → `done` / `REQUIRED`). Both
+        sent → they must agree (`status` / `STATUS_CONFLICT`). Name kept for compatibility; it
+        also sets the status since 0.10.0.
       properties:
         done:
           type: boolean
-          description: The new value (set, not toggled). `null` or missing returns `done` / `REQUIRED`.
+          nullable: true
+          description: |
+            The new value (set, not toggled). `true` → status `DONE`; `false` → a `DONE` task
+            becomes `TODO`, `TODO` / `IN_PROGRESS` are left as they are.
           example: true
+        status:
+          allOf:
+            - $ref: '#/components/schemas/Status'
+          nullable: true
+          description: New in 0.10.0. The new status (set, not toggled); `done` follows it.
 
     FieldError:
       type: object
@@ -3182,17 +3398,28 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, q, page, size, role]
-          description: Name of the request field (exactly as in the request body).
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role]
+          description: |
+            Name of the request field (exactly as in the request body). `status` and `tags` are
+            new in 0.10.0; a `tags` error refers to the whole array, never to an index.
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT]
           description: |
             Stable machine-readable reason.
-            - REQUIRED: missing, null, empty or blank
+            - REQUIRED: missing, null, empty or blank (for `tags`: an element is; for `done` on
+              PATCH: neither `done` nor `status` was sent)
             - INVALID_EMAIL: not a valid email address
             - TOO_LONG: displayName > 50, email > 254, title > 200 or description > 2000 characters,
-              or the admin search `q` > 100 characters after trimming
+              or the admin search `q` > 100 characters after trimming, or (0.10.0) a tag > 30
+              characters after normalising
+            - INVALID_CHARACTERS: (new in 0.10.0, field `tags`) a tag contains a comma or a
+              control character
+            - TOO_MANY: (new in 0.10.0, field `tags`) more than 10 different tags on one task
+            - TAG_LIMIT: (new in 0.10.0, field `tags`) the user would have more than 200
+              different tags
+            - STATUS_CONFLICT: (new in 0.10.0, field `status`) `status` and `done` both sent and
+              they disagree
             - PASSWORD_LENGTH: password / newPassword not 8-72 characters, or over 72 UTF-8 bytes
               (`newPassword` on `PUT /api/account/password` and `POST /api/auth/reset-password`)
             - EMAIL_TAKEN: (409 only, field `email`) email already registered, ignoring letter
