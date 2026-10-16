@@ -103,3 +103,5 @@ _Filled in by the PM during the build._
 
 | Date | Decision | Why | Approved by |
 |---|---|---|---|
+| 2026-10-16 | Q1–Q14: all recommendations accepted (priority None/Low/Medium/High; status To do/In progress/Done with checkbox → Done/To do; `done` kept as read-only mirror, PATCH accepts `{done}` or `{status}`; tabs All/Active/In progress/Done; order unchanged; tags private, 1–30 chars, collapsed spaces, unique ignoring case+accents, ≤10/task, no comma/control chars, first spelling kept, ≤200 tags/user; one-tag filter `?tag=`; no tag page, unused tags vanish; quick-add unchanged; PUT new fields optional = unchanged, `tags: []` clears; faded priority badge on Done) | User answered "yes" to all | User |
+| 2026-10-16 | Spec approved | — | User |
