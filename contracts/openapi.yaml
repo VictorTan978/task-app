@@ -1,8 +1,46 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.11.0
+  version: 0.12.0
   description: |
+    ## Changes in 0.12.0 (lists, specs/sharing-team-lists.md Part A / T3a)
+    Tasks and tags now live in **lists**. Nothing is shared yet: every list has one owner and
+    only the owner can see or change it, its tasks or its tags (anything else answers 404, never
+    403). See "Lists".
+    - New endpoints (tag `lists`): `GET /api/lists`, `POST /api/lists`, `GET /api/lists/{id}`,
+      `PATCH /api/lists/{id}` (rename), `DELETE /api/lists/{id}`.
+    - New schemas `TaskList`, `TaskListDetails`, `CreateListRequest`, `RenameListRequest`.
+    - `Task` gains `listId` (always present). `CreateTaskRequest` and `ReplaceTaskRequest` gain
+      an optional `listId`: on `POST` it picks the list (missing or `null` → "My tasks"); on
+      `PUT` a different list of mine **moves** the task (missing or `null` → unchanged). There is
+      no separate move endpoint.
+    - New query parameter `list` on `GET /api/tasks` and `GET /api/tags`. Missing or empty →
+      "My tasks", so calls without it keep working (they return only "My tasks").
+    - Tags belong to a list (see "Tags"): the same name can exist in two lists, the 200-tag limit
+      is per list, `GET /api/tags` returns one list's tags and `?tag=` filters inside the list.
+      The `TAG_LIMIT` message is now "A list can have at most 200 tags".
+    - Page cursors now also carry the list (cursor version 2). A cursor issued for another list
+      is rejected with the existing `cursor` / `INVALID_CURSOR`.
+    - New error codes: `LIST_NOT_FOUND` (404), `LIST_LIMIT` (409), `PERSONAL_LIST` (409). A
+      missing task stays `NOT_FOUND`. `FieldError.field` gains `name`.
+    - **One-off effects at deploy:** every cursor issued by 0.11.0 gives 400 `INVALID_CURSOR`
+      once (the client reloads from the first page, as for any invalid cursor). Every existing
+      task and tag is on its owner's "My tasks".
+
+    ## Lists (0.12.0)
+    - Every user has exactly one **personal** list (`personal: true`), created with the account
+      (email register and Google sign-up) and named "My tasks". Existing users got one holding
+      all their tasks and tags. It can be renamed but not deleted (409 `PERSONAL_LIST`). It is
+      the default wherever a list is optional ("My tasks" below means this list, whatever its
+      current name).
+    - A user can own at most **50 lists, "My tasks" included** (409 `LIST_LIMIT` on the 51st).
+    - Names: same trimming and length counting as task titles (Java `String.strip()`, then 1-100
+      UTF-16 code units). Duplicate names are allowed (lists are identified by `id`).
+    - A list, its tasks or its tags that are not the signed-in user's (unknown id, another
+      user's list, a deleted list) always give **404 `LIST_NOT_FOUND`**, never 403, with the
+      same body in every case. Admins see only their own lists, like any user.
+    - Deleting a list deletes its tasks and its tags. Deleting an account deletes all its lists.
+
     ## Changes in 0.11.0 (tasks search, sort and pagination, specs/tasks-search-sort-pagination.md)
     **Breaking (approved):** `GET /api/tasks` returns a `TaskPage` object
     (`{ items, total, nextCursor }`) instead of a bare `Task[]`. Only our own frontend uses it.
@@ -37,8 +75,11 @@ info:
       `tags`.
 
     ## Tags
-    A tag belongs to one user and is never visible to anyone else (admins included). Rules,
-    applied by the server to every tag name it receives (`PUT` `tags[]`, `GET /api/tasks?tag=`):
+    A tag belongs to one **list** (changed in 0.12.0: it belonged to the user) and is never
+    visible to anyone else (admins included). Each list has its own tags: the same name can
+    exist in two lists as two separate tags, a tag of one list is never returned, suggested or
+    matched in another. Rules, applied by the server to every tag name it receives (`PUT`
+    `tags[]`, `GET /api/tasks?tag=`), always inside one list:
     1. Rejected if it contains a comma (`,`) or a control character (Unicode category Cc, e.g.
        tab or newline), anywhere.
     2. Normalised: leading/trailing whitespace removed and every inner run of whitespace
@@ -47,12 +88,13 @@ info:
     3. Length after normalising: 1-30 UTF-16 code units (JS `.length`). Blank → error.
     4. Two names are the same tag when they are equal **ignoring letter case and accents**
        (MySQL `utf8mb4_0900_ai_ci`, the same rule as display names): `Work` = `work` = `wörk`.
-       The spelling stored is the first one the user used; sending another variant reuses the
-       existing tag and keeps its spelling.
-    5. At most 10 different tags per task and at most 200 different tags per user.
-    6. A tag no task uses is deleted automatically in the same request that made it unused
-       (removing it from its last task, or deleting that task). Adding it again later creates it
-       with the spelling sent then.
+       The spelling stored is the first one used in that list; sending another variant reuses
+       the list's existing tag and keeps its spelling.
+    5. At most 10 different tags per task and at most 200 different tags per list (0.12.0: was
+       per user).
+    6. A tag no task in its list uses is deleted automatically in the same request that made it
+       unused (removing it from its last task, deleting that task, or moving that task to
+       another list). Adding it again later creates it with the spelling sent then.
 
     Order: wherever tags are returned (`Task.tags`, `GET /api/tags` by `name`) they are sorted
     alphabetically ignoring case and accents (`utf8mb4_0900_ai_ci` order). Clients should show
@@ -504,7 +546,8 @@ info:
     ## Request bodies
     Unknown properties in a JSON request body are ignored (never an error). In particular any
     `id`, `ownerId`, `createdAt` or `updatedAt` sent by the client is ignored; the task owner is
-    always the signed-in user from the session.
+    always the signed-in user from the session. A task's list (0.12.0) can only be one of the
+    signed-in user's own lists (`listId`, else 404 `LIST_NOT_FOUND`).
 servers:
   - url: http://localhost:8080
 tags:
@@ -512,6 +555,8 @@ tags:
   - name: auth
   - name: account
   - name: tasks
+  - name: lists
+    description: Task lists (0.12.0). Each list has one owner; nothing is shared yet.
   - name: admin
     description: Admin users page (0.9.0), `ADMIN` and `SUPER_ADMIN` only.
 paths:
@@ -1742,11 +1787,16 @@ paths:
     get:
       summary: List my tasks (one page)
       description: |
-        Returns one page (at most 50) of the tasks owned by the signed-in user, as a `TaskPage`.
+        Returns one page (at most 50) of the tasks in one of the signed-in user's lists (`list`,
+        default "My tasks"), as a `TaskPage`.
         Changed in 0.11.0 (breaking): the response was a bare `Task[]`.
 
-        **Which tasks:** `filter`, `tag` and `q` combine (AND). Only the signed-in user's own
-        tasks, ever (admins see only their own tasks too).
+        **Which tasks:** the tasks of the list given by `list` (0.12.0); `filter`, `tag` and `q`
+        combine (AND) inside it. Only the signed-in user's own lists, ever (admins see only their
+        own lists too). There is no "all lists" view.
+
+        **Checks, in order:** `list` first (404 `LIST_NOT_FOUND` when it is not one of my lists,
+        even if `q` or `cursor` is invalid too), then `q` and `cursor` (400).
 
         **Order** (`sort`):
         1. Group: with `filter=all`, not-done tasks (`TODO` and `IN_PROGRESS` mixed) come first,
@@ -1762,8 +1812,8 @@ paths:
         Status other than done never changes the order inside a group.
 
         **Paging (keyset):** the first request has no `cursor`. If more tasks follow, the page has
-        a non-null `nextCursor`; pass it back unchanged as `?cursor=` **with the same `filter`,
-        `tag`, `q` and `sort`** to get the next page. The last page has `nextCursor: null`. The
+        a non-null `nextCursor`; pass it back unchanged as `?cursor=` **with the same `list`,
+        `filter`, `tag`, `q` and `sort`** to get the next page. The last page has `nextCursor: null`. The
         cursor holds the sort position of the last task returned, not an offset, so tasks added,
         edited, ticked or deleted between requests never make a later page repeat or skip a task
         that kept its place in the order. A task whose sort position changed after its page was
@@ -1772,14 +1822,16 @@ paths:
         `nextCursor: null` (e.g. the remaining tasks were deleted). Page size is fixed at 50; there
         is no `limit` parameter (unknown parameters are ignored).
 
-        `total` is the number of tasks matching `filter` + `tag` + `q` right now (all pages), not
-        the number on this page. It is recomputed on every page.
+        `total` is the number of tasks of the list matching `filter` + `tag` + `q` right now (all
+        pages), not the number on this page. It is recomputed on every page.
 
         Nothing but `q` and `cursor` can cause a 400: unknown `filter` / `sort` values fall back
-        to the default and an unusable `tag` gives an empty page.
+        to the default and an unusable `tag` gives an empty page. Nothing but `list` can cause a
+        404.
       operationId: listTasks
       tags: [tasks]
       parameters:
+        - $ref: '#/components/parameters/ListQuery'
         - name: filter
           in: query
           required: false
@@ -1798,9 +1850,10 @@ paths:
           description: |
             New in 0.10.0. Only tasks that have this tag. The value is normalised like a tag
             name (see "Tags") and matched ignoring letter case and accents, so `?tag=work` finds
-            tasks tagged `Work`. Only the signed-in user's own tags are searched. A tag the user
-            doesn't have (including another user's tag, or a value that could never be a valid
-            tag, e.g. over 30 characters or with a comma) returns an empty page
+            tasks tagged `Work`. Only the tags of the selected list are searched (0.12.0). A tag
+            the list doesn't have (including a tag of another list or another user, or a value
+            that could never be a valid tag, e.g. over 30 characters or with a comma) returns an
+            empty page
             (`{"items": [], "total": 0, "nextCursor": null}`, changed in 0.11.0: was `[]`). A
             missing, empty or blank value means no tag filter. Repeated `tag` parameters: only the
             first is used.
@@ -1842,17 +1895,20 @@ paths:
             first page.
             400 `VALIDATION_FAILED` with `cursor` / `INVALID_CURSOR` when it cannot be read
             (altered, truncated, from another API version) or was issued for a different
-            `filter`, `tag`, `q` or `sort` (compared after the same normalising as the request,
-            e.g. `?filter=foo` and `?filter=all` are the same). The client should then reload
-            from the first page. A cursor never exposes or reaches another user's tasks: the
-            owner always comes from the session.
+            list, `filter`, `tag`, `q` or `sort` (compared after the same normalising as the
+            request, e.g. `?filter=foo` and `?filter=all` are the same, and a missing `list` is
+            the same as `?list=<id of My tasks>`). The client should then reload from the first
+            page. A cursor never exposes or reaches another list's or user's tasks: the list is
+            always checked against the session's user first.
+            0.12.0: the cursor format changed (version 2, it now carries the list), so every
+            cursor issued before 0.12.0 gives `INVALID_CURSOR` once.
           schema:
             type: string
             maxLength: 1024
-          example: eyJ2IjoxLCJzIjoibmV3ZXN0IiwiZiI6IjNmYTkiLCJrIjpbMCwiMjAyNi0xMC0wMVQxODowMDowMFoiLDddfQ
+          example: eyJ2IjoyLCJzIjoibmV3ZXN0IiwiZiI6IjhjMWUiLCJrIjpbMCwiMjAyNi0xMC0wMVQxODowMDowMFoiLDddfQ
       responses:
         '200':
-          description: One page of the user's tasks (possibly empty).
+          description: One page of the list's tasks (possibly empty).
           content:
             application/json:
               schema:
@@ -1863,6 +1919,7 @@ paths:
                   value:
                     items:
                       - id: 12
+                        listId: 3
                         title: Buy milk
                         description: null
                         priority: HIGH
@@ -1873,6 +1930,7 @@ paths:
                         createdAt: '2026-10-08T09:15:02.123456Z'
                         updatedAt: '2026-10-08T09:15:02.123456Z'
                       - id: 7
+                        listId: 3
                         title: File taxes
                         description: Use last year's folder
                         priority: NONE
@@ -1883,11 +1941,12 @@ paths:
                         createdAt: '2026-10-01T18:00:00Z'
                         updatedAt: '2026-10-07T08:30:41.5Z'
                     total: 120
-                    nextCursor: eyJ2IjoxLCJzIjoibmV3ZXN0IiwiZiI6IjNmYTkiLCJrIjpbMSwiMjAyNi0xMC0wMVQxODowMDowMFoiLDddfQ
+                    nextCursor: eyJ2IjoyLCJzIjoibmV3ZXN0IiwiZiI6IjhjMWUiLCJrIjpbMSwiMjAyNi0xMC0wMVQxODowMDowMFoiLDddfQ
                 lastPage:
                   value:
                     items:
                       - id: 3
+                        listId: 3
                         title: Call Bob
                         description: null
                         priority: LOW
@@ -1926,6 +1985,8 @@ paths:
                     message: Search must be at most 100 characters
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
     post:
       summary: Create a task
       description: |
@@ -1933,6 +1994,10 @@ paths:
         `status: TODO`, `done: false` and `tags: []` (`priority`, `status`, `done` and `tags`
         properties in the body are ignored; set them with `PUT`). `title` and `description` are stripped of
         leading/trailing whitespace before validation; a blank `description` is stored as `null`.
+
+        0.12.0: the task goes into the list `listId` (missing or `null` → "My tasks"). A
+        `listId` that is not one of my lists (unknown, another user's, deleted) gives 404
+        `LIST_NOT_FOUND` and nothing is created. Body validation (400) runs first.
       operationId: createTask
       tags: [tasks]
       security:
@@ -1944,9 +2009,17 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateTaskRequest'
-            example:
-              title: '  Buy milk '
-              dueDate: '2026-10-10'
+            examples:
+              myTasks:
+                summary: Into "My tasks" (no listId)
+                value:
+                  title: '  Buy milk '
+                  dueDate: '2026-10-10'
+              otherList:
+                summary: Into another of my lists (0.12.0)
+                value:
+                  title: Paint the fence
+                  listId: 8
       responses:
         '201':
           description: Created
@@ -1961,6 +2034,7 @@ paths:
                 $ref: '#/components/schemas/Task'
               example:
                 id: 12
+                listId: 3
                 title: Buy milk
                 description: null
                 priority: NONE
@@ -1976,12 +2050,15 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
 
   /api/tasks/{id}:
     parameters:
       - $ref: '#/components/parameters/TaskId'
     get:
       summary: Get one of my tasks
+      description: Any task in any of my lists (0.12.0); `listId` says which list it is in.
       operationId: getTask
       tags: [tasks]
       responses:
@@ -2022,9 +2099,27 @@ paths:
           | both, disagreeing (e.g. `status: IN_PROGRESS, done: true`) | 400 `status` / `STATUS_CONFLICT` |
 
         All field errors that `@Valid` can detect (title, description, status conflict, tag
-        names, more than 10 tags) are reported together. `tags` / `TAG_LIMIT` (the user would
+        names, more than 10 tags) are reported together. `tags` / `TAG_LIMIT` (the list would
         have more than 200 tags) needs the database, so it is only reported when everything else
         is valid; nothing is saved in that case.
+
+        **Moving (new in 0.12.0):** `listId` set to another of my lists moves the task there, in
+        the same request as the other changes. Missing, `null` or the task's current list → it
+        stays where it is.
+        - Tags after the move: the `tags` sent, or the task's current tag names when `tags` is
+          missing or `null`. Each name reuses the target list's tag with the same name (ignoring
+          case and accents, keeping the target's spelling) or is created in the target list.
+        - Tags of the source list that no task there uses any more are deleted.
+        - If the target list would have more than 200 tags: 400 `tags` / `TAG_LIMIT` ("A list can
+          have at most 200 tags") and **nothing changes** (the task stays, with its fields and
+          tags as they were).
+        - `createdAt` is unchanged; `updatedAt` is set to now as on every PUT. The task keeps its
+          `id`.
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` (id or body) > 400 `VALIDATION_FAILED`
+        (body fields) > 404 `NOT_FOUND` (the task is not in one of my lists, e.g. deleted
+        meanwhile, also when its list was deleted) > 404 `LIST_NOT_FOUND` (`listId` is not one
+        of my lists: unknown, another user's, deleted meanwhile) > 400 `tags` / `TAG_LIMIT`.
       operationId: replaceTask
       tags: [tasks]
       security:
@@ -2036,22 +2131,32 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ReplaceTaskRequest'
-            example:
-              title: Buy oat milk
-              description: null
-              dueDate: null
-              priority: HIGH
-              status: IN_PROGRESS
-              tags: [' Home ', Errands, errands]
+            examples:
+              edit:
+                value:
+                  title: Buy oat milk
+                  description: null
+                  dueDate: null
+                  priority: HIGH
+                  status: IN_PROGRESS
+                  tags: [' Home ', Errands, errands]
+              move:
+                summary: Move to list 8, keeping the current tags (0.12.0)
+                value:
+                  title: Buy oat milk
+                  description: null
+                  dueDate: null
+                  listId: 8
       responses:
         '200':
-          description: The updated task
+          description: The updated (and possibly moved) task
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Task'
               example:
                 id: 12
+                listId: 3
                 title: Buy oat milk
                 description: null
                 priority: HIGH
@@ -2068,7 +2173,7 @@ paths:
         '403':
           $ref: '#/components/responses/CsrfInvalid'
         '404':
-          $ref: '#/components/responses/TaskNotFound'
+          $ref: '#/components/responses/TaskOrListNotFound'
     patch:
       summary: Set a task's done state or status
       description: |
@@ -2106,6 +2211,7 @@ paths:
                 $ref: '#/components/schemas/Task'
               example:
                 id: 12
+                listId: 3
                 title: Buy milk
                 description: null
                 priority: NONE
@@ -2125,7 +2231,9 @@ paths:
           $ref: '#/components/responses/TaskNotFound'
     delete:
       summary: Delete a task permanently
-      description: Hard delete. Deleting a task that does not exist (or was already deleted) returns 404.
+      description: |
+        Hard delete. Deleting a task that does not exist (or was already deleted, or whose list
+        was deleted) returns 404. Tags of its list that no task uses any more are deleted.
       operationId: deleteTask
       tags: [tasks]
       security:
@@ -2145,18 +2253,22 @@ paths:
 
   /api/tags:
     get:
-      summary: List my tags
+      summary: List the tags of one of my lists
       description: |
-        New in 0.10.0. All tags of the signed-in user (`Tag` objects, not bare strings, so fields
-        can be added later without a breaking change), for suggestions in the tag input. Every returned tag is used by at least one of the user's tasks (unused tags are
-        deleted automatically, see "Tags"). Sorted alphabetically ignoring case and accents; at
-        most 200 entries; no pagination, no query parameters (filtering suggestions by what the
-        user typed is done by the client). Never includes another user's tags.
+        New in 0.10.0. All tags of one of the signed-in user's lists (`list`, default "My tasks";
+        changed in 0.12.0: was all of the user's tags), as `Tag` objects (not bare strings, so
+        fields can be added later without a breaking change), for suggestions in the tag input.
+        Every returned tag is used by at least one task of that list (unused tags are deleted
+        automatically, see "Tags"). Sorted alphabetically ignoring case and accents; at most 200
+        entries; no pagination, no other query parameters (filtering suggestions by what the
+        user typed is done by the client). Never includes another list's or user's tags.
       operationId: listTags
       tags: [tasks]
+      parameters:
+        - $ref: '#/components/parameters/ListQuery'
       responses:
         '200':
-          description: The user's tags, possibly an empty array
+          description: The list's tags, possibly an empty array
           content:
             application/json:
               schema:
@@ -2170,6 +2282,193 @@ paths:
                 - name: Work
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+
+  /api/lists:
+    get:
+      summary: List my lists
+      description: |
+        New in 0.12.0. All lists the signed-in user owns (at most 50), unpaged, for the list
+        picker. Always contains "My tasks" (`personal: true`), which is **first**; the others
+        follow by `name` ignoring letter case and accents (MySQL `utf8mb4_0900_ai_ci`), then by
+        `id` ascending (duplicate names are allowed). No task counts here: use
+        `GET /api/lists/{id}` for one list's count. No query parameters.
+      operationId: listLists
+      tags: [lists]
+      responses:
+        '200':
+          description: My lists, "My tasks" first. Never empty.
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 1
+                maxItems: 50
+                items:
+                  $ref: '#/components/schemas/TaskList'
+              example:
+                - id: 3
+                  name: My tasks
+                  personal: true
+                - id: 8
+                  name: Home
+                  personal: false
+                - id: 9
+                  name: Work
+                  personal: false
+                - id: 11
+                  name: work
+                  personal: false
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      summary: Create a list
+      description: |
+        New in 0.12.0. Creates an empty, non-personal list owned by the signed-in user. `name`
+        follows the task-title rules (see `CreateListRequest`). Duplicate names are allowed.
+        A user can own at most 50 lists including "My tasks": the 51st gives 409 `LIST_LIMIT`
+        and nothing is created (also when two requests race at the limit). Not rate limited
+        (the 50-list limit caps it).
+
+        **Checks, in order:** 400 (`MALFORMED_REQUEST`, then `VALIDATION_FAILED`) > 409
+        `LIST_LIMIT` > 201.
+      operationId: createList
+      tags: [lists]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListRequest'
+            example:
+              name: '  Home '
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              description: URL of the new list, e.g. `/api/lists/8`
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+              example:
+                id: 8
+                name: Home
+                personal: false
+        '400':
+          $ref: '#/components/responses/ListValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '409':
+          $ref: '#/components/responses/ListLimit'
+
+  /api/lists/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ListId'
+    get:
+      summary: Get one of my lists, with its task count
+      description: |
+        New in 0.12.0. The list plus `taskCount`: the number of tasks in it right now, of every
+        status (done included). The delete dialog reads it when it opens ("Delete "Home" and
+        its 12 tasks?").
+      operationId: getList
+      tags: [lists]
+      responses:
+        '200':
+          description: The list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskListDetails'
+              example:
+                id: 8
+                name: Home
+                personal: false
+                taskCount: 12
+        '400':
+          $ref: '#/components/responses/MalformedListId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+    patch:
+      summary: Rename a list
+      description: |
+        New in 0.12.0. Sets the list's name. Works on "My tasks" too (it stays the personal
+        list). Same `name` rules as create; duplicate names are allowed; sending the current
+        name succeeds and changes nothing visible. Only `name` is read from the body.
+
+        **Checks, in order:** 400 (`MALFORMED_REQUEST` for the id or body, then
+        `VALIDATION_FAILED`) > 404 `LIST_NOT_FOUND` > 200.
+      operationId: renameList
+      tags: [lists]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameListRequest'
+            example:
+              name: Groceries
+      responses:
+        '200':
+          description: The renamed list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+              example:
+                id: 8
+                name: Groceries
+                personal: false
+        '400':
+          $ref: '#/components/responses/ListValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+    delete:
+      summary: Delete a list with its tasks and tags
+      description: |
+        New in 0.12.0. Permanently deletes the list, every task in it and every tag of it. Not
+        reversible. "My tasks" can't be deleted: 409 `PERSONAL_LIST`, nothing changes.
+        Deleting a list that does not exist (or was already deleted) gives 404. Requests still
+        running on its tasks (edits, moves into or out of it) get 404 too, never 500.
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `LIST_NOT_FOUND` (so another user's
+        "My tasks" is a 404, not a 409) > 409 `PERSONAL_LIST` > 204.
+      operationId: deleteList
+      tags: [lists]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Deleted. No body.
+        '400':
+          $ref: '#/components/responses/MalformedListId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+        '409':
+          $ref: '#/components/responses/PersonalList'
 
   /api/admin/users:
     get:
@@ -2572,6 +2871,33 @@ components:
         format: int64
         example: 12
 
+    ListId:
+      name: id
+      in: path
+      required: true
+      description: |
+        List id (0.12.0). A list that does not exist, was deleted or belongs to another user
+        returns 404 `LIST_NOT_FOUND` (identical body in every case). A non-integer id returns
+        400 `MALFORMED_REQUEST`.
+      schema:
+        type: integer
+        format: int64
+        example: 8
+
+    ListQuery:
+      name: list
+      in: query
+      required: false
+      description: |
+        New in 0.12.0. Id of one of my lists. Missing or empty (`?list=`) → "My tasks". Anything
+        else that is not the id of one of my lists gives **404 `LIST_NOT_FOUND`** (never 400):
+        an unknown id, another user's list, a deleted list, `0`, a negative number, or a value
+        that is not a plain decimal integer (e.g. `abc`, `1.5`, ` 3`). Checked before every
+        other parameter. Repeated `list` parameters: only the first is used.
+      schema:
+        type: string
+      example: '8'
+
     AdminUserId:
       name: id
       in: path
@@ -2917,13 +3243,16 @@ components:
           - `TOO_LONG` / "Tags must be 30 characters or fewer" (after normalising)
           - `TOO_MANY` / "A task can have at most 10 tags" (more than 10 after removing
             duplicates)
-          - `TAG_LIMIT` / "You can have at most 200 tags" (the user would have more than 200
-            different tags after this change; only checked when all other fields are valid,
-            so it is then the only entry)
+          - `TAG_LIMIT` / "A list can have at most 200 tags" (the task's list, or on a move the
+            target list, would have more than 200 different tags after this change; only
+            checked when all other fields are valid and both the task and the target list
+            exist, so it is then the only entry. Changed in 0.12.0: the limit was per user and
+            the message was "You can have at most 200 tags")
 
         A body that is not valid JSON, or has a value of the wrong type or format (for example
         `dueDate: "2026-02-30"`, `dueDate: "10/08/2026"`, `done: "maybe"`, `priority: "URGENT"`,
-        `status: "done"` (values are case-sensitive), `tags: "Work"`, `tags: [1]`), returns 400 with
+        `status: "done"` (values are case-sensitive), `tags: "Work"`, `tags: [1]`,
+        `listId: "abc"` or `listId: 1.5`), returns 400 with
         `code: MALFORMED_REQUEST`, `detail: "Malformed request body"` and **no** `errors` array.
         In that case field validation does not run.
       content:
@@ -2968,7 +3297,9 @@ components:
             instance: /api/tasks/abc
             code: MALFORMED_REQUEST
     TaskNotFound:
-      description: No task with this id is owned by the signed-in user (also when it belongs to someone else)
+      description: |
+        No task with this id is in one of the signed-in user's lists (also when it belongs to
+        someone else, or its list was deleted)
       content:
         application/problem+json:
           schema:
@@ -2980,6 +3311,130 @@ components:
             detail: Task not found
             instance: /api/tasks/42
             code: NOT_FOUND
+    TaskOrListNotFound:
+      description: |
+        One of (the task is checked first):
+        - `NOT_FOUND` (detail "Task not found"): no task with this id is in one of my lists.
+        - `LIST_NOT_FOUND` (detail "List not found", 0.12.0): the task exists, but `listId` is
+          not one of my lists (unknown, another user's, deleted meanwhile).
+        Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            task:
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Task not found
+                instance: /api/tasks/42
+                code: NOT_FOUND
+            list:
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: List not found
+                instance: /api/tasks/42
+                code: LIST_NOT_FOUND
+    ListNotFound:
+      description: |
+        New in 0.12.0. The list (path `{id}`, query `list` or body `listId`) is not one of the
+        signed-in user's lists: unknown, deleted, another user's, or (query `list` only) not a
+        plain integer. Identical body in every case; never 403. No `errors` array. Nothing was
+        changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Not Found
+            status: 404
+            detail: List not found
+            instance: /api/lists/999999
+            code: LIST_NOT_FOUND
+    MalformedListId:
+      description: The `{id}` path segment is not an integer (0.12.0)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Bad Request
+            status: 400
+            detail: Failed to convert 'id' with value 'abc'
+            instance: /api/lists/abc
+            code: MALFORMED_REQUEST
+    ListValidationFailed:
+      description: |
+        New in 0.12.0. One of:
+        - `VALIDATION_FAILED` with exactly one entry for `name`:
+          - `name` / `REQUIRED` / "Name is required" (missing, null, empty or blank after
+            stripping)
+          - `name` / `TOO_LONG` / "Name must be 100 characters or fewer"
+        - `MALFORMED_REQUEST` (detail "Malformed request body", no `errors` array): the body is
+          not valid JSON or `name` is not a string. On `PATCH` also a non-integer `{id}` (detail
+          "Failed to convert 'id' with value 'abc'").
+        Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            validation:
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/lists
+                code: VALIDATION_FAILED
+                errors:
+                  - field: name
+                    code: REQUIRED
+                    message: Name is required
+            malformed:
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Malformed request body
+                instance: /api/lists
+                code: MALFORMED_REQUEST
+    ListLimit:
+      description: |
+        New in 0.12.0. The user already owns 50 lists ("My tasks" included). Nothing was
+        created. No `errors` array.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Conflict
+            status: 409
+            detail: You can have at most 50 lists
+            instance: /api/lists
+            code: LIST_LIMIT
+    PersonalList:
+      description: |
+        New in 0.12.0. The list is the user's personal list ("My tasks"), which can't be
+        deleted. Nothing was deleted. No `errors` array.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Conflict
+            status: 409
+            detail: Your personal list can't be deleted
+            instance: /api/lists/3
+            code: PERSONAL_LIST
 
   schemas:
     Health:
@@ -3365,13 +3820,13 @@ components:
     Tag:
       type: object
       required: [name]
-      description: New in 0.10.0. One of the signed-in user's tags (`GET /api/tags`).
+      description: New in 0.10.0. One tag of one of the signed-in user's lists (`GET /api/tags`).
       properties:
         name:
           type: string
           minLength: 1
           maxLength: 30
-          description: The stored spelling (the first one the user used), already normalised.
+          description: The stored spelling (the first one used in that list), already normalised.
           example: Work
 
     TaskPage:
@@ -3390,25 +3845,96 @@ components:
           format: int64
           minimum: 0
           description: |
-            Number of tasks matching `filter` + `tag` + `q` on all pages, counted when this page
-            was produced.
+            Number of tasks of the list matching `filter` + `tag` + `q` on all pages, counted
+            when this page was produced.
           example: 120
         nextCursor:
           type: string
           nullable: true
           description: |
-            Opaque. Send back as `?cursor=` (with the same `filter`, `tag`, `q` and `sort`) for
+            Opaque. Send back as `?cursor=` (with the same `list`, `filter`, `tag`, `q` and `sort`) for
             the next page. `null` on the last page. Always present. Base64url without padding
             (only `A-Z a-z 0-9 - _`), at most 1024 characters.
 
+    TaskList:
+      type: object
+      description: |
+        New in 0.12.0. One of the signed-in user's lists (`GET /api/lists`, `POST /api/lists`,
+        `PATCH /api/lists/{id}`). More fields (e.g. a role and member count for shared lists) may
+        be added later; clients must ignore unknown fields.
+      required: [id, name, personal]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 8
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Stored stripped; never blank. Not unique.
+          example: Home
+        personal:
+          type: boolean
+          description: |
+            `true` only for the user's "My tasks" (exactly one per user): renamable, can't be
+            deleted, listed first, the default list.
+          example: false
+
+    TaskListDetails:
+      description: |
+        New in 0.12.0. `TaskList` plus its task count; only from `GET /api/lists/{id}`.
+      allOf:
+        - $ref: '#/components/schemas/TaskList'
+        - type: object
+          required: [taskCount]
+          properties:
+            taskCount:
+              type: integer
+              format: int64
+              minimum: 0
+              description: Number of tasks in the list right now, of every status (done included).
+              example: 12
+
+    CreateListRequest:
+      type: object
+      required: [name]
+      description: New in 0.12.0. Body of `POST /api/lists`.
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: |
+            Same rules as `CreateTaskRequest.title`, with a 100 limit: stripped (Java
+            `String.strip()`) before validation; required, non-blank (`REQUIRED`); length
+            (UTF-16 code units, `String.length()` / JS `.length`) after stripping 1-100
+            (`TOO_LONG`). Duplicates allowed. Stored stripped, with the casing typed.
+          example: Home
+
+    RenameListRequest:
+      type: object
+      required: [name]
+      description: New in 0.12.0. Body of `PATCH /api/lists/{id}`.
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Same rules as `CreateListRequest.name`.
+          example: Groceries
+
     Task:
       type: object
-      required: [id, title, description, priority, status, tags, done, dueDate, createdAt, updatedAt]
+      required: [id, listId, title, description, priority, status, tags, done, dueDate, createdAt, updatedAt]
       properties:
         id:
           type: integer
           format: int64
           example: 12
+        listId:
+          type: integer
+          format: int64
+          description: New in 0.12.0, always present. The id of the list the task is in.
+          example: 3
         title:
           type: string
           minLength: 1
@@ -3429,7 +3955,7 @@ components:
           type: array
           maxItems: 10
           description: |
-            New in 0.10.0. The task's tag names in the user's stored spelling, no duplicates,
+            New in 0.10.0. The task's tag names in its list's stored spelling, no duplicates,
             sorted alphabetically ignoring case and accents (see "Tags"). `[]` when none.
           items:
             type: string
@@ -3486,6 +4012,15 @@ components:
           nullable: true
           description: Optional `YYYY-MM-DD`. Past dates are allowed. An invalid date returns 400 `MALFORMED_REQUEST`.
           example: '2026-10-10'
+        listId:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            New in 0.12.0. Optional: the list to create the task in; missing or `null` → "My
+            tasks". Not one of my lists → 404 `LIST_NOT_FOUND`. Not an integer → 400
+            `MALFORMED_REQUEST`.
+          example: 8
 
     ReplaceTaskRequest:
       type: object
@@ -3495,7 +4030,8 @@ components:
         `dueDate` may be `null`, and null or omitted clears them. `priority`, `status`, `done` and
         `tags` are optional: missing or `null` leaves them unchanged (see `PUT /api/tasks/{id}`
         for how `status` and `done` combine). New clients should send `status` and not `done`.
-        Changed in 0.10.0: `done` is no longer required.
+        Changed in 0.10.0: `done` is no longer required. `listId` (0.12.0) is optional too:
+        missing or `null` leaves the task in its list; another of my lists moves it.
       properties:
         title:
           type: string
@@ -3537,10 +4073,21 @@ components:
           nullable: true
           description: |
             Optional; missing or `null` → unchanged. Otherwise the complete new list of tag
-            names (`[]` removes all). See "Tags" for normalising, matching and limits.
+            names (`[]` removes all). See "Tags" for normalising, matching and limits. With a
+            move (`listId`), these are the task's tags in the target list.
           items:
             type: string
           example: [Errands, Home]
+        listId:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            New in 0.12.0. Optional; missing, `null` or the task's current list → the task stays
+            in its list. Another of my lists → the task moves there (see `PUT /api/tasks/{id}`,
+            "Moving"). Not one of my lists → 404 `LIST_NOT_FOUND`, nothing changes. Not an
+            integer → 400 `MALFORMED_REQUEST`.
+          example: 8
 
     SetTaskDoneRequest:
       type: object
@@ -3568,11 +4115,12 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name]
           description: |
             Name of the request field (exactly as in the request body, or the query parameter).
             `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
-            never to an index. `cursor` is new in 0.11.0 (`GET /api/tasks`).
+            never to an index. `cursor` is new in 0.11.0 (`GET /api/tasks`). `name` is new in
+            0.12.0 (`POST /api/lists`, `PATCH /api/lists/{id}`).
         code:
           type: string
           enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR]
@@ -3584,15 +4132,16 @@ components:
             - TOO_LONG: displayName > 50, email > 254, title > 200 or description > 2000 characters,
               or the admin search `q` > 100 characters after trimming, or (0.10.0) a tag > 30
               characters after normalising, or (0.11.0) the task search `q` of `GET /api/tasks`
-              > 100 characters after trimming
+              > 100 characters after trimming, or (0.12.0) a list `name` > 100 characters after
+              stripping
             - INVALID_CURSOR: (new in 0.11.0, field `cursor` of `GET /api/tasks`) the cursor
-              cannot be read or was issued for a different `filter`, `tag`, `q` or `sort`; reload
-              from the first page
+              cannot be read or was issued for a different list (0.12.0), `filter`, `tag`, `q`
+              or `sort`; reload from the first page
             - INVALID_CHARACTERS: (new in 0.10.0, field `tags`) a tag contains a comma or a
               control character
             - TOO_MANY: (new in 0.10.0, field `tags`) more than 10 different tags on one task
-            - TAG_LIMIT: (new in 0.10.0, field `tags`) the user would have more than 200
-              different tags
+            - TAG_LIMIT: (new in 0.10.0, field `tags`) the list (on a move: the target list)
+              would have more than 200 different tags (0.12.0: was per user)
             - STATUS_CONFLICT: (new in 0.10.0, field `status`) `status` and `done` both sent and
               they disagree
             - PASSWORD_LENGTH: password / newPassword not 8-72 characters, or over 72 UTF-8 bytes
@@ -3658,6 +4207,9 @@ components:
             - CANNOT_MODIFY_SELF
             - INSUFFICIENT_ROLE
             - USER_NOT_FOUND
+            - LIST_NOT_FOUND
+            - LIST_LIMIT
+            - PERSONAL_LIST
           description: |
             Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email
             is taken (even when the display name is taken too), otherwise `DISPLAY_NAME_TAKEN`.
@@ -3675,6 +4227,10 @@ components:
             `CANNOT_MODIFY_SELF` (409), `INSUFFICIENT_ROLE` (403) and `USER_NOT_FOUND` (404),
             only from `/api/admin/**`. `FORBIDDEN` (403) on `/api/admin/**` means the caller is
             not an admin.
+            New in 0.12.0: `LIST_NOT_FOUND` (404) when a list (path `{id}`, query `list`, body
+            `listId`) is not one of the signed-in user's lists (a missing task stays
+            `NOT_FOUND`); `LIST_LIMIT` (409) from `POST /api/lists` at 50 owned lists;
+            `PERSONAL_LIST` (409) from `DELETE /api/lists/{id}` on "My tasks".
         errors:
           type: array
           description: |
