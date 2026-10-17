@@ -1,6 +1,6 @@
 # Feature: Sharing — team lists (T3)
 
-**Status:** DRAFT — answers to Q1–Q20 given 2026-10-17, waiting for spec approval. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md` (all DONE), the write-race fix (`a0aac6e`, on `main`). **Supersedes:** the `specs/auth.md` decision "personal task lists only, no sharing in v1" (2026-10-08).
+**Status:** APPROVED 2026-10-17 — T3a in progress, T3b after T3a is merged. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md` (all DONE), the write-race fix (`a0aac6e`, on `main`). **Supersedes:** the `specs/auth.md` decision "personal task lists only, no sharing in v1" (2026-10-08).
 
 **Built in two parts (Q20).** Each part has its own branch, contract version, migration, tests and merge:
 
@@ -118,7 +118,7 @@ As a signed-in user, I want to keep my tasks in several lists and share a list w
 1. Share whole **lists**, not single tasks. 2. Invite by **email of an existing account**, accept/decline. 3. Roles **Owner and Member**. 4. Members can leave, the owner can remove; **the owner can't leave**. 5. **Owner-only delete with a task count**; "My tasks" can't be deleted. 6. Account deletion removes owned lists and memberships; **shown in the warning**. 7. **Tags belong to the list**, 200 per list. 8. **"Added by" only**, assignee later. 9. **List picker + `/lists/<id>`**, `/tasks` = "My tasks". 10. **Move tasks between your lists**, tags created in the target. 11. **Last write wins**. 12. **No live updates**. 13. **50 lists, 20 members, 20 pending invites, invite rate limit**. 14. **Name + email visible inside the list only; 404 never 403; admins see nothing**. 15. **`/api/lists`, members, invitations; `listId` on tasks; `list` parameter defaults to "My tasks"**. 16. **"My tasks" can't be shared** (renamable, not deletable). 17. **The 50-list limit counts owned lists only**. 18. **Owner can cancel invites; 14-day expiry; no email to disabled accounts, same answer on screen**. 19. **A move that would go over 200 tags is refused, nothing changes**. 20. **Split into T3a (lists) and T3b (sharing)**.
 
 ## Approvals needed
-- Spec approval (now).
+- ~~Spec approval~~ — approved 2026-10-17.
 - T3a: migration V10 and the access change (exact SQL and changes shown before the build).
 - T3b: migration V11 and the access change (shown when T3b starts).
 - No new dependency expected.
@@ -133,3 +133,5 @@ _Filled in by the PM during the build._
 | 2026-10-17 | Q1–Q20 recommendations accepted, including the split into T3a (lists) and T3b (sharing) | User answered "yes for 1-20" after the PM's review of the draft against the code | User |
 | 2026-10-17 | Spec changes from the review: member tasks survive account deletion (`tasks.owner_id` → nullable `ON DELETE SET NULL`, in V11); tags get `list_id` and `(list_id, name)` uniqueness, so a member's account deletion never deletes list tags; tag lock per list, moves lock both lists lowest id first; invites never reveal whether an account exists; new indexes on `list_id`; both sign-up paths create "My tasks" | Found in the code: `fk_tasks_owner` / `fk_tags_owner` are `ON DELETE CASCADE` (V2, V9), `TagService.lockOwner` is per user, and the project never reveals whether an account exists (forgot-password, login, Google AC8) | PM |
 | 2026-10-17 | Write-race fix `a0aac6e` was merged to `main` after only the backend suite and task e2e. A full rerun (backend, lint, unit, build, full e2e) was started after the fact | Project rule: a full green rerun before merging; the PM skipped it | User asked for the rerun |
+| 2026-10-17 | Spec approved (T3a and T3b as written, including the PM-picked details: list names 1–100 characters, the 50-list limit includes "My tasks", switching lists clears tag/search/tab, picker shows "My tasks" first then by name). V10/V11 and both access changes remain separate gates | User said "yes" | User |
+| 2026-10-17 | Full rerun on `main` @ `a0aac6e`: backend 887, lint, unit 690, build PASS; e2e 239 passed / 1 failed / 15 skipped. The failure (`tasks-priority-status-tags.spec.ts:1114` hard-codes `localhost:4200`) and the parallel flake in `security-db-users.spec.ts:113` are test bugs, not `a0aac6e`; fixed first on `fix/e2e-base-url` | So T3a's own full rerun can be clean | User |
