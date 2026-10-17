@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionOperations;
 
@@ -393,6 +394,42 @@ class TaskServiceTest {
         verify(repository, never()).delete(any());
         verify(tagService, never()).replaceTags(anyLong(), anyLong(), any());
         verify(tagService, never()).deleteUnused(anyLong(), any());
+    }
+
+    /**
+     * Reproduces the race where a concurrent DELETE commits between {@code find} and the flush: Hibernate's update
+     * then matches zero rows and throws this (there is no {@code @Version} column), which must become a 404, not a
+     * 500.
+     */
+    @Test
+    void patchIsNotFoundWhenTheTaskWasDeletedJustBeforeTheFlush() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(repository.saveAndFlush(any(Task.class))).thenThrow(new ObjectOptimisticLockingFailureException(Task.class, 12L));
+
+        assertThatThrownBy(() -> service.setStatus(OWNER, 12L, TaskStatus.DONE, null))
+                .isInstanceOf(TaskNotFoundException.class);
+        verifyNoInteractions(tagService);
+    }
+
+    @Test
+    void putIsNotFoundWhenTheTaskWasDeletedJustBeforeTheFlush() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(repository.saveAndFlush(any(Task.class))).thenThrow(new ObjectOptimisticLockingFailureException(Task.class, 12L));
+
+        assertThatThrownBy(() -> service.replace(OWNER, 12L, put(null, null, null, null)))
+                .isInstanceOf(TaskNotFoundException.class);
+        verifyNoInteractions(tagService);
+    }
+
+    @Test
+    void putWithTagsIsNotFoundWhenTheTaskWasDeletedJustBeforeTheFlushAndNeverTouchesTags() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(repository.saveAndFlush(any(Task.class))).thenThrow(new ObjectOptimisticLockingFailureException(Task.class, 12L));
+
+        assertThatThrownBy(() -> service.replace(OWNER, 12L, put(null, null, null, List.of("Work"))))
+                .isInstanceOf(TaskNotFoundException.class);
+        verify(tagService).lockOwner(OWNER);
+        verify(tagService, never()).replaceTags(anyLong(), anyLong(), any());
     }
 
     private static CannotAcquireLockException lockFailure(String sqlState, int errorCode) {

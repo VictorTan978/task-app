@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -134,7 +135,7 @@ public class TaskService {
             task.changePriority(request.priority(), now);
         }
         task.changeStatus(TaskStatus.resolve(task.getStatus(), request.status(), request.done()), now);
-        taskRepository.saveAndFlush(task);
+        saveOrNotFound(task);
         if (request.tags() != null) {
             return TaskResponse.from(task, tagService.replaceTags(ownerId, task.getId(), request.tags()));
         }
@@ -146,8 +147,22 @@ public class TaskService {
     public TaskResponse setStatus(long ownerId, long id, TaskStatus status, Boolean done) {
         Task task = find(ownerId, id);
         task.changeStatus(TaskStatus.resolve(task.getStatus(), status, done), now());
-        taskRepository.saveAndFlush(task);
+        saveOrNotFound(task);
         return withTags(ownerId, task);
+    }
+
+    /**
+     * {@code task} was read a moment ago with {@link #find}, which found it; there is no {@code @Version} column, so
+     * the only way the flush now matches zero rows is a concurrent delete that has since committed. Reported the
+     * same way as never having found it, i.e. 404, instead of the generic 500 Hibernate's optimistic-lock failure
+     * would otherwise become.
+     */
+    private void saveOrNotFound(Task task) {
+        try {
+            taskRepository.saveAndFlush(task);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new TaskNotFoundException();
+        }
     }
 
     /**
