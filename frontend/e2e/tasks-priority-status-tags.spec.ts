@@ -1111,7 +1111,7 @@ test.describe('T1 Compatibility', () => {
 });
 
 async function browserlessGet(page: Page, path: string): Promise<number> {
-  const ctx = await page.context().browser()!.newContext({ baseURL: 'http://localhost:4200' });
+  const ctx = await page.context().browser()!.newContext({ baseURL: process.env['E2E_BASE_URL'] ?? 'http://localhost:4200' });
   const r = await ctx.request.get(path);
   const s = r.status();
   expect(r.headers()['content-type']).toContain('application/problem+json');

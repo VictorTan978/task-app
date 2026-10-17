@@ -112,8 +112,9 @@ test.describe('AC13/AC14: database users (needs the docker-compose db)', () => {
 
   test('AC13: the running app connects as taskapp_app only; Flyway history installed_by taskapp', async ({ request }) => {
     expect((await request.get('/api/health')).status()).toBe(200);
+    // host <> 'localhost' keeps only the app's TCP connections (host = gateway IP:port); other specs' `docker compose exec db mysql` sessions use the in-container socket (host = 'localhost').
     const users = asRoot(
-      "SELECT DISTINCT user FROM information_schema.processlist WHERE db = 'taskapp' AND user NOT IN ('root','event_scheduler') ORDER BY user",
+      "SELECT DISTINCT user FROM information_schema.processlist WHERE db = 'taskapp' AND host <> 'localhost' AND user NOT IN ('root','event_scheduler') ORDER BY user",
     );
     expect(users.ok, users.out).toBe(true);
     expect(users.out.trim().split('\n')).toEqual(['taskapp_app']);
