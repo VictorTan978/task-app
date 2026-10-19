@@ -9,7 +9,9 @@
 
   <form class="account-form" [formGroup]="form" (ngSubmit)="confirm()" novalidate>
     <p id="delete-account-text" class="delete-account-text">
-      Your account and all your tasks will be permanently deleted. This can't be undone.
+      Your account and all your tasks will be permanently deleted. This can't be undone. Lists you
+      own are deleted, and their members lose them. Tasks you added to other people's lists stay,
+      shown as added by a deleted user.
       @if (usesEmail) {
         Enter your email address to confirm.
       } @else {

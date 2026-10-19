@@ -21,6 +21,7 @@ function task(id: number, overrides: Partial<Task> = {}): Task {
   return {
     id,
     listId: 3,
+    addedBy: { displayName: 'Ana' },
     title: `Task ${id}`,
     description: null,
     priority: 'NONE',

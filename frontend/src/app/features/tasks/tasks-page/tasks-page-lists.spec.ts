@@ -14,14 +14,15 @@ import { TaskList } from '../../lists/lists.models';
 import { Task, TaskPage } from '../tasks.models';
 import { TasksPage } from './tasks-page';
 
-const MINE: TaskList = { id: 3, name: 'My tasks', personal: true };
-const HOME: TaskList = { id: 8, name: 'Home', personal: false };
-const WORK: TaskList = { id: 9, name: 'Work', personal: false };
+const MINE: TaskList = { id: 3, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 };
+const HOME: TaskList = { id: 8, name: 'Home', personal: false, role: 'OWNER', memberCount: 1 };
+const WORK: TaskList = { id: 9, name: 'Work', personal: false, role: 'OWNER', memberCount: 1 };
 
 function task(id: number, listId: number, overrides: Partial<Task> = {}): Task {
   return {
     id,
     listId,
+    addedBy: { displayName: 'Ana' },
     title: `Task ${id}`,
     description: null,
     priority: 'NONE',
@@ -142,6 +143,28 @@ describe('TasksPage with lists', () => {
     );
   });
 
+  it('a shared list shows "Added by" on each task; a list with one member does not', async () => {
+    const team: TaskList = {
+      id: 10,
+      name: 'Team',
+      personal: false,
+      role: 'MEMBER',
+      memberCount: 2,
+    };
+    await open('/lists/10', [MINE, HOME, team]);
+    tasksReq('10').flush(onePage([task(1, 10), task(2, 10, { addedBy: null })]));
+    await stable();
+    const added = () =>
+      Array.from(el.querySelectorAll('[data-testid=task-added-by]')).map((s) =>
+        s.textContent?.trim(),
+      );
+    expect(added()).toEqual(['Added by Ana', 'Added by a deleted user']);
+    await go('/lists/8');
+    tasksReq('8').flush(onePage([task(3, 8)]));
+    await stable();
+    expect(added()).toEqual([]);
+  });
+
   it.each(['/lists/abc', '/lists/0', '/lists/-3', '/lists/1.5'])(
     '%s shows "List not found" without a tasks request',
     async (url) => {
@@ -176,7 +199,9 @@ describe('TasksPage with lists', () => {
     await open('/lists/12', [MINE]);
     tasksReq('12').flush(onePage([]));
     await stable();
-    http.expectOne('/api/lists').flush([MINE, { id: 12, name: 'New', personal: false }]);
+    http
+      .expectOne('/api/lists')
+      .flush([MINE, { id: 12, name: 'New', personal: false, role: 'OWNER', memberCount: 1 }]);
     await stable();
     expect(heading()).toBe('New');
   });

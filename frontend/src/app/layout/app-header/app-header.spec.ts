@@ -1,8 +1,11 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { AuthService } from '../../core/auth/auth.service';
+import { InvitationsStore } from '../../features/sharing/invitations.store';
 import { AppHeader } from './app-header';
 
 describe('AppHeader', () => {
@@ -32,6 +35,8 @@ describe('AppHeader', () => {
     });
     fixture = TestBed.createComponent(AppHeader);
     el = fixture.nativeElement;
+    // The invitations badge is counted when the header opens.
+    http.expectOne('/api/invitations/count').flush({ count: 0 });
     await fixture.whenStable();
   });
 
@@ -111,5 +116,74 @@ describe('AppHeader', () => {
     auth.updateCurrentUser({ ...auth.currentUser()!, role: 'USER' });
     await fixture.whenStable();
     expect(adminLink()).toBeNull();
+  });
+
+  describe('Invitations', () => {
+    const link = () => el.querySelector<HTMLAnchorElement>('[data-testid=invitations-link]')!;
+    const badge = () => el.querySelector('[data-testid=invitations-badge]');
+
+    it('links to /invitations, with no badge at 0', () => {
+      expect(link().getAttribute('href')).toBe('/invitations');
+      expect(link().textContent?.trim()).toBe('Invitations');
+      expect(link().getAttribute('aria-label')).toBe('Invitations');
+      expect(badge()).toBeNull();
+    });
+
+    it('shows the count as a badge', async () => {
+      TestBed.inject(InvitationsStore).set(2);
+      await fixture.whenStable();
+      expect(badge()?.textContent?.trim()).toBe('2');
+      expect(link().getAttribute('aria-label')).toBe('Invitations, 2 pending');
+    });
+  });
+});
+
+describe('AppHeader invitation count refresh', () => {
+  @Component({ template: 'page' })
+  class Page {}
+
+  let http: HttpTestingController;
+  let harness: RouterTestingHarness;
+
+  beforeEach(async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([
+          {
+            path: '',
+            component: AppHeader,
+            children: [
+              { path: 'tasks', component: Page },
+              { path: 'account', component: Page },
+              { path: 'invitations', component: Page },
+            ],
+          },
+        ]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: AuthService,
+          useValue: { currentUser: signal({ id: 1 }), isAdmin: signal(false) },
+        },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+    harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/tasks');
+  });
+
+  afterEach(() => http.verify());
+
+  it('counts once when it opens, then on every page change except /invitations', async () => {
+    http.expectOne('/api/invitations/count').flush({ count: 1 });
+    await harness.navigateByUrl('/tasks?filter=done');
+    http.expectNone('/api/invitations/count');
+    await harness.navigateByUrl('/account');
+    http.expectOne('/api/invitations/count').flush({ count: 3 });
+    expect(TestBed.inject(InvitationsStore).count()).toBe(3);
+    await harness.navigateByUrl('/invitations');
+    http.expectNone('/api/invitations/count');
+    await harness.navigateByUrl('/tasks');
+    http.expectOne('/api/invitations/count').flush({ count: 0 });
   });
 });

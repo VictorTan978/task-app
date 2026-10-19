@@ -7,6 +7,7 @@ import { TaskRow } from './task-row';
 const BASE: Task = {
   id: 1,
   listId: 3,
+  addedBy: { displayName: 'Ana' },
   title: 'Buy milk',
   description: null,
   priority: 'NONE',
@@ -24,6 +25,7 @@ const BASE: Task = {
     [task]="task()"
     today="2026-10-08"
     [busy]="busy()"
+    [showAddedBy]="shared()"
     (doneChange)="events.push('done:' + $event)"
     (edit)="events.push('edit')"
     (remove)="events.push('remove')"
@@ -32,6 +34,7 @@ const BASE: Task = {
 class Host {
   readonly task = signal<Task>(BASE);
   readonly busy = signal(false);
+  readonly shared = signal(false);
   readonly events: string[] = [];
 }
 
@@ -182,5 +185,26 @@ describe('TaskRow', () => {
     host.busy.set(false);
     await fixture.whenStable();
     expect(checkbox().checked).toBe(false);
+  });
+
+  describe('Added by', () => {
+    const addedBy = () => el.querySelector('[data-testid=task-added-by]');
+
+    it('is hidden on a list with one member', () => {
+      expect(addedBy()).toBeNull();
+      expect(el.querySelector('.task-row__meta')).toBeNull();
+    });
+
+    it('shows "Added by <name>" on a shared list', async () => {
+      host.shared.set(true);
+      await fixture.whenStable();
+      expect(addedBy()?.textContent?.trim()).toBe('Added by Ana');
+    });
+
+    it('shows "Added by a deleted user" when the account is gone', async () => {
+      host.shared.set(true);
+      await setTask({ addedBy: null });
+      expect(addedBy()?.textContent?.trim()).toBe('Added by a deleted user');
+    });
   });
 });

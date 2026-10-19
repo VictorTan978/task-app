@@ -12,10 +12,17 @@ import { DeleteListDialog } from './delete-list-dialog';
     (deleted)="events.push('deleted:' + $event)"
     (closed)="events.push('closed')"
     (notFound)="events.push('notFound')"
+    (ownerOnly)="events.push('ownerOnly')"
   />`,
 })
 class Host {
-  readonly list = signal<TaskList>({ id: 8, name: 'Home', personal: false });
+  readonly list = signal<TaskList>({
+    id: 8,
+    name: 'Home',
+    personal: false,
+    role: 'OWNER',
+    memberCount: 1,
+  });
   readonly events: string[] = [];
 }
 
@@ -56,7 +63,7 @@ describe('DeleteListDialog', () => {
   async function flushCount(taskCount: number) {
     http
       .expectOne({ method: 'GET', url: '/api/lists/8' })
-      .flush({ id: 8, name: 'Home', personal: false, taskCount });
+      .flush({ id: 8, name: 'Home', personal: false, role: 'OWNER', memberCount: 1, taskCount });
     await stable();
   }
 
@@ -116,6 +123,16 @@ describe('DeleteListDialog', () => {
       .flush(problem(404, 'LIST_NOT_FOUND'), { status: 404, statusText: 'Not Found' });
     await stable();
     expect(host.events).toEqual(['deleted:8']);
+  });
+
+  it('403 OWNER_ONLY on DELETE emits ownerOnly', async () => {
+    await flushCount(2);
+    button('Delete').click();
+    http
+      .expectOne({ method: 'DELETE', url: '/api/lists/8' })
+      .flush(problem(403, 'OWNER_ONLY'), { status: 403, statusText: 'Forbidden' });
+    await stable();
+    expect(host.events).toEqual(['ownerOnly']);
   });
 
   it('LIST_NOT_FOUND when counting emits notFound', async () => {

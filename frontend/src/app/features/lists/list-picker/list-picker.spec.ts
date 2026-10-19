@@ -9,9 +9,9 @@ import { TaskList } from '../lists.models';
 import { ListsStore } from '../lists.store';
 import { ListPicker, listLink } from './list-picker';
 
-const MINE: TaskList = { id: 3, name: 'My tasks', personal: true };
-const HOME: TaskList = { id: 8, name: 'Home', personal: false };
-const WORK: TaskList = { id: 9, name: 'Work', personal: false };
+const MINE: TaskList = { id: 3, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 };
+const HOME: TaskList = { id: 8, name: 'Home', personal: false, role: 'OWNER', memberCount: 1 };
+const WORK: TaskList = { id: 9, name: 'Work', personal: false, role: 'OWNER', memberCount: 1 };
 
 @Component({
   imports: [ListPicker],
@@ -222,5 +222,23 @@ describe('ListPicker', () => {
     );
     await stable();
     expect(q('#list-create-name')).toBeNull();
+  });
+
+  it('shows a member count on shared lists only (sidebar and phone select)', async () => {
+    const team: TaskList = {
+      id: 10,
+      name: 'Team',
+      personal: false,
+      role: 'MEMBER',
+      memberCount: 3,
+    };
+    await loadLists([MINE, HOME, team]);
+    const counts = Array.from(el.querySelectorAll('[data-testid=list-member-count]'));
+    expect(counts.length).toBe(1);
+    const teamLink = links().find((a) => a.getAttribute('href') === '/lists/10')!;
+    expect(teamLink.textContent?.replace(/\s+/g, ' ').trim()).toBe('Team 3, 3 members');
+    expect(teamLink.querySelector('[aria-hidden=true]')?.textContent).toBe('3');
+    const options = Array.from(el.querySelectorAll('option')).map((o) => o.textContent?.trim());
+    expect(options).toEqual(['My tasks', 'Home', 'Team (3 members)']);
   });
 });

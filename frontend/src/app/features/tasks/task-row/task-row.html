@@ -47,6 +47,9 @@
             >{{ tag }}</a
           >
         }
+        @if (addedBy(); as text) {
+          <span class="task-row__added-by" data-testid="task-added-by">{{ text }}</span>
+        }
       </span>
     }
   </div>

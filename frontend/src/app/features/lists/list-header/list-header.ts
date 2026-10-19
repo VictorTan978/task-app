@@ -15,6 +15,9 @@ import {
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { finalize, Subscription } from 'rxjs';
+import { LeaveListDialog } from '../../sharing/leave-list-dialog/leave-list-dialog';
+import { MembersPanel } from '../../sharing/members-panel/members-panel';
+import { isOwnerOnly, OWNER_ONLY_MESSAGE } from '../../sharing/sharing.logic';
 import { isUnauthenticated } from '../../tasks/task-form';
 import { DeleteListDialog } from '../delete-list-dialog/delete-list-dialog';
 import { ListMenu } from '../list-menu/list-menu';
@@ -31,11 +34,13 @@ import { ListsStore } from '../lists.store';
 
 /**
  * The tasks page heading: the open list's name with its "⋯" menu (Rename inline, Delete with a
- * confirm dialog). After a delete it goes to "My tasks" (`/tasks`).
+ * confirm dialog, the Members panel, Leave with a confirm dialog). After a delete or leave it
+ * goes to "My tasks" (`/tasks`). A 403 `OWNER_ONLY` (my role changed) shows "Only the owner can
+ * do that" and refetches the lists, which updates the menu.
  */
 @Component({
   selector: 'app-list-header',
-  imports: [ReactiveFormsModule, ListMenu, DeleteListDialog],
+  imports: [ReactiveFormsModule, ListMenu, DeleteListDialog, MembersPanel, LeaveListDialog],
   templateUrl: './list-header.html',
   styleUrl: './list-header.scss',
 })
@@ -65,6 +70,19 @@ export class ListHeader {
     source: this.listId,
     computation: () => null,
   });
+  protected readonly showingMembers = linkedSignal<number | null, TaskList | null>({
+    source: this.listId,
+    computation: () => null,
+  });
+  protected readonly leaving = linkedSignal<number | null, TaskList | null>({
+    source: this.listId,
+    computation: () => null,
+  });
+  /** "Only the owner can do that"; cleared when another list opens. */
+  protected readonly notice = linkedSignal<number | null, string | null>({
+    source: this.listId,
+    computation: () => null,
+  });
 
   protected readonly pending = signal(false);
   protected readonly submitted = signal(false);
@@ -90,7 +108,7 @@ export class ListHeader {
 
   protected startRename(): void {
     const list = this.list();
-    if (!list) {
+    if (!list || list.role !== 'OWNER') {
       return;
     }
     this.sub?.unsubscribe();
@@ -98,6 +116,7 @@ export class ListHeader {
     this.form.reset({ name: list.name });
     this.submitted.set(false);
     this.renameError.set(null);
+    this.notice.set(null);
     this.renaming.set(true);
     afterNextRender(
       () => {
@@ -142,10 +161,47 @@ export class ListHeader {
 
   protected startDelete(): void {
     const list = this.list();
-    if (list && !list.personal) {
+    if (list && !list.personal && list.role === 'OWNER') {
+      this.notice.set(null);
       this.renaming.set(false);
       this.deleting.set(list);
     }
+  }
+
+  protected openMembers(): void {
+    const list = this.list();
+    if (list && !list.personal) {
+      this.renaming.set(false);
+      this.notice.set(null);
+      this.showingMembers.set(list);
+    }
+  }
+
+  protected startLeave(): void {
+    const list = this.list();
+    if (list && list.role === 'MEMBER') {
+      this.renaming.set(false);
+      this.notice.set(null);
+      this.leaving.set(list);
+    }
+  }
+
+  protected onLeft(id: number): void {
+    this.leaving.set(null);
+    this.store.remove(id);
+    this.store.refresh();
+    void this.router.navigateByUrl('/tasks');
+  }
+
+  protected onPanelNotFound(): void {
+    this.showingMembers.set(null);
+    this.notFound.emit();
+  }
+
+  /** Delete answered 403 `OWNER_ONLY`. */
+  protected onDeleteOwnerOnly(): void {
+    this.deleting.set(null);
+    this.ownerOnly();
   }
 
   protected onDeleted(id: number): void {
@@ -158,6 +214,11 @@ export class ListHeader {
   protected onDeleteNotFound(): void {
     this.deleting.set(null);
     this.notFound.emit();
+  }
+
+  private ownerOnly(): void {
+    this.notice.set(OWNER_ONLY_MESSAGE);
+    this.store.refresh();
   }
 
   private sendRename(request: RenameListRequest): void {
@@ -187,6 +248,11 @@ export class ListHeader {
           if (isListNotFound(error)) {
             this.renaming.set(false);
             this.notFound.emit();
+            return;
+          }
+          if (isOwnerOnly(error)) {
+            this.renaming.set(false);
+            this.ownerOnly();
             return;
           }
           this.renameError.set(LIST_RENAME_ERROR);

@@ -9,11 +9,19 @@ import { ListMenu } from './list-menu';
       [list]="list()"
       (rename)="events.push('rename')"
       (remove)="events.push('remove')"
+      (members)="events.push('members')"
+      (leave)="events.push('leave')"
     />
     <p id="outside">outside</p>`,
 })
 class Host {
-  readonly list = signal<TaskList>({ id: 8, name: 'Home', personal: false });
+  readonly list = signal<TaskList>({
+    id: 8,
+    name: 'Home',
+    personal: false,
+    role: 'OWNER',
+    memberCount: 1,
+  });
   readonly events: string[] = [];
 }
 
@@ -38,18 +46,44 @@ describe('ListMenu', () => {
       (b) => b.textContent?.trim() === name,
     )!;
 
-  it('is closed until the "⋯" button is clicked', async () => {
+  it('is closed until the "⋯" button is clicked (owner: Rename, Members, Delete)', async () => {
     expect(toggle().getAttribute('aria-label')).toBe('List actions');
     expect(toggle().getAttribute('aria-expanded')).toBe('false');
     expect(items()).toEqual([]);
     toggle().click();
     await stable();
     expect(toggle().getAttribute('aria-expanded')).toBe('true');
-    expect(items()).toEqual(['Rename', 'Delete']);
+    expect(items()).toEqual(['Rename', 'Members', 'Delete']);
   });
 
-  it('"My tasks" has Rename but no Delete', async () => {
-    fixture.componentInstance.list.set({ id: 3, name: 'My tasks', personal: true });
+  it('a member sees Members and Leave list, but no Rename or Delete', async () => {
+    fixture.componentInstance.list.set({
+      id: 8,
+      name: 'Home',
+      personal: false,
+      role: 'MEMBER',
+      memberCount: 3,
+    });
+    toggle().click();
+    await stable();
+    expect(items()).toEqual(['Members', 'Leave list']);
+    item('Members').click();
+    await stable();
+    toggle().click();
+    await stable();
+    item('Leave list').click();
+    await stable();
+    expect(fixture.componentInstance.events).toEqual(['members', 'leave']);
+  });
+
+  it('"My tasks" has Rename but no Members or Delete', async () => {
+    fixture.componentInstance.list.set({
+      id: 3,
+      name: 'My tasks',
+      personal: true,
+      role: 'OWNER',
+      memberCount: 1,
+    });
     toggle().click();
     await stable();
     expect(items()).toEqual(['Rename']);

@@ -18,6 +18,7 @@ function task(overrides: Partial<Task> & { id: number }): Task {
   const status = overrides.status ?? (overrides.done ? 'DONE' : 'TODO');
   return {
     listId: 3,
+    addedBy: { displayName: 'Ana' },
     title: `Task ${overrides.id}`,
     description: null,
     priority: 'NONE',

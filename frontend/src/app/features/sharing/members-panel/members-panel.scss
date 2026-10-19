@@ -1,0 +1,93 @@
+.members-panel {
+  &__section + &__section {
+    margin-top: 1.25rem;
+  }
+
+  &__heading {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+  }
+
+  &__rows {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+  }
+
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.5rem 0.75rem;
+
+    & + & {
+      border-top: 1px solid var(--color-border);
+    }
+  }
+
+  &__who {
+    display: flex;
+    flex: 1 1 12rem;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  &__you {
+    color: var(--color-muted);
+    font-weight: 400;
+  }
+
+  &__email {
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+
+  &__role {
+    color: var(--color-muted);
+    font-size: 0.875rem;
+  }
+
+  &__confirm {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  &__invite-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+
+    input {
+      flex: 1 1 14rem;
+      min-width: 0;
+    }
+  }
+
+  &__sent {
+    margin: 0.5rem 0 0;
+    color: var(--color-muted);
+
+    &:empty {
+      margin: 0;
+    }
+  }
+}
+
+/* Component-scoped copy, as in task-row and admin-users-page. */
+.btn--small {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+}

@@ -7,6 +7,7 @@ import { LoginPage } from './features/auth/login/login-page';
 import { RegisterPage } from './features/auth/register/register-page';
 import { ResetPasswordPage } from './features/auth/reset-password/reset-password-page';
 import { VerifyEmailPage } from './features/auth/verify-email/verify-email-page';
+import { InvitationsPage } from './features/sharing/invitations-page/invitations-page';
 import { TasksPage } from './features/tasks/tasks-page/tasks-page';
 import { ShellLayout } from './layout/shell/shell-layout';
 
@@ -35,6 +36,8 @@ export const routes: Routes = [
       { path: 'tasks', title: 'Tasks · Task App', component: TasksPage },
       // One of my lists (T3a). "My tasks" stays at /tasks; same page component.
       { path: 'lists/:id', title: 'Tasks · Task App', component: TasksPage },
+      // Invitations I received (T3b). The emailed link points here; see authGuard.
+      { path: 'invitations', title: 'Invitations · Task App', component: InvitationsPage },
       { path: 'account', title: 'Account · Task App', component: AccountPage },
       {
         path: 'admin/users',

@@ -10,9 +10,9 @@ import { ListsStore } from './lists.store';
 const ALICE = { id: 1, displayName: 'Alice' } as User;
 const BOB = { id: 2, displayName: 'Bob' } as User;
 
-const MINE: TaskList = { id: 3, name: 'My tasks', personal: true };
-const HOME: TaskList = { id: 8, name: 'Home', personal: false };
-const WORK: TaskList = { id: 9, name: 'Work', personal: false };
+const MINE: TaskList = { id: 3, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 };
+const HOME: TaskList = { id: 8, name: 'Home', personal: false, role: 'OWNER', memberCount: 1 };
+const WORK: TaskList = { id: 9, name: 'Work', personal: false, role: 'OWNER', memberCount: 1 };
 
 describe('ListsStore', () => {
   let store: ListsStore;
@@ -106,7 +106,7 @@ describe('ListsStore', () => {
     expect(store.lists()).toEqual([]);
     expect(store.loaded()).toBe(false);
     store.load();
-    flushLists([{ id: 20, name: 'My tasks', personal: true }]);
+    flushLists([{ id: 20, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 }]);
     expect(store.lists().map((l) => l.id)).toEqual([20]);
   });
 

@@ -142,6 +142,7 @@
                     [task]="task"
                     [today]="today()"
                     [busy]="isBusy(task.id)"
+                    [showAddedBy]="shared()"
                     (doneChange)="toggle(task, $event)"
                     (edit)="openEdit(task)"
                     (remove)="openDelete(task)"

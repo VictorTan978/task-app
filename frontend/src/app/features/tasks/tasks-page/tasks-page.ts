@@ -156,6 +156,8 @@ export class TasksPage {
     return ref.kind === 'list' ? (this.lists.byId().get(ref.id) ?? null) : null;
   });
   /** Real id of the open list, for the picker's highlight. */
+  /** The open list has 2 or more members: tasks show "Added by …". */
+  protected readonly shared = computed(() => (this.currentList()?.memberCount ?? 1) >= 2);
   protected readonly activeListId = computed(() => this.currentList()?.id ?? this.listId());
   protected readonly headingFallback = computed(() =>
     this.listRef().kind === 'personal' ? 'My tasks' : 'List',

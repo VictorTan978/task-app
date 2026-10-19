@@ -43,6 +43,7 @@ describe('ShellLayout', () => {
     });
 
     const fixture = TestBed.createComponent(ShellLayout);
+    http.expectOne('/api/invitations/count').flush({ count: 0 });
     await fixture.whenStable();
     const el: HTMLElement = fixture.nativeElement;
     const header = el.querySelector('app-header')!;
@@ -80,7 +81,13 @@ describe('ShellLayout', () => {
       http.expectOne('/api/auth/me').flush(BOB);
       harness = await RouterTestingHarness.create();
       await harness.navigateByUrl('/tasks');
+      http.expectOne('/api/invitations/count').flush({ count: 0 });
     });
+
+    /** The header recounts invitations on every page change (no live updates). */
+    function flushCount(): void {
+      http.expectOne('/api/invitations/count').flush({ count: 0 });
+    }
 
     afterEach(() => http.verify());
 
@@ -90,6 +97,7 @@ describe('ShellLayout', () => {
 
     it('re-reads the user when moving to another page and applies a new role', async () => {
       await harness.navigateByUrl('/account');
+      flushCount();
       http.expectOne('/api/auth/me').flush({ ...BOB, role: 'ADMIN' });
       expect(auth.isAdmin()).toBe(true);
     });
@@ -98,11 +106,13 @@ describe('ShellLayout', () => {
       await harness.navigateByUrl('/tasks?filter=done');
       http.expectNone('/api/auth/me');
       await harness.navigateByUrl('/admin/users');
+      flushCount();
       http.expectNone('/api/auth/me');
     });
 
     it('goes to /login when the refresh finds the session gone', async () => {
       await harness.navigateByUrl('/account');
+      flushCount();
       http
         .expectOne('/api/auth/me')
         .flush(problem(401, 'ACCOUNT_DISABLED'), { status: 401, statusText: 'x' });

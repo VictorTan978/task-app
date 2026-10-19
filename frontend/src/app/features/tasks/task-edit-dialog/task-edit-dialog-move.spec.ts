@@ -9,13 +9,14 @@ import { ListsStore } from '../../lists/lists.store';
 import { Task } from '../tasks.models';
 import { TaskEditDialog } from './task-edit-dialog';
 
-const MINE: TaskList = { id: 3, name: 'My tasks', personal: true };
-const HOME: TaskList = { id: 8, name: 'Home', personal: false };
-const WORK: TaskList = { id: 9, name: 'Work', personal: false };
+const MINE: TaskList = { id: 3, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 };
+const HOME: TaskList = { id: 8, name: 'Home', personal: false, role: 'OWNER', memberCount: 1 };
+const WORK: TaskList = { id: 9, name: 'Work', personal: false, role: 'OWNER', memberCount: 1 };
 
 const TASK: Task = {
   id: 7,
   listId: 8,
+  addedBy: { displayName: 'Ana' },
   title: 'Plan trip',
   description: null,
   priority: 'NONE',

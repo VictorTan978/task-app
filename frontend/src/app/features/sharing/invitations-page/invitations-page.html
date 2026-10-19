@@ -1,0 +1,96 @@
+<section class="invitations-page" aria-labelledby="invitations-heading">
+  <h1 id="invitations-heading">Invitations</h1>
+
+  @for (list of joined(); track list.id) {
+    <p class="notice notice--info invitations-page__joined" role="status" data-testid="joined">
+      Joined {{ list.name }}.
+      <a [routerLink]="link(list)">Open list</a>
+    </p>
+  }
+
+  @if (notice(); as message) {
+    <p class="notice notice--error" role="alert" data-testid="invitations-notice">{{ message }}</p>
+  }
+
+  @if (!emailVerified()) {
+    <p class="notice notice--info" data-testid="invitations-unverified">
+      {{ confirmEmailMessage }}
+      <a routerLink="/account">Go to your account</a>
+    </p>
+  } @else {
+    @if (loading()) {
+      <p class="link-status" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        Loading invitations…
+      </p>
+    }
+
+    @if (loadFailed()) {
+      <div class="notice notice--error invitations-page__error" role="alert">
+        <span>{{ loadError }}</span>
+        <button
+          type="button"
+          class="btn btn--secondary"
+          [disabled]="loading()"
+          (click)="retryLoad()"
+        >
+          Retry
+        </button>
+      </div>
+    }
+
+    @if (invitations(); as items) {
+      @if (isEmpty()) {
+        <p class="invitations-page__empty" data-testid="invitations-empty">{{ emptyMessage }}</p>
+      } @else {
+        <ul class="invitations-page__list" aria-label="Pending invitations">
+          @for (inv of items; track inv.id) {
+            <li class="invitation" data-testid="invitation" [attr.aria-busy]="!!busyWith(inv.id)">
+              <div class="invitation__text">
+                <p class="invitation__title">
+                  <strong>{{ inv.invitedBy.displayName }}</strong> invited you to
+                  <strong>{{ inv.list.name }}</strong>
+                </p>
+                <p class="field-hint">
+                  Expires
+                  <time [attr.datetime]="inv.expiresAt">{{ day(inv.expiresAt) }}</time>
+                </p>
+                @if (rowErrors().get(inv.id); as error) {
+                  <p class="field-error" role="alert">{{ error }}</p>
+                }
+              </div>
+              <div class="invitation__actions">
+                <button
+                  type="button"
+                  class="btn btn--secondary"
+                  [disabled]="!!busyWith(inv.id)"
+                  [attr.aria-busy]="busyWith(inv.id) === 'decline'"
+                  [attr.aria-label]="'Decline invitation to ' + inv.list.name"
+                  (click)="decline(inv)"
+                >
+                  @if (busyWith(inv.id) === 'decline') {
+                    <span class="spinner" aria-hidden="true"></span>
+                  }
+                  Decline
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--primary"
+                  [disabled]="!!busyWith(inv.id)"
+                  [attr.aria-busy]="busyWith(inv.id) === 'accept'"
+                  [attr.aria-label]="'Accept invitation to ' + inv.list.name"
+                  (click)="accept(inv)"
+                >
+                  @if (busyWith(inv.id) === 'accept') {
+                    <span class="spinner" aria-hidden="true"></span>
+                  }
+                  Accept
+                </button>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    }
+  }
+</section>

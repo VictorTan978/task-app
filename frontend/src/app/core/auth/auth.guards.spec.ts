@@ -35,6 +35,48 @@ describe('auth guards', () => {
     expect(urlOf(run(authGuard))).toBe('/login');
   });
 
+  describe('invitation link (sign-in redirect to /invitations only)', () => {
+    const KEY = 'taskapp.afterSignIn';
+    const runAt = (url: string) =>
+      TestBed.runInInjectionContext(() =>
+        authGuard({} as ActivatedRouteSnapshot, { url } as RouterStateSnapshot),
+      );
+
+    beforeEach(() => sessionStorage.clear());
+    afterEach(() => sessionStorage.clear());
+
+    it('a signed-out visit to /invitations is remembered; other pages are not', () => {
+      signedIn.set(false);
+      expect(urlOf(runAt('/tasks'))).toBe('/login');
+      expect(sessionStorage.getItem(KEY)).toBeNull();
+      expect(urlOf(runAt('/invitations'))).toBe('/login');
+      expect(sessionStorage.getItem(KEY)).toBe('/invitations');
+    });
+
+    it('the first signed-in entry goes to /invitations once, then normally', () => {
+      signedIn.set(false);
+      runAt('/invitations');
+      signedIn.set(true);
+      expect(urlOf(runAt('/tasks'))).toBe('/invitations');
+      expect(sessionStorage.getItem(KEY)).toBeNull();
+      expect(runAt('/tasks')).toBe(true);
+    });
+
+    it('landing on /invitations itself just clears it', () => {
+      sessionStorage.setItem(KEY, '/invitations');
+      signedIn.set(true);
+      expect(runAt('/invitations?x=1')).toBe(true);
+      expect(sessionStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('ignores any other stored path (no open redirect)', () => {
+      sessionStorage.setItem(KEY, '//evil.example.com');
+      signedIn.set(true);
+      expect(runAt('/tasks')).toBe(true);
+      expect(sessionStorage.getItem(KEY)).toBeNull();
+    });
+  });
+
   it('guestGuard allows signed-out users', () => {
     signedIn.set(false);
     expect(run(guestGuard)).toBe(true);

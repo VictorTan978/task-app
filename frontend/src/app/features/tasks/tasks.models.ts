@@ -1,4 +1,4 @@
-/** Models matching the task schemas in `contracts/openapi.yaml` (v0.12.0) exactly. */
+/** Models matching the task schemas in `contracts/openapi.yaml` (v0.13.0) exactly. */
 import { Problem } from '../../core/auth/auth.models';
 
 /** `Priority`: `NONE` is the default (no badge). */
@@ -7,10 +7,20 @@ export type Priority = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
 /** `Status`: `DONE` if and only if `done` is true. */
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
 
+/** `Task.addedBy` (0.13.0). */
+export interface TaskAddedBy {
+  displayName: string;
+}
+
 export interface Task {
   id: number;
   /** The list the task is in (0.12.0; always present). */
   listId: number;
+  /**
+   * Who added the task (0.13.0; always present): their current display name, or null when that
+   * account was deleted. Shown only on lists with 2 or more members.
+   */
+  addedBy: TaskAddedBy | null;
   title: string;
   /** Never an empty string; null when absent. */
   description: string | null;

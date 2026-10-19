@@ -9,6 +9,7 @@ import {
   listNameValidators,
   parseListId,
 } from './lists.logic';
+import { TaskList } from './lists.models';
 
 function httpError(status: number, code: string, errors?: unknown[]) {
   return new HttpErrorResponse({
@@ -41,11 +42,11 @@ describe('lists.logic', () => {
   });
 
   it('compareLists: personal first, then name ignoring case and accents, then id', () => {
-    const lists = [
-      { id: 11, name: 'work', personal: false },
-      { id: 9, name: 'Work', personal: false },
-      { id: 12, name: 'Äpfel', personal: false },
-      { id: 3, name: 'Zed', personal: true },
+    const lists: TaskList[] = [
+      { id: 11, name: 'work', personal: false, role: 'OWNER', memberCount: 1 },
+      { id: 9, name: 'Work', personal: false, role: 'OWNER', memberCount: 1 },
+      { id: 12, name: 'Äpfel', personal: false, role: 'OWNER', memberCount: 1 },
+      { id: 3, name: 'Zed', personal: true, role: 'OWNER', memberCount: 1 },
     ];
     expect([...lists].sort(compareLists).map((l) => l.id)).toEqual([3, 12, 9, 11]);
   });

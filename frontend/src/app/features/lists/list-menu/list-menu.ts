@@ -1,8 +1,21 @@
-import { Component, ElementRef, inject, input, output, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { TaskList } from '../lists.models';
 
+/** A list header menu action. */
+export type ListMenuAction = 'rename' | 'remove' | 'members' | 'leave';
+
 /**
- * The "⋯" menu on the list header: Rename, and Delete for any list except "My tasks". A plain
+ * The "⋯" menu on the list header, by role. Owner: Rename, Members and Delete (only Rename on
+ * "My tasks", which can't be shared or deleted). Member: Members and Leave list. A plain
  * disclosure (button + buttons); Escape or a click outside closes it.
  */
 @Component({
@@ -21,6 +34,10 @@ export class ListMenu {
 
   readonly rename = output<void>();
   readonly remove = output<void>();
+  readonly members = output<void>();
+  readonly leave = output<void>();
+
+  protected readonly isOwner = computed(() => this.list().role === 'OWNER');
 
   protected readonly open = signal(false);
   private readonly toggleButton = viewChild.required<ElementRef<HTMLButtonElement>>('toggleButton');
@@ -43,12 +60,8 @@ export class ListMenu {
     }
   }
 
-  protected choose(action: 'rename' | 'remove'): void {
+  protected choose(action: ListMenuAction): void {
     this.open.set(false);
-    if (action === 'rename') {
-      this.rename.emit();
-    } else {
-      this.remove.emit();
-    }
+    this[action].emit();
   }
 }

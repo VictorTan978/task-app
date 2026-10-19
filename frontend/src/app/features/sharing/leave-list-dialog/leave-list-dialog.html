@@ -1,0 +1,42 @@
+<dialog
+  #dialog
+  class="dialog dialog--narrow"
+  aria-labelledby="list-leave-heading"
+  aria-describedby="list-leave-note"
+  (cancel)="onCancel($event)"
+>
+  <h2 id="list-leave-heading" class="dialog__title">Leave "{{ list().name }}"?</h2>
+
+  <p id="list-leave-note" class="field-hint">
+    You'll lose access to this list. The tasks you added stay in it. The owner can invite you again.
+  </p>
+
+  @if (error(); as e) {
+    <div class="notice notice--error notice--action" role="alert">
+      <span>{{ e.message }}</span>
+      @if (e.retry; as retry) {
+        <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="retry()">
+          Retry
+        </button>
+      }
+    </div>
+  }
+
+  <div class="dialog__actions">
+    <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
+      Cancel
+    </button>
+    <button
+      type="button"
+      class="btn btn--danger"
+      [disabled]="pending()"
+      [attr.aria-busy]="pending()"
+      (click)="confirm()"
+    >
+      @if (pending()) {
+        <span class="spinner" aria-hidden="true"></span>
+      }
+      Leave list
+    </button>
+  </div>
+</dialog>

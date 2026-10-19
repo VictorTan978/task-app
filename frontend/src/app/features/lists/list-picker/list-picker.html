@@ -7,7 +7,9 @@
           <option value="" disabled selected>Choose a list</option>
         }
         @for (l of lists(); track l.id) {
-          <option [value]="l.id" [selected]="l.id === activeId()">{{ l.name }}</option>
+          <option [value]="l.id" [selected]="l.id === activeId()">
+            {{ l.name }}{{ l.memberCount > 1 ? ' (' + countLabel(l) + ')' : '' }}
+          </option>
         }
       </select>
     </div>
@@ -22,8 +24,14 @@
               [routerLink]="link(l)"
               [class.list-picker__link--active]="l.id === activeId()"
               [attr.aria-current]="l.id === activeId() ? 'page' : null"
-              >{{ l.name }}</a
-            >
+              >{{ l.name }}
+              @if (l.memberCount > 1) {
+                <span class="list-picker__count" data-testid="list-member-count"
+                  ><span aria-hidden="true">{{ l.memberCount }}</span
+                  ><span class="list-picker__sr-only">, {{ countLabel(l) }}</span></span
+                >
+              }
+            </a>
           </li>
         }
       </ul>

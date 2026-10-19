@@ -12,6 +12,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
+import { isOwnerOnly } from '../../sharing/sharing.logic';
 import { isUnauthenticated } from '../../tasks/task-form';
 import {
   deleteListQuestion,
@@ -51,6 +52,8 @@ export class DeleteListDialog implements OnInit {
   readonly closed = output<void>();
   /** The list was not found when reading its count. */
   readonly notFound = output<void>();
+  /** 403 `OWNER_ONLY`: I'm a member, not the owner (my role changed since the page loaded). */
+  readonly ownerOnly = output<void>();
 
   protected readonly taskCount = signal<number | null>(null);
   protected readonly counting = signal(false);
@@ -108,6 +111,10 @@ export class DeleteListDialog implements OnInit {
         if (isListNotFound(error)) {
           // Already gone (deleted in another tab): same outcome.
           this.deleted.emit(id);
+          return;
+        }
+        if (isOwnerOnly(error)) {
+          this.ownerOnly.emit();
           return;
         }
         const message = hasListProblem(error, 409, 'PERSONAL_LIST')

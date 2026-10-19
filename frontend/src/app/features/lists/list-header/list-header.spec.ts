@@ -9,8 +9,9 @@ import { TaskList } from '../lists.models';
 import { ListsStore } from '../lists.store';
 import { ListHeader } from './list-header';
 
-const MINE: TaskList = { id: 3, name: 'My tasks', personal: true };
-const HOME: TaskList = { id: 8, name: 'Home', personal: false };
+const MINE: TaskList = { id: 3, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 };
+const HOME: TaskList = { id: 8, name: 'Home', personal: false, role: 'OWNER', memberCount: 1 };
+const SHARED: TaskList = { id: 9, name: 'Team', personal: false, role: 'MEMBER', memberCount: 3 };
 
 @Component({
   imports: [ListHeader],
@@ -53,7 +54,7 @@ describe('ListHeader', () => {
     store = TestBed.inject(ListsStore);
     vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
     store.load();
-    http.expectOne('/api/lists').flush([MINE, HOME]);
+    http.expectOne('/api/lists').flush([MINE, HOME, SHARED]);
     fixture = TestBed.createComponent(Host);
     host = fixture.componentInstance;
     el = fixture.nativeElement;
@@ -67,7 +68,7 @@ describe('ListHeader', () => {
   const button = (name: string) =>
     Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === name)!;
 
-  async function menu(action: 'Rename' | 'Delete') {
+  async function menu(action: 'Rename' | 'Delete' | 'Members' | 'Leave list') {
     q<HTMLButtonElement>('.list-menu__toggle')!.click();
     await stable();
     button(action).click();
@@ -211,5 +212,81 @@ describe('ListHeader', () => {
     host.list.set(MINE);
     await stable();
     expect(q('#list-rename-name')).toBeNull();
+  });
+
+  it('403 OWNER_ONLY on rename closes the form, says so and refetches the lists', async () => {
+    await rename('Groceries');
+    http
+      .expectOne({ method: 'PATCH', url: '/api/lists/8' })
+      .flush(problem(403, 'OWNER_ONLY'), { status: 403, statusText: 'Forbidden' });
+    await stable();
+    expect(q('#list-rename-name')).toBeNull();
+    expect(q('[data-testid=list-notice]')?.textContent).toContain('Only the owner can do that');
+    http.expectOne({ method: 'GET', url: '/api/lists' }).flush([MINE, { ...HOME, role: 'MEMBER' }]);
+    await stable();
+    expect(host.events).toEqual([]);
+  });
+
+  it('403 OWNER_ONLY on delete closes the dialog, says so and refetches the lists', async () => {
+    await menu('Delete');
+    http.expectOne({ method: 'GET', url: '/api/lists/8' }).flush({ ...HOME, taskCount: 0 });
+    await stable();
+    button('Delete').click();
+    http
+      .expectOne({ method: 'DELETE', url: '/api/lists/8' })
+      .flush(problem(403, 'OWNER_ONLY'), { status: 403, statusText: 'Forbidden' });
+    await stable();
+    expect(q('dialog')).toBeNull();
+    expect(q('[data-testid=list-notice]')?.textContent).toContain('Only the owner can do that');
+    http.expectOne({ method: 'GET', url: '/api/lists' }).flush([MINE, HOME]);
+    expect(router.navigateByUrl).not.toHaveBeenCalled();
+  });
+
+  it('Members opens the members panel; Close closes it', async () => {
+    await menu('Members');
+    expect(q('[data-testid=members-panel]')).not.toBeNull();
+    http.expectOne('/api/lists/8/members').flush([]);
+    http.expectOne('/api/lists/8/invitations').flush([]);
+    await stable();
+    button('Close').click();
+    await stable();
+    expect(q('[data-testid=members-panel]')).toBeNull();
+  });
+
+  it('the members panel finding the list gone emits notFound', async () => {
+    await menu('Members');
+    http
+      .expectOne('/api/lists/8/members')
+      .flush(problem(404, 'LIST_NOT_FOUND'), { status: 404, statusText: 'Not Found' });
+    http.expectOne('/api/lists/8/invitations').flush([]);
+    await stable();
+    expect(q('[data-testid=members-panel]')).toBeNull();
+    expect(host.events).toEqual(['notFound']);
+  });
+
+  it('a member can leave: confirm, the list leaves the picker and I go to /tasks', async () => {
+    host.list.set(SHARED);
+    await stable();
+    await menu('Leave list');
+    expect(q('dialog h2')?.textContent?.trim()).toBe('Leave "Team"?');
+    expect(q('dialog')?.textContent).toContain('The tasks you added stay in it.');
+    button('Leave list').click();
+    const req = http.expectOne({ method: 'POST', url: '/api/lists/9/leave' });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await stable();
+    expect(store.byId().has(9)).toBe(false);
+    http.expectOne({ method: 'GET', url: '/api/lists' }).flush([MINE, HOME]);
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/tasks');
+    expect(q('dialog')).toBeNull();
+  });
+
+  it('cancelling Leave changes nothing', async () => {
+    host.list.set(SHARED);
+    await stable();
+    await menu('Leave list');
+    button('Cancel').click();
+    await stable();
+    expect(q('dialog')).toBeNull();
+    expect(store.byId().has(9)).toBe(true);
   });
 });

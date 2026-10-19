@@ -82,6 +82,11 @@ describe('DeleteAccountDialog', () => {
     expect(dialog.textContent).toContain(
       'Your account and all your tasks will be permanently deleted',
     );
+    const text = dialog.textContent?.replace(/\s+/g, ' ');
+    expect(text).toContain('Lists you own are deleted, and their members lose them.');
+    expect(text).toContain(
+      "Tasks you added to other people's lists stay, shown as added by a deleted user.",
+    );
     expect(password().type).toBe('password');
     expect(confirmButton().classList).toContain('btn--danger');
   });
@@ -164,18 +169,16 @@ describe('DeleteAccountDialog', () => {
 
   it('shows the account rate-limit text on 429', async () => {
     await confirm();
-    http
-      .expectOne(URL)
-      .flush(
-        {
-          type: 'about:blank',
-          title: 'Too Many Requests',
-          status: 429,
-          detail: 'x',
-          code: 'RATE_LIMITED',
-        },
-        { status: 429, statusText: 'Too Many Requests', headers: { 'Retry-After': '600' } },
-      );
+    http.expectOne(URL).flush(
+      {
+        type: 'about:blank',
+        title: 'Too Many Requests',
+        status: 429,
+        detail: 'x',
+        code: 'RATE_LIMITED',
+      },
+      { status: 429, statusText: 'Too Many Requests', headers: { 'Retry-After': '600' } },
+    );
     await fixture.whenStable();
     expect(alert()).toBe('Too many attempts, please try again later');
     expect(el.querySelector('.field-error')).toBeNull();

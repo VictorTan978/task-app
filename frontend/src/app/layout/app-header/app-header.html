@@ -1,6 +1,20 @@
 <header class="app-header">
   <span class="app-header__name">Task App</span>
   <div class="app-header__user">
+    <a
+      class="app-header__link app-header__invitations"
+      routerLink="/invitations"
+      routerLinkActive="app-header__link--active"
+      data-testid="invitations-link"
+      [attr.aria-label]="invitationsLabel()"
+    >
+      Invitations
+      @if (invitationCount() > 0) {
+        <span class="app-header__badge" aria-hidden="true" data-testid="invitations-badge">{{
+          invitationCount()
+        }}</span>
+      }
+    </a>
     @if (isAdmin()) {
       <a class="app-header__link" routerLink="/admin/users" data-testid="admin-link">Admin</a>
     }

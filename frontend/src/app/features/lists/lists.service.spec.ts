@@ -22,15 +22,24 @@ describe('ListsService', () => {
     const result = firstValueFrom(service.list());
     const req = http.expectOne('/api/lists');
     expect(req.request.method).toBe('GET');
-    req.flush([{ id: 3, name: 'My tasks', personal: true }]);
-    expect(await result).toEqual([{ id: 3, name: 'My tasks', personal: true }]);
+    req.flush([{ id: 3, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 }]);
+    expect(await result).toEqual([
+      { id: 3, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 },
+    ]);
   });
 
   it('get sends GET /api/lists/{id} and returns the task count', async () => {
     const result = firstValueFrom(service.get(8));
     const req = http.expectOne('/api/lists/8');
     expect(req.request.method).toBe('GET');
-    req.flush({ id: 8, name: 'Home', personal: false, taskCount: 12 });
+    req.flush({
+      id: 8,
+      name: 'Home',
+      personal: false,
+      role: 'OWNER',
+      memberCount: 1,
+      taskCount: 12,
+    });
     expect((await result).taskCount).toBe(12);
   });
 
@@ -39,7 +48,10 @@ describe('ListsService', () => {
     const req = http.expectOne('/api/lists');
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ name: 'Home' });
-    req.flush({ id: 8, name: 'Home', personal: false }, { status: 201, statusText: 'Created' });
+    req.flush(
+      { id: 8, name: 'Home', personal: false, role: 'OWNER', memberCount: 1 },
+      { status: 201, statusText: 'Created' },
+    );
     expect((await result).id).toBe(8);
   });
 
@@ -48,7 +60,7 @@ describe('ListsService', () => {
     const req = http.expectOne('/api/lists/8');
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ name: 'Groceries' });
-    req.flush({ id: 8, name: 'Groceries', personal: false });
+    req.flush({ id: 8, name: 'Groceries', personal: false, role: 'OWNER', memberCount: 1 });
     expect((await result).name).toBe('Groceries');
   });
 

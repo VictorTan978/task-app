@@ -13,6 +13,7 @@ import {
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { finalize, Subscription } from 'rxjs';
+import { memberCountLabel } from '../../sharing/sharing.logic';
 import { isUnauthenticated } from '../../tasks/task-form';
 import {
   applyListNameError,
@@ -42,6 +43,7 @@ export function listLink(list: TaskList): string {
 /**
  * The list picker: a sidebar on desktop, a `<select>` on phone width, and "+ New list" with an
  * inline form. Links carry no query params, so switching lists resets tab, tag, search and sort.
+ * Shared lists (2+ members) show their member count.
  */
 @Component({
   selector: 'app-list-picker',
@@ -87,6 +89,11 @@ export class ListPicker {
 
   protected link(list: TaskList): string {
     return listLink(list);
+  }
+
+  /** "3 members", shown on shared lists. */
+  protected countLabel(list: TaskList): string {
+    return memberCountLabel(list.memberCount);
   }
 
   protected retryLoad(): void {

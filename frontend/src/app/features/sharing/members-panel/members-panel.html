@@ -1,0 +1,210 @@
+<dialog
+  #dialog
+  class="dialog members-panel"
+  aria-labelledby="members-heading"
+  data-testid="members-panel"
+  (cancel)="onCancel($event)"
+>
+  <h2 id="members-heading" class="dialog__title">Members of {{ list().name }}</h2>
+
+  @if (banner(); as message) {
+    <p class="notice notice--error" role="alert">{{ message }}</p>
+  }
+
+  <section class="members-panel__section" aria-labelledby="members-list-heading">
+    <h3 id="members-list-heading" class="members-panel__heading">Members</h3>
+    @if (membersLoading()) {
+      <p class="link-status" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        Loading members…
+      </p>
+    }
+    @if (membersFailed()) {
+      <div class="notice notice--error notice--action" role="alert">
+        <span>{{ membersLoadError }}</span>
+        <button
+          type="button"
+          class="btn btn--secondary"
+          [disabled]="membersLoading()"
+          (click)="loadMembers()"
+        >
+          Retry
+        </button>
+      </div>
+    }
+    @if (members(); as items) {
+      <ul class="members-panel__rows" aria-label="Members">
+        @for (m of items; track m.userId) {
+          <li class="members-panel__row" data-testid="member-row">
+            <div class="members-panel__who">
+              <span class="members-panel__name">
+                {{ m.displayName }}
+                @if (m.userId === myId()) {
+                  <span class="members-panel__you">(you)</span>
+                }
+              </span>
+              <span class="members-panel__email">{{ m.email }}</span>
+              @if (memberErrors().get(m.userId); as error) {
+                <span class="field-error" role="alert">{{ error }}</span>
+              }
+            </div>
+            <span class="members-panel__role" data-testid="member-role">{{ roleLabel(m) }}</span>
+            @if (isOwner() && m.role === 'MEMBER') {
+              @if (confirmingRemove() === m.userId) {
+                <div class="members-panel__confirm">
+                  <span>Remove {{ m.displayName }}?</span>
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--small"
+                    [disabled]="removing().has(m.userId)"
+                    (click)="cancelRemove()"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--danger btn--small"
+                    [disabled]="removing().has(m.userId)"
+                    [attr.aria-busy]="removing().has(m.userId)"
+                    (click)="remove(m)"
+                  >
+                    @if (removing().has(m.userId)) {
+                      <span class="spinner" aria-hidden="true"></span>
+                    }
+                    Remove
+                  </button>
+                </div>
+              } @else {
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--small"
+                  [attr.aria-label]="'Remove ' + m.displayName"
+                  (click)="askRemove(m)"
+                >
+                  Remove
+                </button>
+              }
+            }
+          </li>
+        }
+      </ul>
+    }
+  </section>
+
+  @if (canInvite()) {
+    <section class="members-panel__section" aria-labelledby="invite-heading">
+      <h3 id="invite-heading" class="members-panel__heading">Invite someone</h3>
+      <form class="members-panel__invite" [formGroup]="form" (ngSubmit)="submitInvite()" novalidate>
+        <div class="field">
+          <label for="invite-email">Email address</label>
+          <div class="members-panel__invite-row">
+            <input
+              id="invite-email"
+              type="email"
+              formControlName="email"
+              autocomplete="off"
+              [readOnly]="inviting()"
+              [attr.aria-invalid]="emailError() || inviteError() ? true : null"
+              [attr.aria-describedby]="
+                emailError() ? 'invite-email-error' : inviteError() ? 'invite-error' : null
+              "
+            />
+            <button
+              type="submit"
+              class="btn btn--primary"
+              [disabled]="inviting()"
+              [attr.aria-busy]="inviting()"
+            >
+              @if (inviting()) {
+                <span class="spinner" aria-hidden="true"></span>
+              }
+              Send invitation
+            </button>
+          </div>
+          @if (emailError(); as message) {
+            <p class="field-error" id="invite-email-error">{{ message }}</p>
+          } @else if (inviteError(); as e) {
+            <p class="field-error" id="invite-error" role="alert">
+              {{ e.message }}
+              @if (e.retry; as retry) {
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--small"
+                  [disabled]="inviting()"
+                  (click)="retry()"
+                >
+                  Retry
+                </button>
+              }
+            </p>
+          }
+        </div>
+        <p class="members-panel__sent" role="status" data-testid="invite-sent">
+          {{ inviteSent() }}
+        </p>
+      </form>
+    </section>
+
+    <section class="members-panel__section" aria-labelledby="pending-heading">
+      <h3 id="pending-heading" class="members-panel__heading">Pending invitations</h3>
+      @if (pendingLoading()) {
+        <p class="link-status" role="status">
+          <span class="spinner" aria-hidden="true"></span>
+          Loading invitations…
+        </p>
+      }
+      @if (pendingFailed()) {
+        <div class="notice notice--error notice--action" role="alert">
+          <span>{{ pendingLoadError }}</span>
+          <button
+            type="button"
+            class="btn btn--secondary"
+            [disabled]="pendingLoading()"
+            (click)="loadPending()"
+          >
+            Retry
+          </button>
+        </div>
+      }
+      @if (pending(); as items) {
+        @if (items.length === 0) {
+          <p class="field-hint" data-testid="pending-empty">{{ noPending }}</p>
+        } @else {
+          <ul class="members-panel__rows" aria-label="Pending invitations">
+            @for (inv of items; track inv.id) {
+              <li class="members-panel__row" data-testid="pending-row">
+                <div class="members-panel__who">
+                  <span class="members-panel__email">{{ inv.email }}</span>
+                  <span class="field-hint">
+                    Pending · expires
+                    <time [attr.datetime]="inv.expiresAt">{{ day(inv.expiresAt) }}</time>
+                  </span>
+                  @if (pendingErrors().get(inv.id); as error) {
+                    <span class="field-error" role="alert">{{ error }}</span>
+                  }
+                </div>
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--small"
+                  [disabled]="cancelling().has(inv.id)"
+                  [attr.aria-busy]="cancelling().has(inv.id)"
+                  [attr.aria-label]="'Cancel invitation for ' + inv.email"
+                  (click)="cancelInvitation(inv)"
+                >
+                  @if (cancelling().has(inv.id)) {
+                    <span class="spinner" aria-hidden="true"></span>
+                  }
+                  Cancel
+                </button>
+              </li>
+            }
+          </ul>
+        }
+      }
+    </section>
+  }
+
+  <div class="dialog__actions">
+    <button type="button" class="btn btn--secondary" (click)="close()">Close</button>
+  </div>
+</dialog>

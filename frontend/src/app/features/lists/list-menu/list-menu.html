@@ -12,14 +12,28 @@
   </button>
   @if (open()) {
     <div class="list-menu__items" id="list-menu-items">
-      <button type="button" class="list-menu__item" (click)="choose('rename')">Rename</button>
+      @if (isOwner()) {
+        <button type="button" class="list-menu__item" (click)="choose('rename')">Rename</button>
+      }
       @if (!list().personal) {
+        <button type="button" class="list-menu__item" (click)="choose('members')">Members</button>
+      }
+      @if (isOwner() && !list().personal) {
         <button
           type="button"
           class="list-menu__item list-menu__item--danger"
           (click)="choose('remove')"
         >
           Delete
+        </button>
+      }
+      @if (!isOwner()) {
+        <button
+          type="button"
+          class="list-menu__item list-menu__item--danger"
+          (click)="choose('leave')"
+        >
+          Leave list
         </button>
       }
     </div>

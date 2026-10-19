@@ -2,10 +2,20 @@
   <h1 class="list-header__name" [id]="headingId()">{{ name() }}</h1>
   @if (list(); as l) {
     @if (!renaming()) {
-      <app-list-menu [list]="l" (rename)="startRename()" (remove)="startDelete()" />
+      <app-list-menu
+        [list]="l"
+        (rename)="startRename()"
+        (remove)="startDelete()"
+        (members)="openMembers()"
+        (leave)="startLeave()"
+      />
     }
   }
 </div>
+
+@if (notice(); as message) {
+  <p class="notice notice--error" role="alert" data-testid="list-notice">{{ message }}</p>
+}
 
 @if (renaming()) {
   <form
@@ -74,5 +84,18 @@
     (deleted)="onDeleted($event)"
     (closed)="deleting.set(null)"
     (notFound)="onDeleteNotFound()"
+    (ownerOnly)="onDeleteOwnerOnly()"
   />
+}
+
+@if (showingMembers(); as l) {
+  <app-members-panel
+    [list]="l"
+    (closed)="showingMembers.set(null)"
+    (notFound)="onPanelNotFound()"
+  />
+}
+
+@if (leaving(); as l) {
+  <app-leave-list-dialog [list]="l" (left)="onLeft($event)" (closed)="leaving.set(null)" />
 }

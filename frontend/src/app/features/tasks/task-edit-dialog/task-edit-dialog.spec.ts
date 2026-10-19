@@ -8,6 +8,7 @@ import { TaskEditDialog } from './task-edit-dialog';
 const TASK: Task = {
   id: 7,
   listId: 3,
+  addedBy: { displayName: 'Ana' },
   title: 'Plan trip',
   description: 'Book hotel',
   priority: 'MEDIUM',
