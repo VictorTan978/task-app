@@ -82,13 +82,19 @@ public class ListService {
         }));
     }
 
-    /** {@code PATCH /api/lists/{id}}: one UPDATE scoped by owner; 0 rows (not the user's, or deleted) is a 404. */
-    @Transactional
+    /**
+     * {@code PATCH /api/lists/{id}}: users row FOR SHARE, then one UPDATE scoped by owner; 0 rows (not the user's, or
+     * deleted) is a 404. The users row comes first like every other list write: an account delete (X on that row,
+     * then the cascade into {@code lists}) otherwise deadlocked with the UPDATE on {@code ix_lists_owner_name}
+     * (found by the AC13 stress test). Run again if it lost a deadlock anyway.
+     */
     public TaskListResponse rename(long userId, long listId, RenameListRequest request) {
-        if (lists.rename(userId, listId, request.name()) == 0) {
-            throw new ListNotFoundException();
-        }
-        return TaskListResponse.from(lists.findById(listId).orElseThrow(ListNotFoundException::new));
+        return DeadlockRetry.run(() -> transaction.execute(status -> {
+            if (lists.shareUser(userId).isEmpty() || lists.rename(userId, listId, request.name()) == 0) {
+                throw new ListNotFoundException();
+            }
+            return TaskListResponse.from(lists.findById(listId).orElseThrow(ListNotFoundException::new));
+        }));
     }
 
     /**

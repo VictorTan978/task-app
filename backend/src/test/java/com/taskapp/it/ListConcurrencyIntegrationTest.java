@@ -39,7 +39,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "app.rate-limit.login-per-ip-per-minute=100000",
-        "app.rate-limit.register-per-ip-per-hour=100000"})
+        "app.rate-limit.register-per-ip-per-hour=100000",
+        "app.rate-limit.admin-actions-per-user-per-minute=100000"})
 class ListConcurrencyIntegrationTest {
 
     @Container
@@ -162,6 +163,45 @@ class ListConcurrencyIntegrationTest {
         assertConsistent();
     }
 
+    /**
+     * Fix round 1: renames racing the account's deletion (by its owner, or by an admin). The delete cascades into
+     * {@code lists}; a rename that did not take the users row first deadlocked with it on ix_lists_owner_name (500).
+     */
+    @RepeatedTest(10)
+    void renamesRacingAnAccountDeletionNeverFail() throws Exception {
+        Browser admin = register();
+        jdbc.update("update users set role = 'SUPER_ADMIN' where id = ?", admin.id);
+        Browser adminSession = login(admin);
+        for (boolean byAdmin : new boolean[] {false, true}) {
+            Browser u = register();
+            long mine = u.myTasks();
+            long home = u.createList("Home");
+            long work = u.createList("Work");
+            Browser deleter = adminSession;
+            List<Callable<Integer>> work2 = new ArrayList<>();
+            work2.add(byAdmin ? () -> deleter.delete("/api/admin/users/" + u.id)
+                    : () -> u.post("/api/account/delete", "{\"password\":\"" + PASSWORD + "\"}"));
+            for (long list : new long[] {mine, home, work}) {
+                work2.add(() -> u.patch("/api/lists/" + list, "{\"name\":\"r" + list + "\"}"));
+                work2.add(() -> u.patch("/api/lists/" + list, "{\"name\":\"s" + list + "\"}"));
+            }
+
+            List<Integer> statuses = runTogether(work2);
+
+            assertThat(statuses.get(0)).as("delete").isEqualTo(204);
+            assertThat(statuses.subList(1, statuses.size())).allMatch(st -> Set.of(200, 401, 404).contains(st));
+            assertThat(count("select count(*) from lists where owner_id = ?", u.id)).isZero();
+        }
+    }
+
+    private Browser login(Browser account) throws Exception {
+        Browser b = new Browser().start();
+        b.send("POST", "/api/auth/login", "{\"email\":\"" + account.email + "\",\"password\":\"" + PASSWORD
+                + "\"}", 200);
+        b.id = account.id;
+        return b;
+    }
+
     // ---- helpers ----
 
     private void assertConsistent() {
@@ -206,8 +246,9 @@ class ListConcurrencyIntegrationTest {
     private Browser register() throws Exception {
         int n = SEQ.incrementAndGet();
         Browser b = new Browser().start();
-        String body = b.send("POST", "/api/auth/register", "{\"displayName\":\"Lists " + n + "\",\"email\":\"lists" + n
-                + "@example.com\",\"password\":\"" + PASSWORD + "\"}", 201);
+        b.email = "lists" + n + "@example.com";
+        String body = b.send("POST", "/api/auth/register", "{\"displayName\":\"Lists " + n + "\",\"email\":\""
+                + b.email + "\",\"password\":\"" + PASSWORD + "\"}", 201);
         Matcher m = ID.matcher(body);
         assertThat(m.find()).isTrue();
         b.id = Long.parseLong(m.group(1));
@@ -218,6 +259,7 @@ class ListConcurrencyIntegrationTest {
     class Browser {
         final Map<String, String> cookies = new LinkedHashMap<>();
         long id;
+        String email;
 
         Browser start() throws Exception {
             status("GET", "/api/auth/me", null);

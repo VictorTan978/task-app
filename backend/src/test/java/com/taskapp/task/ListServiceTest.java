@@ -121,6 +121,31 @@ class ListServiceTest {
     }
 
     @Test
+    void renameSharesTheUserRowFirstAndAGoneAccountIsNotFound() {
+        when(lists.rename(OWNER, 8L, "x")).thenReturn(1);
+        when(lists.findById(8L)).thenReturn(Optional.of(list(8, "x", false)));
+        service.rename(OWNER, 8L, new RenameListRequest("x"));
+        InOrder order = inOrder(lists);
+        order.verify(lists).shareUser(OWNER);
+        order.verify(lists).rename(OWNER, 8L, "x");
+
+        when(lists.shareUser(OWNER)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.rename(OWNER, 8L, new RenameListRequest("y")))
+                .isInstanceOf(ListNotFoundException.class);
+        verify(lists, never()).rename(OWNER, 8L, "y");
+    }
+
+    @Test
+    void renameRetriesADeadlock() {
+        when(lists.rename(OWNER, 8L, "x")).thenThrow(
+                new CannotAcquireLockException("x", new SQLException("x", "40001", 1213))).thenReturn(1);
+        when(lists.findById(8L)).thenReturn(Optional.of(list(8, "x", false)));
+
+        assertThat(service.rename(OWNER, 8L, new RenameListRequest("x")).name()).isEqualTo("x");
+        verify(lists, times(2)).shareUser(OWNER);
+    }
+
+    @Test
     void deleteLocksUserThenListThenChecksThenDeletes() {
         when(lists.findByIdAndOwnerId(8L, OWNER)).thenReturn(Optional.of(list(8, "Home", false)));
 
