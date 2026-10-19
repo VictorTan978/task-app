@@ -1,8 +1,86 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.12.0
+  version: 0.13.0
   description: |
+    ## Changes in 0.13.0 (sharing, specs/sharing-team-lists.md Part B / T3b)
+    Additive, except that `GET /api/lists` loses `maxItems: 50` (it now also returns lists shared
+    with me). See "Sharing".
+    - **Access is by membership.** Wherever this document says "my lists", "one of my lists" or
+      "the signed-in user's lists" (including `?list=`, `listId` in task bodies, every task and
+      tag endpoint and `GET /api/lists/{id}`), it now means **a list I'm a member of**, owned
+      or shared. Anything about a list I'm not a member of (never was, left, was removed, the
+      list was deleted) is still **404**, never 403.
+    - `TaskList` (and so `TaskListDetails`) gains `role` (`OWNER` | `MEMBER`) and `memberCount`
+      (1-20, owner included), always present.
+    - `Task` gains `addedBy`: `{ "displayName": "Ana" }` of the person who added the task, or
+      `null` if that account was deleted. Always present.
+    - `PATCH` and `DELETE /api/lists/{id}` are owner-only: a member gets **403 `OWNER_ONLY`**.
+    - New endpoints (tag `lists`): `GET /api/lists/{id}/members`,
+      `DELETE /api/lists/{id}/members/{userId}`, `POST /api/lists/{id}/leave`,
+      `GET` / `POST /api/lists/{id}/invitations`,
+      `DELETE /api/lists/{id}/invitations/{invitationId}`.
+    - New endpoints (tag `invitations`): `GET /api/invitations`, `GET /api/invitations/count`,
+      `POST /api/invitations/{id}/accept`, `POST /api/invitations/{id}/decline`.
+    - New schemas `ListRole`, `Member`, `ListInvitation`, `MyInvitation`,
+      `CreateInvitationRequest`, `InvitationCount`.
+    - New error codes: `OWNER_ONLY` (403), `OWNER_CANNOT_LEAVE`, `ALREADY_MEMBER`,
+      `ALREADY_INVITED`, `MEMBER_LIMIT`, `INVITATION_LIMIT` (409), `MEMBER_NOT_FOUND`,
+      `INVITATION_NOT_FOUND` (404). `PERSONAL_LIST` is also returned when inviting to "My
+      tasks". `FieldError.field` `email` is also used by the invite endpoint.
+    - New rate limits (see "Rate limiting"): invitations per inviter, and a silent cap on
+      invitation emails per recipient.
+    - Account deletion (`POST /api/account/delete`, `DELETE /api/admin/users/{id}`): tasks the
+      user added to other people's lists stay (`addedBy: null`), and so do those lists' tags.
+      Their memberships and pending invitations to their address go; lists they own are
+      deleted for every member.
+    - **One-off effects at deploy:** every existing list has exactly one member, its owner
+      (`role: OWNER`, `memberCount: 1`). Every existing task has `addedBy` = its list's owner.
+
+    ## Sharing (0.13.0)
+    - **Roles.** The owner (`lists.owner`, never changes, no transfer) and members. Both can
+      read the list, its members and its tasks, and add, edit, tick, move (between lists they
+      are a member of) and delete any task and use the list's tags. Only the owner can rename or
+      delete the list, invite, see or cancel pending invitations and remove members (a member
+      gets 403 `OWNER_ONLY`; a non-member always 404). A member can leave
+      (`POST /api/lists/{id}/leave`); the owner can't (409 `OWNER_CANNOT_LEAVE`), only delete.
+      "My tasks" can't be shared: it always has only its owner.
+    - **Limits.** At most 20 members per list (owner included) and 20 pending invitations per
+      list. The 50-list limit still counts only lists I own; there is no limit on lists shared
+      with me.
+    - **Invitations.** The owner invites an email address. The answer is **always** 201 with the
+      invitation shown as pending, and it is stored the same way, **whether or not an account
+      has that address**; nothing in any response tells the difference. An email is sent (in
+      the background, after the response) only if an active (not disabled) account has that
+      address, verified or not. An invitation expires 14 days after it was sent (`expiresAt`);
+      expired invitations are not listed or counted and can't be accepted. Accepting, declining
+      or cancelling removes it. Inviting an address again after its invitation expired
+      refreshes that invitation (same `id`, new `invitedAt` / `expiresAt`). Note: once the
+      invitee declines or accepts, the invitation disappears from the owner's pending list.
+    - **Who sees an invitation.** It is matched by email (ignoring letter case and accents, like
+      login) every time the invitee reads or accepts it, and **only for accounts whose email is
+      verified** (`User.emailVerified`). So someone who registers after being invited, and
+      confirms their email within the 14 days, sees it too (they get no email). For an
+      unverified account, `GET /api/invitations` is `[]`, the count is 0, and accept/decline
+      give 404 `INVITATION_NOT_FOUND`: the frontend uses `GET /api/auth/me` `emailVerified` to
+      tell the user to confirm their email first.
+    - **Invitation email.** Subject "<owner display name> invited you to a list on Task App".
+      The body names the owner and the list (quoted, plain text) and links to
+      `<APP_BASE_URL>/invitations` (no token, no id: access comes from the signed-in session
+      and the verified email). The frontend opens its invitations page after sign-in when that
+      link was followed while signed out.
+    - **Members' details.** Members of a list see each other's display name, email and role
+      (`GET /api/lists/{id}/members`), only there. The invitee sees only the owner's display
+      name and the list's name. Admins see only their own lists, like any user.
+    - **Leaving, removal, deletion.** A member who leaves or is removed gets 404 on their next
+      request for that list or its tasks; tasks they added stay (with their display name in
+      `addedBy`). A request already running when they were removed may still finish.
+      Deleting an account keeps the tasks it added to other people's lists (`addedBy: null`) and
+      those lists' tags; its own lists are deleted for every member.
+    - **Editing together.** Last write wins, no version check (409). If one member deletes a task
+      while another saves it, the saver gets 404 `NOT_FOUND`. No live updates: others' changes
+      show after a reload or "Load more".
+
     ## Changes in 0.12.0 (lists, specs/sharing-team-lists.md Part A / T3a)
     Tasks and tags now live in **lists**. Nothing is shared yet: every list has one owner and
     only the owner can see or change it, its tasks or its tags (anything else answers 404, never
@@ -38,8 +116,10 @@ info:
       UTF-16 code units). Duplicate names are allowed (lists are identified by `id`).
     - A list, its tasks or its tags that are not the signed-in user's (unknown id, another
       user's list, a deleted list) always give **404 `LIST_NOT_FOUND`**, never 403, with the
-      same body in every case. Admins see only their own lists, like any user.
-    - Deleting a list deletes its tasks and its tags. Deleting an account deletes all its lists.
+      same body in every case. Admins see only their own lists, like any user. (0.13.0: "the
+      signed-in user's" means "a list I'm a member of", see "Sharing".)
+    - Deleting a list deletes its tasks and its tags. Deleting an account deletes all the
+      lists it owns (0.13.0: tasks it added to other people's lists stay).
 
     ## Changes in 0.11.0 (tasks search, sort and pagination, specs/tasks-search-sort-pagination.md)
     **Breaking (approved):** `GET /api/tasks` returns a `TaskPage` object
@@ -506,6 +586,17 @@ info:
       validation checks, including ones then refused with 403 / 404 / 409. Not counted:
       `GET /api/admin/users` (not limited).
 
+    Sharing (new in 0.13.0):
+    - Invitations, per signed-in user (the inviter): 30 per 1 hour (429, same response as
+      above). Counted on every `POST /api/lists/{id}/invitations` that passes the 400, 404,
+      403 `OWNER_ONLY` and 409 `PERSONAL_LIST` checks, including ones then refused with
+      409 `ALREADY_MEMBER` / `ALREADY_INVITED` / `MEMBER_LIMIT` / `INVITATION_LIMIT`.
+      (`RATE_LIMIT_INVITES_PER_USER_PER_HOUR`)
+    - Invitation emails, per recipient account: at most 5 per 1 hour. **Silent**: over this
+      limit the invitation is still created and the response is the same 201; only the email
+      is skipped. (`RATE_LIMIT_INVITE_EMAILS_PER_ACCOUNT_PER_HOUR`)
+    No other sharing endpoint is rate limited.
+
     Delete account without a password (0.8.0): the `email` confirmation shares the per-user
     password-check counter above (a wrong `email` counts one failure, the right one resets it).
 
@@ -545,9 +636,10 @@ info:
 
     ## Request bodies
     Unknown properties in a JSON request body are ignored (never an error). In particular any
-    `id`, `ownerId`, `createdAt` or `updatedAt` sent by the client is ignored; the task owner is
-    always the signed-in user from the session. A task's list (0.12.0) can only be one of the
-    signed-in user's own lists (`listId`, else 404 `LIST_NOT_FOUND`).
+    `id`, `ownerId`, `addedBy`, `createdAt` or `updatedAt` sent by the client is ignored; the
+    person who adds a task (`addedBy`) is always the signed-in user from the session. A task's
+    list (0.12.0) can only be a list the signed-in user is a member of (0.13.0; `listId`, else
+    404 `LIST_NOT_FOUND`).
 servers:
   - url: http://localhost:8080
 tags:
@@ -556,7 +648,11 @@ tags:
   - name: account
   - name: tasks
   - name: lists
-    description: Task lists (0.12.0). Each list has one owner; nothing is shared yet.
+    description: |
+      Task lists (0.12.0). Each list has one owner; since 0.13.0 the owner can share it with
+      members (see "Sharing").
+  - name: invitations
+    description: The signed-in user's own pending invitations to other people's lists (0.13.0).
   - name: admin
     description: Admin users page (0.9.0), `ADMIN` and `SUPER_ADMIN` only.
 paths:
@@ -1545,6 +1641,12 @@ paths:
         account and all its tasks (immediate hard delete, no restore). The email and display name
         can be registered again right away. Other users' data is not affected.
 
+        **0.13.0, shared lists:** deleted with the account: every list it owns (with all their
+        tasks and tags, whoever added them; their members lose them), its memberships of other
+        people's lists and the pending invitations to its email address. **Kept:** the tasks it
+        added to lists owned by other people (their `addedBy` becomes `null`, shown as "Added by
+        a deleted user") and those lists' tags. The delete-account warning should say so.
+
         On success the server signs the caller out exactly like `POST /api/auth/logout`: the
         session is invalidated, `JSESSIONID` is expired (Max-Age=0) and a **fresh `XSRF-TOKEN`
         cookie is set on this 204 response**, so the client can call login/register next without
@@ -1792,8 +1894,8 @@ paths:
         Changed in 0.11.0 (breaking): the response was a bare `Task[]`.
 
         **Which tasks:** the tasks of the list given by `list` (0.12.0); `filter`, `tag` and `q`
-        combine (AND) inside it. Only the signed-in user's own lists, ever (admins see only their
-        own lists too). There is no "all lists" view.
+        combine (AND) inside it. Only lists the signed-in user is a member of (0.13.0: owned or
+        shared), ever (admins see only their own lists too). There is no "all lists" view.
 
         **Checks, in order:** `list` first (404 `LIST_NOT_FOUND` when it is not one of my lists,
         even if `q` or `cursor` is invalid too), then `q` and `cursor` (400).
@@ -1920,6 +2022,8 @@ paths:
                     items:
                       - id: 12
                         listId: 3
+                        addedBy:
+                          displayName: Ana
                         title: Buy milk
                         description: null
                         priority: HIGH
@@ -1931,6 +2035,7 @@ paths:
                         updatedAt: '2026-10-08T09:15:02.123456Z'
                       - id: 7
                         listId: 3
+                        addedBy: null
                         title: File taxes
                         description: Use last year's folder
                         priority: NONE
@@ -1947,6 +2052,8 @@ paths:
                     items:
                       - id: 3
                         listId: 3
+                        addedBy:
+                          displayName: Ana
                         title: Call Bob
                         description: null
                         priority: LOW
@@ -1990,7 +2097,7 @@ paths:
     post:
       summary: Create a task
       description: |
-        Creates a task owned by the signed-in user. New tasks are always `priority: NONE`,
+        Creates a task added by the signed-in user (`addedBy`, 0.13.0). New tasks are always `priority: NONE`,
         `status: TODO`, `done: false` and `tags: []` (`priority`, `status`, `done` and `tags`
         properties in the body are ignored; set them with `PUT`). `title` and `description` are stripped of
         leading/trailing whitespace before validation; a blank `description` is stored as `null`.
@@ -1998,6 +2105,7 @@ paths:
         0.12.0: the task goes into the list `listId` (missing or `null` → "My tasks"). A
         `listId` that is not one of my lists (unknown, another user's, deleted) gives 404
         `LIST_NOT_FOUND` and nothing is created. Body validation (400) runs first.
+        0.13.0: any list I'm a member of (owner or member).
       operationId: createTask
       tags: [tasks]
       security:
@@ -2035,6 +2143,8 @@ paths:
               example:
                 id: 12
                 listId: 3
+                addedBy:
+                  displayName: Ana
                 title: Buy milk
                 description: null
                 priority: NONE
@@ -2058,7 +2168,9 @@ paths:
       - $ref: '#/components/parameters/TaskId'
     get:
       summary: Get one of my tasks
-      description: Any task in any of my lists (0.12.0); `listId` says which list it is in.
+      description: |
+        Any task in any of my lists (0.12.0; 0.13.0: lists I'm a member of); `listId` says which
+        list it is in.
       operationId: getTask
       tags: [tasks]
       responses:
@@ -2105,7 +2217,8 @@ paths:
 
         **Moving (new in 0.12.0):** `listId` set to another of my lists moves the task there, in
         the same request as the other changes. Missing, `null` or the task's current list → it
-        stays where it is.
+        stays where it is. 0.13.0: any member may move any task, from and to lists they are a
+        member of; the task keeps its `addedBy`.
         - Tags after the move: the `tags` sent, or the task's current tag names when `tags` is
           missing or `null`. Each name reuses the target list's tag with the same name (ignoring
           case and accents, keeping the target's spelling) or is created in the target list.
@@ -2157,6 +2270,8 @@ paths:
               example:
                 id: 12
                 listId: 3
+                addedBy:
+                  displayName: Ana
                 title: Buy oat milk
                 description: null
                 priority: HIGH
@@ -2212,6 +2327,8 @@ paths:
               example:
                 id: 12
                 listId: 3
+                addedBy:
+                  displayName: Ana
                 title: Buy milk
                 description: null
                 priority: NONE
@@ -2289,11 +2406,16 @@ paths:
     get:
       summary: List my lists
       description: |
-        New in 0.12.0. All lists the signed-in user owns (at most 50), unpaged, for the list
-        picker. Always contains "My tasks" (`personal: true`), which is **first**; the others
-        follow by `name` ignoring letter case and accents (MySQL `utf8mb4_0900_ai_ci`), then by
-        `id` ascending (duplicate names are allowed). No task counts here: use
-        `GET /api/lists/{id}` for one list's count. No query parameters.
+        New in 0.12.0. All lists the signed-in user is a member of (0.13.0: the lists they own,
+        at most 50, plus the lists shared with them, no limit), unpaged, for the list picker.
+        Always contains "My tasks" (`personal: true`), which is **first**; the others (owned and
+        shared mixed) follow by `name` ignoring letter case and accents (MySQL
+        `utf8mb4_0900_ai_ci`), then by `id` ascending (duplicate names are allowed). Each has
+        `role` and `memberCount` (0.13.0). No task counts here: use `GET /api/lists/{id}` for
+        one list's count. No query parameters.
+
+        Changed in 0.13.0: `maxItems: 50` is dropped (lists shared with me don't count towards
+        the 50-list limit).
       operationId: listLists
       tags: [lists]
       responses:
@@ -2304,28 +2426,36 @@ paths:
               schema:
                 type: array
                 minItems: 1
-                maxItems: 50
                 items:
                   $ref: '#/components/schemas/TaskList'
               example:
                 - id: 3
                   name: My tasks
                   personal: true
+                  role: OWNER
+                  memberCount: 1
                 - id: 8
                   name: Home
                   personal: false
+                  role: OWNER
+                  memberCount: 3
+                - id: 21
+                  name: Team project
+                  personal: false
+                  role: MEMBER
+                  memberCount: 5
                 - id: 9
                   name: Work
                   personal: false
-                - id: 11
-                  name: work
-                  personal: false
+                  role: OWNER
+                  memberCount: 1
         '401':
           $ref: '#/components/responses/Unauthenticated'
     post:
       summary: Create a list
       description: |
-        New in 0.12.0. Creates an empty, non-personal list owned by the signed-in user. `name`
+        New in 0.12.0. Creates an empty, non-personal list owned by the signed-in user, who is
+        its only member (0.13.0: `role: OWNER`, `memberCount: 1`). `name`
         follows the task-title rules (see `CreateListRequest`). Duplicate names are allowed.
         A user can own at most 50 lists including "My tasks": the 51st gives 409 `LIST_LIMIT`
         and nothing is created (also when two requests race at the limit). Not rate limited
@@ -2362,6 +2492,8 @@ paths:
                 id: 8
                 name: Home
                 personal: false
+                role: OWNER
+                memberCount: 1
         '400':
           $ref: '#/components/responses/ListValidationFailed'
         '401':
@@ -2379,7 +2511,7 @@ paths:
       description: |
         New in 0.12.0. The list plus `taskCount`: the number of tasks in it right now, of every
         status (done included). The delete dialog reads it when it opens ("Delete "Home" and
-        its 12 tasks?").
+        its 12 tasks?"). 0.13.0: any member may read it (also `role` and `memberCount`).
       operationId: getList
       tags: [lists]
       responses:
@@ -2393,6 +2525,8 @@ paths:
                 id: 8
                 name: Home
                 personal: false
+                role: OWNER
+                memberCount: 3
                 taskCount: 12
         '400':
           $ref: '#/components/responses/MalformedListId'
@@ -2406,9 +2540,11 @@ paths:
         New in 0.12.0. Sets the list's name. Works on "My tasks" too (it stays the personal
         list). Same `name` rules as create; duplicate names are allowed; sending the current
         name succeeds and changes nothing visible. Only `name` is read from the body.
+        0.13.0: owner only; members see the new name on their next read.
 
         **Checks, in order:** 400 (`MALFORMED_REQUEST` for the id or body, then
-        `VALIDATION_FAILED`) > 404 `LIST_NOT_FOUND` > 200.
+        `VALIDATION_FAILED`) > 404 `LIST_NOT_FOUND` (not a member) > 403 `OWNER_ONLY` (a member,
+        0.13.0) > 200.
       operationId: renameList
       tags: [lists]
       security:
@@ -2433,12 +2569,14 @@ paths:
                 id: 8
                 name: Groceries
                 personal: false
+                role: OWNER
+                memberCount: 3
         '400':
           $ref: '#/components/responses/ListValidationFailed'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          $ref: '#/components/responses/CsrfInvalid'
+          $ref: '#/components/responses/CsrfOrOwnerOnly'
         '404':
           $ref: '#/components/responses/ListNotFound'
     delete:
@@ -2448,9 +2586,12 @@ paths:
         reversible. "My tasks" can't be deleted: 409 `PERSONAL_LIST`, nothing changes.
         Deleting a list that does not exist (or was already deleted) gives 404. Requests still
         running on its tasks (edits, moves into or out of it) get 404 too, never 500.
+        0.13.0: owner only. Its members, memberships and pending invitations go with it; the
+        list leaves every member's picker (their next request for it gets 404).
 
-        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `LIST_NOT_FOUND` (so another user's
-        "My tasks" is a 404, not a 409) > 409 `PERSONAL_LIST` > 204.
+        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `LIST_NOT_FOUND` (not a member; so
+        another user's "My tasks" is a 404, not a 409) > 403 `OWNER_ONLY` (a member, 0.13.0) >
+        409 `PERSONAL_LIST` > 204.
       operationId: deleteList
       tags: [lists]
       security:
@@ -2464,11 +2605,382 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          $ref: '#/components/responses/CsrfInvalid'
+          $ref: '#/components/responses/CsrfOrOwnerOnly'
         '404':
           $ref: '#/components/responses/ListNotFound'
         '409':
           $ref: '#/components/responses/PersonalList'
+
+  /api/lists/{id}/members:
+    parameters:
+      - $ref: '#/components/parameters/ListId'
+    get:
+      summary: List the members of a list
+      description: |
+        New in 0.13.0. Every member of the list, the owner included, with display name, email and
+        role, for the members panel. Any member may call it. Order: the owner first, then by
+        `displayName` ignoring letter case and accents, then by `userId`. "My tasks" (and any
+        list not shared yet) has only its owner. Pending invitations are a separate call
+        (`GET /api/lists/{id}/invitations`, owner only).
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `LIST_NOT_FOUND` (not a member) > 200.
+      operationId: listMembers
+      tags: [lists]
+      responses:
+        '200':
+          description: The members, owner first. Never empty.
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 1
+                maxItems: 20
+                items:
+                  $ref: '#/components/schemas/Member'
+              example:
+                - userId: 4
+                  displayName: Ana
+                  email: ana@example.com
+                  role: OWNER
+                  joinedAt: '2026-10-01T09:00:00Z'
+                - userId: 9
+                  displayName: Bob
+                  email: bob@example.com
+                  role: MEMBER
+                  joinedAt: '2026-10-19T10:12:30.5Z'
+        '400':
+          $ref: '#/components/responses/MalformedListId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+
+  /api/lists/{id}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/ListId'
+      - $ref: '#/components/parameters/MemberUserId'
+    delete:
+      summary: Remove a member (owner only)
+      description: |
+        New in 0.13.0. The owner removes a member. Their next request for the list or its tasks
+        gets 404 and the list leaves their picker; the tasks they added stay (with their display
+        name in `addedBy`). They can be invited again later. A request of theirs already running
+        may still finish. A member who wants to leave uses `POST /api/lists/{id}/leave` (this
+        endpoint gives them 403 `OWNER_ONLY`, also for their own `userId`).
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` (either id) > 404 `LIST_NOT_FOUND` (the
+        caller is not a member) > 403 `OWNER_ONLY` (the caller is a member, not the owner) >
+        409 `OWNER_CANNOT_LEAVE` (`userId` is the owner) > 404 `MEMBER_NOT_FOUND` (`userId` is
+        not a member of this list, e.g. already removed or left) > 204.
+      operationId: removeMember
+      tags: [lists]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Removed. No body.
+        '400':
+          $ref: '#/components/responses/MalformedSharingId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfOrOwnerOnly'
+        '404':
+          $ref: '#/components/responses/ListOrMemberNotFound'
+        '409':
+          $ref: '#/components/responses/OwnerCannotLeave'
+
+  /api/lists/{id}/leave:
+    parameters:
+      - $ref: '#/components/parameters/ListId'
+    post:
+      summary: Leave a list (members only)
+      description: |
+        New in 0.13.0. The signed-in member leaves the list: they lose access (404 from now on)
+        and the list leaves their picker. The tasks they added stay. No body. The owner can't
+        leave (409 `OWNER_CANNOT_LEAVE`; they can only delete the list), so "My tasks" can never
+        be left. Leaving again gives 404.
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `LIST_NOT_FOUND` (not a member) >
+        409 `OWNER_CANNOT_LEAVE` > 204.
+      operationId: leaveList
+      tags: [lists]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Left. No body.
+        '400':
+          $ref: '#/components/responses/MalformedListId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+        '409':
+          $ref: '#/components/responses/OwnerCannotLeave'
+
+  /api/lists/{id}/invitations:
+    parameters:
+      - $ref: '#/components/parameters/ListId'
+    get:
+      summary: List a list's pending invitations (owner only)
+      description: |
+        New in 0.13.0. The list's pending invitations (not expired), newest first (`invitedAt`
+        descending, then `id` descending), for the members panel. Each shows the address as
+        typed (trimmed, lowercased) and when it expires; never whether an account has that
+        address. "My tasks" gives `[]`.
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `LIST_NOT_FOUND` (not a member) >
+        403 `OWNER_ONLY` (a member) > 200.
+      operationId: listListInvitations
+      tags: [lists]
+      responses:
+        '200':
+          description: Pending invitations, possibly an empty array
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 20
+                items:
+                  $ref: '#/components/schemas/ListInvitation'
+              example:
+                - id: 31
+                  email: carol@example.com
+                  invitedAt: '2026-10-19T10:00:00Z'
+                  expiresAt: '2026-11-02T10:00:00Z'
+        '400':
+          $ref: '#/components/responses/MalformedListId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/OwnerOnly'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+    post:
+      summary: Invite someone by email (owner only)
+      description: |
+        New in 0.13.0. Invites an email address to the list. **The response is always the same
+        201 with the pending invitation, whether or not an account has that address**, and the
+        invitation is stored the same way (see "Sharing"). An email is sent in the background,
+        after the response, only if an active (not disabled) account has that address (verified
+        or not), at most 5 per recipient per hour (silent). The invitation expires after 14
+        days. Inviting an address whose invitation has expired refreshes it (same `id`, new
+        `invitedAt` / `expiresAt`) and answers 201 as well. Only `email` is read from the body.
+
+        **Checks, in order:**
+        1. 400 `MALFORMED_REQUEST` (id or body), then 400 `VALIDATION_FAILED` (`email`)
+        2. 404 `LIST_NOT_FOUND` (not a member)
+        3. 403 `OWNER_ONLY` (a member)
+        4. 409 `PERSONAL_LIST` ("My tasks" can't be shared)
+        5. 429 `RATE_LIMITED` (per inviter, see "Rate limiting"; counted from here on)
+        6. 409 `ALREADY_MEMBER` (the address is a current member's, the owner's included)
+        7. 409 `ALREADY_INVITED` (a pending, not expired, invitation for this address exists)
+        8. 409 `MEMBER_LIMIT` (the list already has 20 members)
+        9. 409 `INVITATION_LIMIT` (the list already has 20 pending invitations)
+        10. 201
+
+        Addresses are compared ignoring letter case and accents (like login).
+      operationId: createInvitation
+      tags: [lists]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvitationRequest'
+            example:
+              email: ' Carol@Example.com '
+      responses:
+        '201':
+          description: Invitation sent (pending). Same response whether or not an account exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListInvitation'
+              example:
+                id: 31
+                email: carol@example.com
+                invitedAt: '2026-10-19T10:00:00Z'
+                expiresAt: '2026-11-02T10:00:00Z'
+        '400':
+          $ref: '#/components/responses/InvitationValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfOrOwnerOnly'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+        '409':
+          $ref: '#/components/responses/InvitationConflict'
+        '429':
+          $ref: '#/components/responses/InviteRateLimited'
+
+  /api/lists/{id}/invitations/{invitationId}:
+    parameters:
+      - $ref: '#/components/parameters/ListId'
+      - $ref: '#/components/parameters/ListInvitationId'
+    delete:
+      summary: Cancel an invitation (owner only)
+      description: |
+        New in 0.13.0. Deletes the invitation; it can't be accepted any more (the invitee gets
+        "This invitation is no longer valid"). An expired invitation can be cancelled too (204).
+        No email is sent.
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` (either id) > 404 `LIST_NOT_FOUND` (not a
+        member) > 403 `OWNER_ONLY` (a member) > 404 `INVITATION_NOT_FOUND` (no such invitation
+        on this list, e.g. already accepted, declined or cancelled) > 204.
+      operationId: cancelInvitation
+      tags: [lists]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Cancelled. No body.
+        '400':
+          $ref: '#/components/responses/MalformedSharingId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfOrOwnerOnly'
+        '404':
+          $ref: '#/components/responses/ListOrInvitationNotFound'
+
+  /api/invitations:
+    get:
+      summary: My pending invitations
+      description: |
+        New in 0.13.0. The pending (not expired) invitations to the signed-in user's email
+        address, newest first (`invitedAt` descending, then `id` descending), with who invited
+        me (the list owner's display name) and to which list. Matched by email ignoring letter
+        case and accents, **only when my email is verified**: for an unverified account this is
+        always `[]` (the frontend uses `GET /api/auth/me` `emailVerified` to explain that the
+        email must be confirmed first). Unpaged. No query parameters.
+      operationId: listMyInvitations
+      tags: [invitations]
+      responses:
+        '200':
+          description: My pending invitations, possibly an empty array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MyInvitation'
+              example:
+                - id: 31
+                  list:
+                    id: 8
+                    name: Home
+                  invitedBy:
+                    displayName: Ana
+                  invitedAt: '2026-10-19T10:00:00Z'
+                  expiresAt: '2026-11-02T10:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/invitations/count:
+    get:
+      summary: How many pending invitations I have
+      description: |
+        New in 0.13.0. For the header badge: the number of entries `GET /api/invitations` would
+        return right now (0 for an unverified account).
+      operationId: countMyInvitations
+      tags: [invitations]
+      responses:
+        '200':
+          description: The count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationCount'
+              example:
+                count: 2
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/invitations/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/MyInvitationId'
+    post:
+      summary: Accept an invitation
+      description: |
+        New in 0.13.0. Makes the signed-in user a member of the invitation's list (`role:
+        MEMBER`) and deletes the invitation. Returns the list as it appears in
+        `GET /api/lists`, so the client can add it to the picker. Accepting an invitation to a
+        list I'm already a member of also answers 200 (with my current role) and deletes the
+        invitation. No body.
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `INVITATION_NOT_FOUND` (detail "This
+        invitation is no longer valid": unknown id, not for my email, my email not verified,
+        expired, cancelled, declined, already accepted, or its list was deleted; identical body
+        in every case) > 409 `MEMBER_LIMIT` (the list has 20 members; the invitation is kept) >
+        200.
+      operationId: acceptInvitation
+      tags: [invitations]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: Accepted; the list I'm now a member of
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+              example:
+                id: 8
+                name: Home
+                personal: false
+                role: MEMBER
+                memberCount: 4
+        '400':
+          $ref: '#/components/responses/MalformedSharingId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/InvitationNotFound'
+        '409':
+          $ref: '#/components/responses/MemberLimit'
+
+  /api/invitations/{id}/decline:
+    parameters:
+      - $ref: '#/components/parameters/MyInvitationId'
+    post:
+      summary: Decline an invitation
+      description: |
+        New in 0.13.0. Deletes the invitation; nothing else changes and the owner is not
+        notified (it just leaves their pending list). The owner may invite the address again.
+        No body.
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `INVITATION_NOT_FOUND` (same cases
+        and body as accept) > 204.
+      operationId: declineInvitation
+      tags: [invitations]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Declined. No body.
+        '400':
+          $ref: '#/components/responses/MalformedSharingId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/InvitationNotFound'
 
   /api/admin/users:
     get:
@@ -2797,6 +3309,11 @@ paths:
         `UNAUTHENTICATED`). Not reversible. The typed-email confirmation is client-side only:
         the API takes no body. Same permission rules as disable. Already deleted: 404
         `USER_NOT_FOUND`.
+
+        0.13.0: shared lists are handled exactly as in `POST /api/account/delete`: the lists the
+        account owns are deleted for every member, its memberships and the pending invitations
+        to its address go, and the tasks it added to other people's lists stay with
+        `addedBy: null`, as do those lists' tags.
       operationId: deleteUser
       tags: [admin]
       security:
@@ -2878,11 +3395,50 @@ components:
       description: |
         List id (0.12.0). A list that does not exist, was deleted or belongs to another user
         returns 404 `LIST_NOT_FOUND` (identical body in every case). A non-integer id returns
-        400 `MALFORMED_REQUEST`.
+        400 `MALFORMED_REQUEST`. 0.13.0: "belongs to another user" means "I'm not a member of
+        it" (never was, left or was removed).
       schema:
         type: integer
         format: int64
         example: 8
+
+    MemberUserId:
+      name: userId
+      in: path
+      required: true
+      description: |
+        New in 0.13.0. User id of a member (`Member.userId`). Not a member of this list → 404
+        `MEMBER_NOT_FOUND`. A non-integer id returns 400 `MALFORMED_REQUEST`.
+      schema:
+        type: integer
+        format: int64
+        example: 9
+
+    ListInvitationId:
+      name: invitationId
+      in: path
+      required: true
+      description: |
+        New in 0.13.0. Id of one of the list's invitations (`ListInvitation.id`). Not an
+        invitation of this list → 404 `INVITATION_NOT_FOUND`. A non-integer id returns 400
+        `MALFORMED_REQUEST`.
+      schema:
+        type: integer
+        format: int64
+        example: 31
+
+    MyInvitationId:
+      name: id
+      in: path
+      required: true
+      description: |
+        New in 0.13.0. Id of one of my pending invitations (`MyInvitation.id`). Anything else →
+        404 `INVITATION_NOT_FOUND` ("This invitation is no longer valid"). A non-integer id
+        returns 400 `MALFORMED_REQUEST`.
+      schema:
+        type: integer
+        format: int64
+        example: 31
 
     ListQuery:
       name: list
@@ -2893,7 +3449,8 @@ components:
         else that is not the id of one of my lists gives **404 `LIST_NOT_FOUND`** (never 400):
         an unknown id, another user's list, a deleted list, `0`, a negative number, or a value
         that is not a plain decimal integer (e.g. `abc`, `1.5`, ` 3`). Checked before every
-        other parameter. Repeated `list` parameters: only the first is used.
+        other parameter. Repeated `list` parameters: only the first is used. 0.13.0: any list
+        I'm a member of (owned or shared); a list I left or was removed from is a 404.
       schema:
         type: string
       example: '8'
@@ -3344,7 +3901,8 @@ components:
         New in 0.12.0. The list (path `{id}`, query `list` or body `listId`) is not one of the
         signed-in user's lists: unknown, deleted, another user's, or (query `list` only) not a
         plain integer. Identical body in every case; never 403. No `errors` array. Nothing was
-        changed.
+        changed. 0.13.0: "the signed-in user's lists" = lists they are a member of; a list they
+        left or were removed from is a 404 too.
       content:
         application/problem+json:
           schema:
@@ -3435,6 +3993,282 @@ components:
             detail: Your personal list can't be deleted
             instance: /api/lists/3
             code: PERSONAL_LIST
+
+    OwnerOnly:
+      description: |
+        New in 0.13.0. The caller is a member of the list but not its owner, and only the owner
+        may do this. (A non-member gets 404 `LIST_NOT_FOUND` instead, never this.) Nothing was
+        changed. No `errors` array.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Forbidden
+            status: 403
+            detail: Only the list owner can do this
+            instance: /api/lists/21/invitations
+            code: OWNER_ONLY
+    CsrfOrOwnerOnly:
+      description: |
+        One of:
+        - `CSRF_INVALID`: missing or invalid CSRF token (see "CSRF").
+        - `OWNER_ONLY` (0.13.0): the caller is a member of the list but not its owner. A
+          non-member gets 404 `LIST_NOT_FOUND` instead, never this.
+        Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            ownerOnly:
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                detail: Only the list owner can do this
+                instance: /api/lists/21
+                code: OWNER_ONLY
+            csrf:
+              value:
+                type: about:blank
+                title: Forbidden
+                status: 403
+                detail: Invalid or missing CSRF token
+                instance: /api/lists/21
+                code: CSRF_INVALID
+    MalformedSharingId:
+      description: |
+        New in 0.13.0. A path id (`{id}`, `{userId}` or `{invitationId}`) is not an integer.
+        Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Bad Request
+            status: 400
+            detail: Failed to convert 'userId' with value 'abc'
+            instance: /api/lists/8/members/abc
+            code: MALFORMED_REQUEST
+    ListOrMemberNotFound:
+      description: |
+        New in 0.13.0. One of (the list is checked first):
+        - `LIST_NOT_FOUND` (detail "List not found"): the caller is not a member of the list.
+        - `MEMBER_NOT_FOUND` (detail "Member not found"): `userId` is not a member of this list
+          (never was, left, or was already removed).
+        Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            list:
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: List not found
+                instance: /api/lists/8/members/9
+                code: LIST_NOT_FOUND
+            member:
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Member not found
+                instance: /api/lists/8/members/9
+                code: MEMBER_NOT_FOUND
+    OwnerCannotLeave:
+      description: |
+        New in 0.13.0. The owner can't leave their own list or be removed from it (no ownership
+        transfer); they can only delete it. Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Conflict
+            status: 409
+            detail: The owner can't leave the list
+            instance: /api/lists/8/leave
+            code: OWNER_CANNOT_LEAVE
+    InvitationValidationFailed:
+      description: |
+        New in 0.13.0. One of:
+        - `VALIDATION_FAILED` with exactly one entry for `email` (same rules as register: the
+          value is trimmed and lowercased first), the first rule that fails:
+          - `email` / `REQUIRED` / "Email is required" (missing, null, empty or blank)
+          - `email` / `INVALID_EMAIL` / "Enter a valid email address"
+          - `email` / `TOO_LONG` / "Email must be at most 254 characters"
+        - `MALFORMED_REQUEST` (no `errors` array): the body is not valid JSON or `email` is not a
+          string (detail "Malformed request body"), or `{id}` is not an integer (detail "Failed
+          to convert 'id' with value 'abc'").
+        Nothing was created.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            validation:
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/lists/8/invitations
+                code: VALIDATION_FAILED
+                errors:
+                  - field: email
+                    code: INVALID_EMAIL
+                    message: Enter a valid email address
+            malformed:
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Malformed request body
+                instance: /api/lists/8/invitations
+                code: MALFORMED_REQUEST
+    InvitationConflict:
+      description: |
+        New in 0.13.0. The invitation was refused and nothing was created (no email). No
+        `errors` array; the client shows `detail` next to the email field. One of, in this
+        check order:
+        - `PERSONAL_LIST` / "Your personal list can't be shared" ("My tasks")
+        - `ALREADY_MEMBER` / "This person is already a member of the list" (the address is a
+          current member's, the owner's included)
+        - `ALREADY_INVITED` / "This email address already has a pending invitation"
+        - `MEMBER_LIMIT` / "A list can have at most 20 members"
+        - `INVITATION_LIMIT` / "A list can have at most 20 pending invitations"
+        `ALREADY_MEMBER` only ever concerns current members, whose emails the owner already
+        sees in the members panel, so it reveals nothing about other accounts.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            personal:
+              value:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: Your personal list can't be shared
+                instance: /api/lists/3/invitations
+                code: PERSONAL_LIST
+            alreadyMember:
+              value:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: This person is already a member of the list
+                instance: /api/lists/8/invitations
+                code: ALREADY_MEMBER
+            alreadyInvited:
+              value:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: This email address already has a pending invitation
+                instance: /api/lists/8/invitations
+                code: ALREADY_INVITED
+            memberLimit:
+              value:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: A list can have at most 20 members
+                instance: /api/lists/8/invitations
+                code: MEMBER_LIMIT
+            invitationLimit:
+              value:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: A list can have at most 20 pending invitations
+                instance: /api/lists/8/invitations
+                code: INVITATION_LIMIT
+    InviteRateLimited:
+      description: |
+        New in 0.13.0. Too many invitations by this user (default 30 per hour, see "Rate
+        limiting"). Wait `Retry-After` seconds. Nothing was created.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Too Many Requests
+            status: 429
+            detail: Too many attempts. Please try again later.
+            instance: /api/lists/8/invitations
+            code: RATE_LIMITED
+    ListOrInvitationNotFound:
+      description: |
+        New in 0.13.0. One of (the list is checked first):
+        - `LIST_NOT_FOUND` (detail "List not found"): the caller is not a member of the list.
+        - `INVITATION_NOT_FOUND` (detail "This invitation is no longer valid"): no such
+          invitation on this list (already accepted, declined or cancelled, or never existed).
+        Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            list:
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: List not found
+                instance: /api/lists/8/invitations/31
+                code: LIST_NOT_FOUND
+            invitation:
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: This invitation is no longer valid
+                instance: /api/lists/8/invitations/31
+                code: INVITATION_NOT_FOUND
+    InvitationNotFound:
+      description: |
+        New in 0.13.0. "This invitation is no longer valid": the id is unknown, not an
+        invitation to my email, my email is not verified, it expired, was cancelled, declined or
+        already accepted, or its list was deleted. Identical body in every case. Nothing was
+        changed; the client shows the detail and reloads `GET /api/invitations`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Not Found
+            status: 404
+            detail: This invitation is no longer valid
+            instance: /api/invitations/31/accept
+            code: INVITATION_NOT_FOUND
+    MemberLimit:
+      description: |
+        New in 0.13.0. The list already has 20 members. Nothing was changed and the invitation is
+        kept (it can be accepted if the owner removes someone before it expires).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Conflict
+            status: 409
+            detail: A list can have at most 20 members
+            instance: /api/invitations/31/accept
+            code: MEMBER_LIMIT
 
   schemas:
     Health:
@@ -3860,9 +4694,10 @@ components:
       type: object
       description: |
         New in 0.12.0. One of the signed-in user's lists (`GET /api/lists`, `POST /api/lists`,
-        `PATCH /api/lists/{id}`). More fields (e.g. a role and member count for shared lists) may
-        be added later; clients must ignore unknown fields.
-      required: [id, name, personal]
+        `PATCH /api/lists/{id}`, 0.13.0: `POST /api/invitations/{id}/accept`). `role` and
+        `memberCount` are new in 0.13.0. More fields may be added later; clients must ignore
+        unknown fields.
+      required: [id, name, personal, role, memberCount]
       properties:
         id:
           type: integer
@@ -3880,6 +4715,148 @@ components:
             `true` only for the user's "My tasks" (exactly one per user): renamable, can't be
             deleted, listed first, the default list.
           example: false
+        role:
+          $ref: '#/components/schemas/ListRole'
+        memberCount:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: |
+            New in 0.13.0. Number of members right now, the owner included (1 = not shared).
+            "Added by" is shown only when it is 2 or more.
+          example: 3
+
+    ListRole:
+      type: string
+      enum: [OWNER, MEMBER]
+      description: |
+        New in 0.13.0. The signed-in user's role in a list (`TaskList.role`), or a member's role
+        (`Member.role`). `OWNER`: the one who created it (never changes); can rename, delete,
+        invite, cancel invitations and remove members. `MEMBER`: joined by accepting an
+        invitation; can work with the tasks and tags and leave.
+      example: OWNER
+
+    Member:
+      type: object
+      description: New in 0.13.0. A member of a list (`GET /api/lists/{id}/members`).
+      required: [userId, displayName, email, role, joinedAt]
+      properties:
+        userId:
+          type: integer
+          format: int64
+          description: Use it with `DELETE /api/lists/{id}/members/{userId}`.
+          example: 9
+        displayName:
+          type: string
+          example: Bob
+        email:
+          type: string
+          description: The member's account email. Shown only to members of this list.
+          example: bob@example.com
+        role:
+          $ref: '#/components/schemas/ListRole'
+        joinedAt:
+          type: string
+          format: date-time
+          description: |
+            When they became a member (the owner: when the list was created). Same format as
+            `Task.createdAt`.
+          example: '2026-10-19T10:12:30.5Z'
+
+    ListInvitation:
+      type: object
+      description: |
+        New in 0.13.0. A pending invitation as the list owner sees it
+        (`GET` / `POST /api/lists/{id}/invitations`). Never says whether an account has the
+        address.
+      required: [id, email, invitedAt, expiresAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Use it with `DELETE /api/lists/{id}/invitations/{invitationId}`.
+          example: 31
+        email:
+          type: string
+          description: The invited address, trimmed and lowercased.
+          example: carol@example.com
+        invitedAt:
+          type: string
+          format: date-time
+          description: When it was sent (or last refreshed). Same format as `Task.createdAt`.
+          example: '2026-10-19T10:00:00Z'
+        expiresAt:
+          type: string
+          format: date-time
+          description: '`invitedAt` + 14 days. Same format as `Task.createdAt`.'
+          example: '2026-11-02T10:00:00Z'
+
+    MyInvitation:
+      type: object
+      description: |
+        New in 0.13.0. A pending invitation as the invitee sees it (`GET /api/invitations`). Only
+        the owner's display name and the list's name are shown (no emails, no members).
+      required: [id, list, invitedBy, invitedAt, expiresAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Use it with `POST /api/invitations/{id}/accept` and `.../decline`.
+          example: 31
+        list:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: integer
+              format: int64
+              example: 8
+            name:
+              type: string
+              description: The list's current name.
+              example: Home
+        invitedBy:
+          type: object
+          required: [displayName]
+          description: The list owner (only the owner can invite).
+          properties:
+            displayName:
+              type: string
+              description: The owner's current display name.
+              example: Ana
+        invitedAt:
+          type: string
+          format: date-time
+          example: '2026-10-19T10:00:00Z'
+        expiresAt:
+          type: string
+          format: date-time
+          example: '2026-11-02T10:00:00Z'
+
+    CreateInvitationRequest:
+      type: object
+      required: [email]
+      description: New in 0.13.0. Body of `POST /api/lists/{id}/invitations`.
+      properties:
+        email:
+          type: string
+          maxLength: 254
+          description: |
+            Same rules as `RegisterRequest.email`: trimmed and lowercased first, then required
+            (`REQUIRED`), a valid email address (`INVALID_EMAIL`) and at most 254 characters
+            (`TOO_LONG`). Any address is accepted, whether or not it has an account.
+          example: carol@example.com
+
+    InvitationCount:
+      type: object
+      required: [count]
+      description: New in 0.13.0. Body of `GET /api/invitations/count`.
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: My pending (not expired) invitations; 0 when my email is not verified.
+          example: 2
 
     TaskListDetails:
       description: |
@@ -3924,7 +4901,7 @@ components:
 
     Task:
       type: object
-      required: [id, listId, title, description, priority, status, tags, done, dueDate, createdAt, updatedAt]
+      required: [id, listId, addedBy, title, description, priority, status, tags, done, dueDate, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -3935,6 +4912,21 @@ components:
           format: int64
           description: New in 0.12.0, always present. The id of the list the task is in.
           example: 3
+        addedBy:
+          type: object
+          nullable: true
+          required: [displayName]
+          description: |
+            New in 0.13.0, always present. Who added the task: their current display name, also
+            after they left the list or were removed from it. `null` when that account was
+            deleted ("Added by a deleted user"). Never changes on edit or move. Clients show it
+            only on lists with `memberCount` of 2 or more.
+          properties:
+            displayName:
+              type: string
+              example: Ana
+          example:
+            displayName: Ana
         title:
           type: string
           minLength: 1
@@ -4120,7 +5112,8 @@ components:
             Name of the request field (exactly as in the request body, or the query parameter).
             `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
             never to an index. `cursor` is new in 0.11.0 (`GET /api/tasks`). `name` is new in
-            0.12.0 (`POST /api/lists`, `PATCH /api/lists/{id}`).
+            0.12.0 (`POST /api/lists`, `PATCH /api/lists/{id}`). `email` is also used by
+            `POST /api/lists/{id}/invitations` (0.13.0).
         code:
           type: string
           enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR]
@@ -4210,6 +5203,14 @@ components:
             - LIST_NOT_FOUND
             - LIST_LIMIT
             - PERSONAL_LIST
+            - OWNER_ONLY
+            - OWNER_CANNOT_LEAVE
+            - MEMBER_NOT_FOUND
+            - ALREADY_MEMBER
+            - ALREADY_INVITED
+            - MEMBER_LIMIT
+            - INVITATION_LIMIT
+            - INVITATION_NOT_FOUND
           description: |
             Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email
             is taken (even when the display name is taken too), otherwise `DISPLAY_NAME_TAKEN`.
@@ -4231,6 +5232,13 @@ components:
             `listId`) is not one of the signed-in user's lists (a missing task stays
             `NOT_FOUND`); `LIST_LIMIT` (409) from `POST /api/lists` at 50 owned lists;
             `PERSONAL_LIST` (409) from `DELETE /api/lists/{id}` on "My tasks".
+            New in 0.13.0 (sharing): `OWNER_ONLY` (403) when a member (not a non-member, who
+            gets 404) tries an owner-only action; `OWNER_CANNOT_LEAVE` (409) from leave or from
+            removing the owner; `MEMBER_NOT_FOUND` (404) from removing someone who is not a
+            member; `ALREADY_MEMBER`, `ALREADY_INVITED`, `MEMBER_LIMIT`, `INVITATION_LIMIT`
+            (409) from inviting (`MEMBER_LIMIT` also from accepting); `INVITATION_NOT_FOUND`
+            (404, detail "This invitation is no longer valid") from accept, decline and cancel.
+            `PERSONAL_LIST` (409) also from inviting to "My tasks".
         errors:
           type: array
           description: |
