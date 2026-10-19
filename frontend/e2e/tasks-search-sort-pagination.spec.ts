@@ -40,7 +40,8 @@ interface TaskPage {
 }
 
 // 0.12.0 (T3a): Task gained the required listId.
-const TASK_KEYS = ['createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
+// 0.13.0 (T3b): Task gained addedBy.
+const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
 
 interface Watch {
   consoleErrors: string[];

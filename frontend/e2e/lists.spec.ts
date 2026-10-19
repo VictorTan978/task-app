@@ -48,8 +48,9 @@ interface TaskList {
   personal: boolean;
 }
 
-const TASK_KEYS = ['createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
-const LIST_KEYS = ['id', 'name', 'personal'];
+// 0.13.0 (T3b): Task gained addedBy, TaskList gained role and memberCount.
+const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
+const LIST_KEYS = ['id', 'memberCount', 'name', 'personal', 'role'];
 
 interface Watch {
   consoleErrors: string[];
@@ -363,7 +364,7 @@ test.describe('T3a Lists (AC1-AC4)', () => {
     await expect(heading(page)).toHaveText('My tasks');
     await settled(page);
     const ls = await lists(page);
-    expect(ls).toEqual([{ id: ls[0].id, name: 'My tasks', personal: true }]);
+    expect(ls).toEqual([{ id: ls[0].id, name: 'My tasks', personal: true, role: 'OWNER', memberCount: 1 }]);
     const userId = num(`SELECT id FROM users WHERE email = '${mail}'`);
     expect(num(`SELECT COUNT(*) FROM lists WHERE owner_id = ${userId} AND personal`)).toBe(1);
     await shot(page, 'ac1-google-my-tasks');
@@ -915,7 +916,8 @@ test.describe('T3a Tags belong to the list (AC8, AC9)', () => {
 
   test('AC9: after V10 every user has one "My tasks" holding all their tasks and tags; nothing on a foreign list, no cross-list links', async () => {
     expect(num(`SELECT COUNT(*) FROM users u WHERE (SELECT COUNT(*) FROM lists l WHERE l.owner_id = u.id AND l.personal) <> 1`)).toBe(0);
-    expect(num(`SELECT COUNT(*) FROM tasks t JOIN lists l ON l.id = t.list_id WHERE l.owner_id <> t.owner_id`)).toBe(0);
+    // 0.13.0: tasks.owner_id means "added by" (a member, or NULL for a deleted account); personal lists can't be shared.
+    expect(num(`SELECT COUNT(*) FROM tasks t JOIN lists l ON l.id = t.list_id WHERE l.personal AND t.owner_id <> l.owner_id`)).toBe(0);
     expect(num(`SELECT COUNT(*) FROM tags g JOIN lists l ON l.id = g.list_id WHERE l.owner_id <> g.owner_id`)).toBe(0);
     expect(
       num(`SELECT COUNT(*) FROM task_tags tt JOIN tasks t ON t.id = tt.task_id JOIN tags g ON g.id = tt.tag_id WHERE t.list_id <> g.list_id`),

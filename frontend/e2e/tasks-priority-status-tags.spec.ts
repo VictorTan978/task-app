@@ -34,7 +34,8 @@ interface Task {
 }
 
 // 0.12.0 (T3a): Task gained the required listId.
-const TASK_KEYS = ['createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
+// 0.13.0 (T3b): Task gained addedBy.
+const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/;
 
 /** Checks a Task against contract 0.10.0 (required keys, enums, done mirror, tags shape). */
