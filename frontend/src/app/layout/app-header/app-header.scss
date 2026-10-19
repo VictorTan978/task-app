@@ -16,6 +16,7 @@
     display: flex;
     align-items: center;
     gap: 1rem;
+    min-width: 0;
   }
 
   &__link {
@@ -43,6 +44,11 @@
     text-decoration: underline;
   }
 
+  &__invitations,
+  .btn {
+    flex: none;
+  }
+
   &__badge {
     min-width: 1.25rem;
     padding: 0 0.375rem;
@@ -54,10 +60,15 @@
     text-align: center;
   }
 
+  /* A long display name is cut with an ellipsis; the full text stays its accessible name. */
   &__greeting {
+    min-width: 0;
+    overflow: hidden;
     color: inherit;
     font-weight: 600;
     text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 
     &:hover {
       color: var(--color-primary);
@@ -67,6 +78,30 @@
     &:focus-visible {
       outline: 2px solid var(--color-primary);
       outline-offset: 2px;
+    }
+  }
+}
+
+/* Phone: the name on its own line, then the links and Log out on a row that wraps. */
+@media (max-width: 640px) {
+  .app-header {
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    padding: 0.75rem 1rem;
+
+    &__user {
+      flex: 1 1 100%;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.75rem;
+    }
+
+    /* Takes the room left between the links and Log out; on its own line when that is < 6rem. */
+    &__greeting {
+      flex: 1 1 6rem;
+    }
+
+    .btn {
+      margin-left: auto;
     }
   }
 }
