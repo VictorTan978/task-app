@@ -1,13 +1,13 @@
 # Feature: Sharing — team lists (T3)
 
-**Status:** APPROVED 2026-10-17 — T3a in progress, T3b after T3a is merged. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md` (all DONE), the write-race fix (`a0aac6e`, on `main`). **Supersedes:** the `specs/auth.md` decision "personal task lists only, no sharing in v1" (2026-10-08).
+**Status:** APPROVED 2026-10-17 — T3a DONE (merged 2026-10-19, `11aae94`), T3b in progress on `feature/list-sharing`. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md` (all DONE), the write-race fix (`a0aac6e`, on `main`). **Supersedes:** the `specs/auth.md` decision "personal task lists only, no sharing in v1" (2026-10-08).
 
 **Built in two parts (Q20).** Each part has its own branch, contract version, migration, tests and merge:
 
 | Part | What | Branch | Contract | Migration |
 |---|---|---|---|---|
 | **T3a: Lists** | Lists, list picker, per-list tags, moving tasks. Nothing shared yet. | `feature/sharing-team-lists` (exists) | 0.12.0 | V10 |
-| **T3b: Sharing** | Invitations, members, roles, "Added by", access by membership | new branch from `main` after T3a is merged | 0.13.0 | V11 |
+| **T3b: Sharing** | Invitations, members, roles, "Added by", access by membership | `feature/list-sharing` | 0.13.0 | V11 |
 
 ## Why
 Today every task belongs to one person. People who run a household or a small project together want to see and work on the same tasks, instead of copying them between accounts.
