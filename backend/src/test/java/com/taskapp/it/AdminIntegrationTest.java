@@ -461,6 +461,11 @@ class AdminIntegrationTest {
         Browser user = account("Vic", "USER");
         long task = user.post("/api/tasks", "{\"title\":\"Gone soon\"}").json().get("id").asLong();
         expect(user.put("/api/tasks/" + task, "{\"title\":\"Gone soon\",\"tags\":[\"Mine\"]}"), 200, null);
+        // T3a AC12: a second list with a tagged task goes too.
+        long home = user.post("/api/lists", "{\"name\":\"Home\"}").json().get("id").asLong();
+        long homeTask = user.post("/api/tasks", "{\"title\":\"Home task\",\"listId\":" + home + "}").json()
+                .get("id").asLong();
+        expect(user.put("/api/tasks/" + homeTask, "{\"title\":\"Home task\",\"tags\":[\"Mine\"]}"), 200, null);
         Browser phone = device(user, true);
         jdbc.update("insert into user_connections (user_id, provider, provider_subject, provider_email)"
                 + " values (?, 'google', 'g-vic', 'vic@gmail.com')", user.id);
@@ -474,6 +479,9 @@ class AdminIntegrationTest {
         assertThat(count("select count(*) from tasks where owner_id = ?", user.id)).isZero();
         assertThat(count("select count(*) from tags where owner_id = ?", user.id)).isZero();
         assertThat(count("select count(*) from task_tags where task_id = ?", task)).isZero();
+        assertThat(count("select count(*) from lists where owner_id = ?", user.id)).isZero();
+        assertThat(count("select count(*) from tasks where list_id = ?", home)).isZero();
+        assertThat(count("select count(*) from tags where list_id = ?", home)).isZero();
         assertThat(count("select count(*) from user_connections where user_id = ?", user.id)).isZero();
         assertThat(count("select count(*) from remember_me_tokens where user_id = ?", user.id)).isZero();
         assertThat(count("select count(*) from email_tokens where user_id = ?", user.id)).isZero();

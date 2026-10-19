@@ -11,7 +11,8 @@ import org.springframework.data.repository.query.Param;
 
 /**
  * Tags and the {@code task_tags} join table. Name comparisons and {@code ORDER BY name} use the column collation
- * (utf8mb4_0900_ai_ci): equal ignoring case and accents, sorted the same way. Every query is scoped by owner.
+ * (utf8mb4_0900_ai_ci): equal ignoring case and accents, sorted the same way. Every query is scoped by list (V10:
+ * tags belong to a list, not to a user).
  */
 public interface TagRepository extends JpaRepository<Tag, Long> {
 
@@ -22,40 +23,33 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
         String getName();
     }
 
-    /**
-     * Locks the owner's {@code users} row until the transaction ends. Every transaction that changes the owner's
-     * tags or task_tags takes it first, so creating, reusing, counting and deleting tags never race. Read-only on
-     * {@code users}.
-     */
-    @Query(value = "SELECT id FROM users WHERE id = :ownerId FOR UPDATE", nativeQuery = true)
-    Optional<Long> lockOwner(@Param("ownerId") long ownerId);
+    /** The list's tag that equals {@code name} ignoring case and accents. {@code name} must be normalised. */
+    Optional<Tag> findByListIdAndName(long listId, String name);
 
-    /** The owner's tag that equals {@code name} ignoring case and accents. {@code name} must be normalised. */
-    Optional<Tag> findByOwnerIdAndName(long ownerId, String name);
+    List<Tag> findByListIdOrderByNameAsc(long listId);
 
-    List<Tag> findByOwnerIdOrderByNameAsc(long ownerId);
-
-    long countByOwnerId(long ownerId);
+    long countByListId(long listId);
 
     @Query(value = """
             SELECT t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
-            WHERE tt.task_id = :taskId AND t.owner_id = :ownerId
+            WHERE tt.task_id = :taskId AND t.list_id = :listId
             ORDER BY t.name""", nativeQuery = true)
-    List<String> findNamesByTask(@Param("ownerId") long ownerId, @Param("taskId") long taskId);
+    List<String> findNamesByTask(@Param("listId") long listId, @Param("taskId") long taskId);
 
-    /** Every (task, tag name) pair of these tasks in one query, ordered by task id then name. Scoped by owner. */
+    /** Every (task, tag name) pair of these tasks in one query, ordered by task id then name. Scoped by list. */
     @Query(value = """
             SELECT tt.task_id AS taskId, t.name AS name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
-            WHERE tt.task_id IN (:taskIds) AND t.owner_id = :ownerId
+            WHERE tt.task_id IN (:taskIds) AND t.list_id = :listId
             ORDER BY tt.task_id, t.name""", nativeQuery = true)
-    List<TaskTagName> findTaskTagNames(@Param("ownerId") long ownerId, @Param("taskIds") Collection<Long> taskIds);
+    List<TaskTagName> findTaskTagNames(@Param("listId") long listId, @Param("taskIds") Collection<Long> taskIds);
 
     /*
      * Locking rules (bug: concurrent tag saves of different users deadlocked). Under REPEATABLE READ a locking
      * statement that scans a range, or finds no row, takes next-key/gap locks, and those gaps can border another
-     * user's rows (or the supremum, for the newest task ids). So the writes below only touch rows by their exact
+     * list's rows (or the supremum, for the newest task ids). So the writes below only touch rows by their exact
      * primary key, and the reads that decide what to write are plain (non-locking) reads. They are still exact
-     * because the caller holds the owner lock ({@link #lockOwner}) and its snapshot starts after taking it.
+     * because the caller holds the list's row lock ({@link ListRepository#lockList}) and its snapshot starts after
+     * taking it.
      */
 
     /** The task's tag ids. Plain read: no row or gap locks. */
@@ -77,10 +71,10 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
     int link(@Param("taskId") long taskId, @Param("tagId") long tagId);
 
     /**
-     * Deletes one of the owner's tags by primary key: an X record lock on that row only. (The FK check on
-     * task_tags then takes a gap-only lock, which never waits; it is the last write of the transaction.)
+     * Deletes one of the list's tags by primary key: an X record lock on that row only. (The FK check on task_tags
+     * then takes a gap-only lock, which never waits; it is the last write of the transaction.)
      */
     @Modifying(flushAutomatically = true)
-    @Query(value = "DELETE FROM tags WHERE id = :tagId AND owner_id = :ownerId", nativeQuery = true)
-    int deleteTag(@Param("ownerId") long ownerId, @Param("tagId") long tagId);
+    @Query(value = "DELETE FROM tags WHERE id = :tagId AND list_id = :listId", nativeQuery = true)
+    int deleteTag(@Param("listId") long listId, @Param("tagId") long tagId);
 }

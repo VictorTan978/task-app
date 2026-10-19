@@ -11,6 +11,7 @@ import com.taskapp.task.TaskStatus;
 /** Public view of a task. Never exposes the owner. {@code tags} are sorted by the database collation. */
 public record TaskResponse(
         long id,
+        long listId,
         String title,
         String description,
         Priority priority,
@@ -26,7 +27,7 @@ public record TaskResponse(
     }
 
     public static TaskResponse from(Task task, List<String> tags) {
-        return new TaskResponse(task.getId(), task.getTitle(), task.getDescription(), task.getPriority(),
+        return new TaskResponse(task.getId(), task.getListId(), task.getTitle(), task.getDescription(), task.getPriority(),
                 task.getStatus(), tags, task.isDone(), task.getDueDate(), task.getCreatedAt(), task.getUpdatedAt());
     }
 }

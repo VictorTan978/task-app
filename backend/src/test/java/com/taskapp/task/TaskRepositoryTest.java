@@ -24,7 +24,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.taskapp.auth.User;
 
-/** Runs against MySQL 8.4 with the real Flyway migrations (V2/V9 schema, constraints and cascade). */
+/**
+ * Runs against MySQL 8.4 with the real Flyway migrations (V2/V9/V10 schema, constraints and cascade). {@code alice} and
+ * {@code bob} are user ids; their tasks and tags go into their "My tasks" ({@link #listOf}).
+ */
 @Testcontainers
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -54,10 +57,19 @@ class TaskRepositoryTest {
     void users() {
         alice = em.persistAndFlush(new User("alice@example.com", "$2a$10$" + "x".repeat(53), "Alice")).getId();
         bob = em.persistAndFlush(new User("bob@example.com", "$2a$10$" + "x".repeat(53), "Bob")).getId();
+        aliceList = TestLists.personal(jdbc, alice);
+        bobList = TestLists.personal(jdbc, bob);
+    }
+
+    long aliceList;
+    long bobList;
+
+    private long listOf(long owner) {
+        return owner == alice ? aliceList : bobList;
     }
 
     private Task task(long owner, String title, boolean done, Instant createdAt) {
-        Task task = new Task(owner, title, null, null, createdAt);
+        Task task = new Task(owner, listOf(owner), title, null, null, createdAt);
         if (done) {
             task.changeStatus(TaskStatus.DONE, createdAt);
         }
@@ -65,17 +77,22 @@ class TaskRepositoryTest {
     }
 
     private Task task(long owner, String title, TaskStatus status, Instant createdAt) {
-        Task task = new Task(owner, title, null, null, createdAt);
+        Task task = new Task(owner, listOf(owner), title, null, null, createdAt);
         task.changeStatus(status, createdAt);
         return em.persistAndFlush(task);
     }
 
     private long tag(long owner, String name, Task... tasks) {
-        long id = em.persistAndFlush(new Tag(owner, name)).getId();
+        long id = em.persistAndFlush(new Tag(owner, listOf(owner), name)).getId();
         for (Task task : tasks) {
             jdbc.update("insert into task_tags (task_id, tag_id) values (?, ?)", task.getId(), id);
         }
         return id;
+    }
+
+    /** A tag row in Alice's "My tasks", written directly (bypassing the app's normalising). */
+    private int rawTag(String name) {
+        return jdbc.update("insert into tags (owner_id, list_id, name) values (?, ?, ?)", alice, aliceList, name);
     }
 
     private static List<String> titles(List<Task> tasks) {
@@ -84,11 +101,11 @@ class TaskRepositoryTest {
 
     /** The whole list (newest sort) as {@code GET /api/tasks} orders it. */
     private List<Task> list(long owner, TaskFilter filter) {
-        return repository.findPage(new TaskSearchCriteria(owner, filter, TaskSort.NEWEST, null, null), null, 1000);
+        return repository.findPage(new TaskSearchCriteria(listOf(owner), filter, TaskSort.NEWEST, null, null), null, 1000);
     }
 
     private List<Task> list(long owner, TaskFilter filter, long tagId) {
-        return repository.findPage(new TaskSearchCriteria(owner, filter, TaskSort.NEWEST, tagId, null), null, 1000);
+        return repository.findPage(new TaskSearchCriteria(listOf(owner), filter, TaskSort.NEWEST, tagId, null), null, 1000);
     }
 
     @Test
@@ -112,21 +129,21 @@ class TaskRepositoryTest {
     }
 
     @Test
-    void findByIdIsScopedToOwner() {
+    void findAccessibleIsScopedToTheListsOwner() {
         long id = task(bob, "bob's", false, T0).getId();
 
-        assertThat(repository.findByIdAndOwnerId(id, bob)).isPresent();
-        assertThat(repository.findByIdAndOwnerId(id, alice)).isEmpty();
-        assertThat(repository.findByIdAndOwnerId(id + 1000, bob)).isEmpty();
+        assertThat(repository.findAccessible(id, bob)).isPresent();
+        assertThat(repository.findAccessible(id, alice)).isEmpty();
+        assertThat(repository.findAccessible(id + 1000, bob)).isEmpty();
     }
 
     @Test
     void roundTripsAllFieldsIncludingMicroseconds() {
         Instant created = Instant.parse("2026-10-08T09:15:02.123456Z");
-        Task saved = em.persistAndFlush(new Task(alice, "Buy milk", "2%", LocalDate.parse("2024-02-29"), created));
+        Task saved = em.persistAndFlush(new Task(alice, aliceList, "Buy milk", "2%", LocalDate.parse("2024-02-29"), created));
         em.clear();
 
-        Task loaded = repository.findByIdAndOwnerId(saved.getId(), alice).orElseThrow();
+        Task loaded = repository.findAccessible(saved.getId(), alice).orElseThrow();
         assertThat(loaded.getTitle()).isEqualTo("Buy milk");
         assertThat(loaded.getDescription()).isEqualTo("2%");
         assertThat(loaded.isDone()).isFalse();
@@ -150,13 +167,13 @@ class TaskRepositoryTest {
 
     @Test
     void roundTripsPriorityAndStatusWithTheDoneMirror() {
-        Task task = new Task(alice, "x", null, null, T0);
+        Task task = new Task(alice, aliceList, "x", null, null, T0);
         task.changePriority(Priority.HIGH, T0);
         task.changeStatus(TaskStatus.IN_PROGRESS, T0);
         long id = em.persistAndFlush(task).getId();
         em.clear();
 
-        Task loaded = repository.findByIdAndOwnerId(id, alice).orElseThrow();
+        Task loaded = repository.findAccessible(id, alice).orElseThrow();
         assertThat(loaded.getPriority()).isEqualTo(Priority.HIGH);
         assertThat(loaded.getStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
         assertThat(loaded.isDone()).isFalse();
@@ -176,7 +193,7 @@ class TaskRepositoryTest {
                 .containsEntry("priority", "NONE").containsEntry("status", "TODO").containsEntry("done", false);
 
         // Columns default too (rows not written by the app).
-        jdbc.update("insert into tasks (owner_id, title) values (?, 'raw')", alice);
+        jdbc.update("insert into tasks (owner_id, list_id, title) values (?, ?, 'raw')", alice, aliceList);
         assertThat(jdbc.queryForMap("select priority, status from tasks where title = 'raw'"))
                 .containsEntry("priority", "NONE").containsEntry("status", "TODO");
     }
@@ -219,7 +236,7 @@ class TaskRepositoryTest {
         // Scoped by owner even with someone else's tag id.
         assertThat(list(alice, TaskFilter.ALL, bobsWork)).isEmpty();
         assertThat(titles(list(bob, TaskFilter.ALL, bobsWork))).containsExactly("bob's");
-        assertThat(repository.countMatching(new TaskSearchCriteria(alice, TaskFilter.ALL, TaskSort.NEWEST, work, null)))
+        assertThat(repository.countMatching(new TaskSearchCriteria(aliceList, TaskFilter.ALL, TaskSort.NEWEST, work, null)))
                 .isEqualTo(4);
     }
 
@@ -262,7 +279,7 @@ class TaskRepositoryTest {
     @ParameterizedTest
     @ValueSource(strings = {"Work ", " Work", "a  b", "a,b", ",", "a\tb", "a\nb", "\u007f", "\u0085", "x\u0000"})
     void tagNameChecksRejectSpacingCommasAndControlCharacters(String name) {
-        assertThatThrownBy(() -> jdbc.update("insert into tags (owner_id, name) values (?, ?)", alice, name))
+        assertThatThrownBy(() -> rawTag(name))
                 .as("[%s]", name)
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageMatching("(?s).*ck_tags_name_(spaces|chars).*");
@@ -270,25 +287,28 @@ class TaskRepositoryTest {
 
     @Test
     void tagNameMustBe1To30Characters() {
-        assertThatThrownBy(() -> jdbc.update("insert into tags (owner_id, name) values (?, '')", alice))
+        assertThatThrownBy(() -> rawTag(""))
                 .hasMessageContaining("ck_tags_name_length");
-        assertThatThrownBy(() -> jdbc.update("insert into tags (owner_id, name) values (?, ?)", alice, "x".repeat(31)))
+        assertThatThrownBy(() -> rawTag("x".repeat(31)))
                 .isInstanceOf(DataAccessException.class);
-        jdbc.update("insert into tags (owner_id, name) values (?, ?)", alice, "x".repeat(30));
-        jdbc.update("insert into tags (owner_id, name) values (?, ?)", alice, "a b é 😀");
+        rawTag("x".repeat(30));
+        rawTag("a b é 😀");
     }
 
     @Test
-    void tagNameIsUniquePerOwnerIgnoringCaseAndAccents() {
-        jdbc.update("insert into tags (owner_id, name) values (?, 'Work')", alice);
+    void tagNameIsUniquePerListIgnoringCaseAndAccents() {
+        rawTag("Work");
         for (String variant : List.of("Work", "work", "WORK", "wörk", "WÖRK")) {
-            assertThatThrownBy(() -> jdbc.update("insert into tags (owner_id, name) values (?, ?)", alice, variant))
+            assertThatThrownBy(() -> rawTag(variant))
                     .as(variant)
                     .isInstanceOf(DataAccessException.class)
-                    .hasMessageContaining("uk_tags_owner_name");
+                    .hasMessageContaining("uk_tags_list_name");
         }
-        jdbc.update("insert into tags (owner_id, name) values (?, 'work')", bob);
-        jdbc.update("insert into tags (owner_id, name) values (?, 'Works')", alice);
+        jdbc.update("insert into tags (owner_id, list_id, name) values (?, ?, 'work')", bob, bobList);
+        rawTag("Works");
+        // V10: the same name in another list of the same owner is another tag.
+        long other = TestLists.other(jdbc, alice, "Other");
+        jdbc.update("insert into tags (owner_id, list_id, name) values (?, ?, 'WORK')", alice, other);
     }
 
     @Test

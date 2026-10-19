@@ -17,7 +17,8 @@ public final class TagNames {
 
     public static final int MAX_LENGTH = 30;
     public static final int MAX_PER_TASK = 10;
-    public static final int MAX_PER_USER = 200;
+    /** Different tags per list (0.12.0: was per user). */
+    public static final int MAX_PER_LIST = 200;
 
     /** Combining diacritical marks (U+0300-U+036F): accents, which utf8mb4_0900_ai_ci ignores. */
     private static final Pattern DIACRITICS = Pattern.compile("[\\u0300-\\u036F]+");
@@ -67,7 +68,7 @@ public final class TagNames {
         return raw != null && normalize(raw).length() > MAX_LENGTH;
     }
 
-    /** Every rule except the per-task and per-user counts. */
+    /** Every rule except the per-task and per-list counts. */
     public static boolean isValid(String raw) {
         return !isBlank(raw) && !hasInvalidCharacters(raw) && !isTooLong(raw);
     }

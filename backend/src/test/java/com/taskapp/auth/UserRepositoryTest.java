@@ -22,6 +22,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.transaction.support.TransactionOperations;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -31,6 +32,7 @@ import jakarta.persistence.EntityManager;
 import com.taskapp.auth.dto.RegisterRequest;
 import com.taskapp.security.Role;
 import com.taskapp.security.ratelimit.AuthRateLimiter;
+import com.taskapp.task.ListService;
 
 /**
  * Runs against MySQL 8.4 with the real Flyway migrations: the derived queries compare with the V4 collation
@@ -79,7 +81,8 @@ class UserRepositoryTest {
         UserRepository racing = mock(UserRepository.class, delegatesTo(repository));
         doReturn(false).when(racing).existsByEmail(anyString());
         doReturn(false).when(racing).existsByDisplayName(anyString());
-        return new AuthService(racing, new BCryptPasswordEncoder(4), mock(AuthRateLimiter.class), mock(EmailJobs.class));
+        return new AuthService(racing, new BCryptPasswordEncoder(4), mock(AuthRateLimiter.class), mock(EmailJobs.class),
+                mock(ListService.class), TransactionOperations.withoutTransaction());
     }
 
     @Test

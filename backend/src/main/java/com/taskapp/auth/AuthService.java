@@ -6,15 +6,20 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.taskapp.auth.dto.LoginRequest;
 import com.taskapp.auth.dto.RegisterRequest;
 import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.ratelimit.AuthRateLimiter;
+import com.taskapp.task.ListService;
 
 @Service
 public class AuthService {
@@ -27,15 +32,27 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthRateLimiter rateLimiter;
     private final EmailJobs emailJobs;
+    private final ListService listService;
+    private final TransactionOperations transaction;
     /** Compared against when the email is unknown so both failure paths cost one BCrypt check. */
     private final String dummyHash;
 
+    @Autowired
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-            AuthRateLimiter rateLimiter, EmailJobs emailJobs) {
+            AuthRateLimiter rateLimiter, EmailJobs emailJobs, ListService listService,
+            PlatformTransactionManager transactions) {
+        this(userRepository, passwordEncoder, rateLimiter, emailJobs, listService,
+                new TransactionTemplate(transactions));
+    }
+
+    AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, AuthRateLimiter rateLimiter,
+            EmailJobs emailJobs, ListService listService, TransactionOperations transaction) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.rateLimiter = rateLimiter;
         this.emailJobs = emailJobs;
+        this.listService = listService;
+        this.transaction = transaction;
         this.dummyHash = passwordEncoder.encode("timing-equalizer-not-a-real-password");
     }
 
@@ -43,6 +60,8 @@ public class AuthService {
      * Request fields are already normalized by {@link RegisterRequest}. Both uniqueness checks run so the
      * caller can report every taken field at once; the DB unique keys still catch concurrent registrations.
      * The new account is unconfirmed; a confirmation email is queued (sent after the response, never fails this).
+     * The user and their "My tasks" list (0.12.0) are inserted in one transaction; the email is queued after it
+     * committed.
      */
     public UserResponse register(RegisterRequest request) {
         boolean emailTaken = userRepository.existsByEmail(request.email());
@@ -53,7 +72,11 @@ public class AuthService {
         User user = new User(request.email(), passwordEncoder.encode(request.password()), request.displayName());
         UserResponse created;
         try {
-            created = UserResponse.from(userRepository.saveAndFlush(user));
+            created = transaction.execute(status -> {
+                User saved = userRepository.saveAndFlush(user);
+                listService.createPersonal(saved.getId());
+                return UserResponse.from(saved);
+            });
         } catch (DataIntegrityViolationException e) {
             // A concurrent registration won the race; the violated unique key tells which field.
             throw conflictFor(e);

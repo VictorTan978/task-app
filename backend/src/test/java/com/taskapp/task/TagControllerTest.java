@@ -44,7 +44,7 @@ class TagControllerTest {
 
     @Test
     void listReturnsTagObjectsForTheSessionUser() throws Exception {
-        when(tagService.list(OWNER)).thenReturn(List.of(new TagResponse("Errands"), new TagResponse("Wörk")));
+        when(tagService.list(OWNER, null)).thenReturn(List.of(new TagResponse("Errands"), new TagResponse("Wörk")));
 
         mockMvc.perform(get("/api/tags?ownerId=1").with(signedIn()))
                 .andExpect(status().isOk())
@@ -54,11 +54,31 @@ class TagControllerTest {
 
     @Test
     void emptyListIsAnEmptyArray() throws Exception {
-        when(tagService.list(OWNER)).thenReturn(List.of());
+        when(tagService.list(OWNER, null)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/tags").with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]", true));
+    }
+
+    @Test
+    void passesTheFirstRawListValue() throws Exception {
+        when(tagService.list(OWNER, "8")).thenReturn(List.of(new TagResponse("Home")));
+
+        mockMvc.perform(get("/api/tags").param("list", "8", "9").with(signedIn()))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[{\"name\":\"Home\"}]", true));
+    }
+
+    @Test
+    void listNotMineIs404ListNotFound() throws Exception {
+        when(tagService.list(OWNER, "abc")).thenThrow(new ListNotFoundException());
+
+        mockMvc.perform(get("/api/tags").param("list", "abc").with(signedIn()))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("LIST_NOT_FOUND"))
+                .andExpect(jsonPath("$.detail").value("List not found"));
     }
 
     @Test

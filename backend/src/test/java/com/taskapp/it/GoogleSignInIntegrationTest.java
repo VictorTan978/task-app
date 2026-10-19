@@ -185,6 +185,11 @@ class GoogleSignInIntegrationTest {
         assertThat(me.toString()).doesNotContain("g-ana");
         assertThat(jdbc.queryForObject("select password_hash from users where email = 'ana.lopez@gmail.com'",
                 String.class)).isNull();
+        // specs/sharing-team-lists.md AC1: exactly one list, "My tasks".
+        JsonNode lists = b.get("/api/lists").json();
+        assertThat(lists).hasSize(1);
+        assertThat(lists.get(0).get("name").asText()).isEqualTo("My tasks");
+        assertThat(lists.get(0).get("personal").asBoolean()).isTrue();
 
         assertThat(auditLines("GOOGLE_ACCOUNT_CREATED")).containsExactly(
                 "SECURITY event=GOOGLE_ACCOUNT_CREATED email=ana.lopez@gmail.com ip=127.0.0.1"

@@ -25,10 +25,10 @@ import java.util.zip.CRC32;
  * Only the fields the sort uses are set ({@code done} always: it is the group of filter {@code all}).
  * <p>
  * Wire format: base64url WITHOUT padding (only {@code A-Z a-z 0-9 - _}) of a binary record: version, sort, the
- * {@link TaskListQuery#fingerprint() fingerprint} of the request it was issued for, done, the sort's own key
+ * {@link TaskListQuery#fingerprint(long) fingerprint} of the request it was issued for, done, the sort's own key
  * (due date, priority or title), created_at in epoch microseconds, id; then a CRC32 of all that, so a damaged
- * cursor is rejected. Not signed: the owner always comes from the session, so a forged cursor can only move inside
- * the caller's own list. At most 1024 characters (the longest, a 200-character title of 3-byte UTF-8 characters,
+ * cursor is rejected. Not signed: the list is always checked against the session's user first, so a forged cursor
+ * can only move inside one of the caller's own lists. At most 1024 characters (the longest, a 200-character title of 3-byte UTF-8 characters,
  * is about 845).
  */
 public record TaskCursor(boolean done, LocalDate dueDate, Priority priority, String title, Instant createdAt,
@@ -37,7 +37,8 @@ public record TaskCursor(boolean done, LocalDate dueDate, Priority priority, Str
     public static final int MAX_LENGTH = 1024;
     static final int FINGERPRINT_LENGTH = 8;
 
-    private static final int VERSION = 1;
+    /** 2 since 0.12.0: the fingerprint includes the list, so every version 1 cursor is rejected once. */
+    private static final int VERSION = 2;
     private static final int CHECKSUM_LENGTH = 4;
     private static final int MAX_TITLE_LENGTH = 200;
     private static final Pattern BASE64URL_NO_PADDING = Pattern.compile("[A-Za-z0-9_-]+");

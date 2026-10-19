@@ -20,6 +20,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.taskapp.auth.dto.UserResponse;
+import com.taskapp.task.ListService;
 
 /**
  * Account matching for "Sign in with Google" (specs/google-sign-in.md, contract 0.8.0 "Account matching"). Works
@@ -47,13 +48,15 @@ public class GoogleAccountService {
     private final UserRepository users;
     private final UserConnectionRepository connections;
     private final Clock clock;
+    private final ListService listService;
     private final TransactionTemplate readCommitted;
 
     public GoogleAccountService(UserRepository users, UserConnectionRepository connections, Clock clock,
-            PlatformTransactionManager transactionManager) {
+            ListService listService, PlatformTransactionManager transactionManager) {
         this.users = users;
         this.connections = connections;
         this.clock = clock;
+        this.listService = listService;
         this.readCommitted = new TransactionTemplate(transactionManager);
         this.readCommitted.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
@@ -66,8 +69,8 @@ public class GoogleAccountService {
      * <li>an account with this email (ignoring case and accents): linked only if Google says the email is verified,
      * the account's own email is confirmed and it has no Google connection yet; otherwise {@code UNVERIFIED}; a
      * disabled account that passes those checks gives {@code DISABLED} (nothing linked);</li>
-     * <li>no account: created (no password, email confirmed) and connected if Google says the email is verified;
-     * otherwise {@code UNVERIFIED}, nothing created.</li>
+     * <li>no account: created (no password, email confirmed) with its "My tasks" list and connected if Google says
+     * the email is verified; otherwise {@code UNVERIFIED}, nothing created.</li>
      * </ol>
      */
     public GoogleLogin signIn(GoogleIdentity identity) {
@@ -118,6 +121,7 @@ public class GoogleAccountService {
         }
         String displayName = GoogleDisplayNames.generate(googleName, email, users::existsByDisplayName);
         User user = users.saveAndFlush(User.withoutPassword(email, displayName, now()));
+        listService.createPersonal(user.getId());
         link(user, subject, email);
         return GoogleLogin.signedIn(GoogleLogin.Outcome.CREATED, response(user));
     }

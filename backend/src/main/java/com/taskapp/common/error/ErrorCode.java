@@ -32,6 +32,12 @@ public final class ErrorCode {
     public static final String INSUFFICIENT_ROLE = "INSUFFICIENT_ROLE";
     /** 404 on /api/admin/**: no account has this id. */
     public static final String USER_NOT_FOUND = "USER_NOT_FOUND";
+    /** 404: a list (path, {@code ?list=} or body {@code listId}) is not one of the user's lists (0.12.0). */
+    public static final String LIST_NOT_FOUND = "LIST_NOT_FOUND";
+    /** 409 on {@code POST /api/lists}: the user already owns 50 lists (0.12.0). */
+    public static final String LIST_LIMIT = "LIST_LIMIT";
+    /** 409 on {@code DELETE /api/lists/{id}}: "My tasks" can't be deleted (0.12.0). */
+    public static final String PERSONAL_LIST = "PERSONAL_LIST";
 
     /** Field-level codes used inside {@code errors[]}. */
     public static final String REQUIRED = "REQUIRED";
@@ -46,7 +52,7 @@ public final class ErrorCode {
     public static final String INVALID_CHARACTERS = "INVALID_CHARACTERS";
     /** {@code tags}: more than 10 different tags on one task (0.10.0). */
     public static final String TOO_MANY = "TOO_MANY";
-    /** {@code tags}: the user would have more than 200 tags (0.10.0). */
+    /** {@code tags}: the list (on a move, the target list) would have more than 200 tags (0.10.0; per list 0.12.0). */
     public static final String TAG_LIMIT = "TAG_LIMIT";
     /** {@code status}: status and done both sent and disagreeing (0.10.0). */
     public static final String STATUS_CONFLICT = "STATUS_CONFLICT";

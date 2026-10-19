@@ -12,7 +12,7 @@ import jakarta.persistence.Query;
 /**
  * Native SQL, built from fixed fragments; every value is a bind parameter.
  * <ul>
- * <li>Rows: always {@code owner_id = :ownerId}; the filter ({@code done} for all/active/done, {@code status} for
+ * <li>Rows: always {@code list_id = :listId}; the filter ({@code done} for all/active/done, {@code status} for
  * in_progress), an optional join on the tag, and an optional search: {@code title} OR {@code description} LIKE
  * {@code %text%} with {@code %}, {@code _} and the escape character escaped. The columns' collation
  * (utf8mb4_0900_ai_ci) makes LIKE and the title order ignore case and accents.</li>
@@ -71,8 +71,8 @@ class TaskSearchRepositoryImpl implements TaskSearchRepository {
             sql.append(" JOIN task_tags tt ON tt.task_id = t.id AND tt.tag_id = :tagId");
             params.put("tagId", criteria.tagId());
         }
-        sql.append(" WHERE t.owner_id = :ownerId");
-        params.put("ownerId", criteria.ownerId());
+        sql.append(" WHERE t.list_id = :listId");
+        params.put("listId", criteria.listId());
         switch (criteria.filter()) {
             case ALL -> {
             }

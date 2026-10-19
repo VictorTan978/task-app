@@ -20,6 +20,8 @@ import jakarta.validation.constraints.Size;
  * Full replacement of title, description and due date: a null/omitted description or dueDate clears the field.
  * {@code priority}, {@code status}, {@code done} and {@code tags} are optional: null/omitted leaves them unchanged
  * (see {@link TaskStatus#resolve}). {@code tags} elements are kept raw here; the rules normalise them themselves.
+ * {@code listId} (0.12.0): null or the task's current list = stays; another of the user's lists = move. Must be a
+ * JSON integer.
  */
 @StatusMatchesDone
 public record ReplaceTaskRequest(
@@ -43,7 +45,10 @@ public record ReplaceTaskRequest(
         @TagsMaxLength
         @TagsMaxCount
         @JsonDeserialize(contentUsing = StrictStringDeserializer.class)
-        List<String> tags) implements StatusAndDone {
+        List<String> tags,
+
+        @JsonDeserialize(using = StrictLongDeserializer.class)
+        Long listId) implements StatusAndDone {
 
     public ReplaceTaskRequest {
         title = TaskText.title(title);

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -21,10 +22,12 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionOperations;
 
 import com.taskapp.auth.dto.LoginRequest;
 import com.taskapp.auth.dto.RegisterRequest;
@@ -33,19 +36,22 @@ import com.taskapp.security.ratelimit.AuthRateLimiter;
 import com.taskapp.security.ratelimit.RateLimitProperties;
 import com.taskapp.security.ratelimit.RateLimitedException;
 import com.taskapp.security.Role;
+import com.taskapp.task.ListService;
 
 class AuthServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private final EmailJobs emailJobs = mock(EmailJobs.class);
+    private final ListService listService = mock(ListService.class);
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
         AuthRateLimiter rateLimiter = new AuthRateLimiter(
                 new RateLimitProperties(5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)), Clock.systemUTC());
-        authService = new AuthService(userRepository, passwordEncoder, rateLimiter, emailJobs);
+        authService = new AuthService(userRepository, passwordEncoder, rateLimiter, emailJobs, listService,
+                TransactionOperations.withoutTransaction());
     }
 
     private static User persisted(long id, String email, String hash, String name) {
@@ -73,6 +79,32 @@ class AuthServiceTest {
         assertThat(saved.getValue().getEmail()).isEqualTo("bob@example.com");
         // specs/email-auth.md AC1: a confirmation email is queued (sent after the response).
         verify(emailJobs).sendVerification(7L, "bob@example.com", EmailJobs.Trigger.REGISTER);
+    }
+
+    /** specs/sharing-team-lists.md AC1: "My tasks" is created with the user, before the email is queued. */
+    @Test
+    void registerCreatesMyTasksWithTheUserAndQueuesTheEmailAfterwards() {
+        when(userRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            User u = inv.getArgument(0);
+            ReflectionTestUtils.setField(u, "id", 7L);
+            return u;
+        });
+
+        authService.register(new RegisterRequest("Bob", "bob@example.com", "correct-horse"));
+
+        InOrder order = inOrder(userRepository, listService, emailJobs);
+        order.verify(userRepository).saveAndFlush(any());
+        order.verify(listService).createPersonal(7L);
+        order.verify(emailJobs).sendVerification(7L, "bob@example.com", EmailJobs.Trigger.REGISTER);
+    }
+
+    @Test
+    void aRegisterThatLosesTheUniqueKeyRaceCreatesNoListAndSendsNoEmail() {
+        when(userRepository.saveAndFlush(any())).thenThrow(raceOn("users.uk_users_email", "bob@example.com"));
+
+        assertThatThrownBy(() -> authService.register(new RegisterRequest("Bob", "bob@example.com", "correct-horse")))
+                .isInstanceOf(RegistrationConflictException.class);
+        verifyNoInteractions(listService, emailJobs);
     }
 
     @Test
@@ -315,7 +347,7 @@ class AuthServiceTest {
         PasswordEncoder spy = org.mockito.Mockito.spy(new BCryptPasswordEncoder(4));
         AuthService service = new AuthService(userRepository, spy, new AuthRateLimiter(
                 new RateLimitProperties(5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)),
-                Clock.systemUTC()), emailJobs);
+                Clock.systemUTC()), emailJobs, listService, TransactionOperations.withoutTransaction());
         String dummyHash = (String) ReflectionTestUtils.getField(service, "dummyHash");
         User google = User.withoutPassword("gina@gmail.com", "Gina", java.time.Instant.now());
         ReflectionTestUtils.setField(google, "id", 3L);

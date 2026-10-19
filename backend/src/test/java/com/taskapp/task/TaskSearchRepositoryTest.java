@@ -49,18 +49,27 @@ class TaskSearchRepositoryTest {
     @Autowired
     JdbcTemplate jdbc;
 
+    /** List ids (V10: the query is scoped by list): Alice's and Bob's "My tasks". */
     long alice;
     long bob;
+    long aliceUser;
+    long bobUser;
 
     @BeforeEach
     void users() {
-        alice = em.persistAndFlush(new User("alice@example.com", "$2a$10$" + "x".repeat(53), "Alice")).getId();
-        bob = em.persistAndFlush(new User("bob@example.com", "$2a$10$" + "x".repeat(53), "Bob")).getId();
+        aliceUser = em.persistAndFlush(new User("alice@example.com", "$2a$10$" + "x".repeat(53), "Alice")).getId();
+        bobUser = em.persistAndFlush(new User("bob@example.com", "$2a$10$" + "x".repeat(53), "Bob")).getId();
+        alice = TestLists.personal(jdbc, aliceUser);
+        bob = TestLists.personal(jdbc, bobUser);
     }
 
-    private Task task(long owner, String title, String description, LocalDate due, Priority priority,
+    private long ownerOf(long list) {
+        return jdbc.queryForObject("select owner_id from lists where id = ?", Long.class, list);
+    }
+
+    private Task task(long list, String title, String description, LocalDate due, Priority priority,
             TaskStatus status, Instant createdAt) {
-        Task task = new Task(owner, title, description, due, createdAt);
+        Task task = new Task(ownerOf(list), list, title, description, due, createdAt);
         task.changePriority(priority, createdAt);
         task.changeStatus(status, createdAt);
         return em.persistAndFlush(task);
@@ -206,8 +215,8 @@ class TaskSearchRepositoryTest {
         Task d = task(alice, "bread", "with milk", null, Priority.MEDIUM, TaskStatus.TODO, at(3));
         task(alice, "milk untagged", null, null, Priority.HIGH, TaskStatus.TODO, at(4));
         Task bobs = task(bob, "milk", null, null, Priority.HIGH, TaskStatus.TODO, at(5));
-        long work = em.persistAndFlush(new Tag(alice, "Work")).getId();
-        long bobsWork = em.persistAndFlush(new Tag(bob, "Work")).getId();
+        long work = em.persistAndFlush(new Tag(aliceUser, alice, "Work")).getId();
+        long bobsWork = em.persistAndFlush(new Tag(bobUser, bob, "Work")).getId();
         for (Task t : List.of(a, b, c, d)) {
             jdbc.update("insert into task_tags (task_id, tag_id) values (?, ?)", t.getId(), work);
         }
@@ -237,6 +246,20 @@ class TaskSearchRepositoryTest {
      * 120 tasks with many ties on every key (createdAt, title ignoring case/accents, priority, due date incl. none)
      * and both groups.
      */
+    /** V10: another list of the same user is just as separate as another user's list. */
+    @Test
+    void onlyTheGivenListsTasksAreReturnedEvenForTheSameOwner() {
+        long work = TestLists.other(jdbc, aliceUser, "Work");
+        task("mine", at(0));
+        task(work, "other list", null, null, Priority.NONE, TaskStatus.TODO, at(1));
+
+        assertThat(titles(TaskFilter.ALL, TaskSort.NEWEST)).containsExactly("mine");
+        assertThat(titles(new TaskSearchCriteria(work, TaskFilter.ALL, TaskSort.NEWEST, null, null)))
+                .containsExactly("other list");
+        assertThat(repository.countMatching(new TaskSearchCriteria(work, TaskFilter.ALL, TaskSort.NEWEST, null, null)))
+                .isEqualTo(1);
+    }
+
     private void manyTasks(long owner) {
         String[] titles = {"apple", "Apple", "ápple", "banana", "Banana", "cherry"};
         Priority[] priorities = Priority.values();
@@ -282,7 +305,7 @@ class TaskSearchRepositoryTest {
         }
         TaskSearchCriteria all = new TaskSearchCriteria(alice, TaskFilter.ALL, sort, null, null);
         assertThat(pageThrough(all)).hasSize(120);
-        Set<Long> bobs = new HashSet<>(jdbc.queryForList("select id from tasks where owner_id = ?", Long.class, bob));
+        Set<Long> bobs = new HashSet<>(jdbc.queryForList("select id from tasks where list_id = ?", Long.class, bob));
         assertThat(pageThrough(all)).doesNotContainAnyElementsOf(bobs);
     }
 
@@ -312,8 +335,8 @@ class TaskSearchRepositoryTest {
     @Test
     void pagingWorksWithSearchAndTag() {
         manyTasks(alice);
-        long work = em.persistAndFlush(new Tag(alice, "Work")).getId();
-        jdbc.update("insert into task_tags (task_id, tag_id) select id, ? from tasks where owner_id = ? and id % 3 <> 0",
+        long work = em.persistAndFlush(new Tag(aliceUser, alice, "Work")).getId();
+        jdbc.update("insert into task_tags (task_id, tag_id) select id, ? from tasks where list_id = ? and id % 3 <> 0",
                 work, alice);
         for (TaskSort sort : TaskSort.values()) {
             TaskSearchCriteria criteria = new TaskSearchCriteria(alice, TaskFilter.ALL, sort, work, "AN");

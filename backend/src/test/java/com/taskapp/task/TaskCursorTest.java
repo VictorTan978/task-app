@@ -13,7 +13,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 class TaskCursorTest {
 
-    private static final byte[] FINGERPRINT = TaskListQuery.of("all", "title", "Work", "milk", null).fingerprint();
+    private static final byte[] FINGERPRINT =
+            TaskListQuery.of(null, "all", "title", "Work", "milk", null).fingerprint(3L);
     private static final Instant CREATED = Instant.parse("2026-10-08T09:15:02.123456Z");
 
     private static TaskCursor cursor(TaskSort sort, String title) {
@@ -64,7 +65,7 @@ class TaskCursorTest {
     @Test
     void otherRequestsAndFormatsAreRejected() {
         String encoded = cursor(TaskSort.TITLE, "Buy milk").encode(TaskSort.TITLE, FINGERPRINT);
-        byte[] otherFingerprint = TaskListQuery.of("all", "title", "Work", "milky", null).fingerprint();
+        byte[] otherFingerprint = TaskListQuery.of(null, "all", "title", "Work", "milky", null).fingerprint(3L);
 
         assertThat(TaskCursor.decode(encoded, TaskSort.TITLE, otherFingerprint)).isEmpty();
         assertThat(TaskCursor.decode(encoded, TaskSort.NEWEST, FINGERPRINT)).isEmpty();
@@ -77,25 +78,45 @@ class TaskCursorTest {
         assertThat(TaskCursor.decode("A".repeat(1025), TaskSort.TITLE, FINGERPRINT)).isEmpty();
         assertThat(TaskCursor.decode("eyJ2IjoxfQ", TaskSort.TITLE, FINGERPRINT)).isEmpty();
 
-        // A well-formed cursor of another version.
+        // A well-formed cursor of another version (1 = issued by 0.11.0).
         byte[] raw = Base64.getUrlDecoder().decode(encoded);
         byte[] otherVersion = Arrays.copyOf(raw, raw.length);
-        otherVersion[0] = 2;
+        otherVersion[0] = 1;
         assertThat(TaskCursor.decode(Base64.getUrlEncoder().withoutPadding().encodeToString(otherVersion),
                 TaskSort.TITLE, FINGERPRINT)).isEmpty();
     }
 
+    /** 0.12.0: the resolved list is part of the fingerprint, whatever the raw {@code list} value was. */
+    @Test
+    void fingerprintIncludesTheResolvedListOnly() {
+        TaskListQuery query = TaskListQuery.of(null, "all", "title", "Work", "milk", null);
+
+        assertThat(query.fingerprint(4L)).isNotEqualTo(query.fingerprint(3L));
+        assertThat(TaskListQuery.of("3", "all", "title", "Work", "milk", null).fingerprint(3L))
+                .isEqualTo(query.fingerprint(3L));
+        String encoded = cursor(TaskSort.TITLE, "Buy milk").encode(TaskSort.TITLE, query.fingerprint(3L));
+        assertThat(TaskCursor.decode(encoded, TaskSort.TITLE, query.fingerprint(4L))).isEmpty();
+    }
+
+    /** 0.12.0 writes version 2; a version 1 cursor (0.11.0) is rejected, see otherRequestsAndFormatsAreRejected. */
+    @Test
+    void cursorsAreVersion2() {
+        String encoded = cursor(TaskSort.NEWEST, null).encode(TaskSort.NEWEST, FINGERPRINT);
+        byte[] raw = Base64.getUrlDecoder().decode(encoded);
+        assertThat(raw[0]).isEqualTo((byte) 2);
+    }
+
     @Test
     void fingerprintFollowsTheRequestNormalising() {
-        byte[] base = TaskListQuery.of(null, null, "Deep Work", "milk", null).fingerprint();
+        byte[] base = TaskListQuery.of(null, null, null, "Deep Work", "milk", null).fingerprint(3L);
 
-        assertThat(TaskListQuery.of("all", "newest", " deep   WÖRK ", "  milk ", "c").fingerprint()).isEqualTo(base);
-        assertThat(TaskListQuery.of("foo", "Due", "Deep Work", "milk", null).fingerprint()).isEqualTo(base);
-        assertThat(TaskListQuery.of("active", null, "Deep Work", "milk", null).fingerprint()).isNotEqualTo(base);
-        assertThat(TaskListQuery.of(null, "due", "Deep Work", "milk", null).fingerprint()).isNotEqualTo(base);
-        assertThat(TaskListQuery.of(null, null, "Work", "milk", null).fingerprint()).isNotEqualTo(base);
-        assertThat(TaskListQuery.of(null, null, "Deep Work", "MILK", null).fingerprint()).isNotEqualTo(base);
-        assertThat(TaskListQuery.of(null, null, "  ", "milk", null).fingerprint())
-                .isEqualTo(TaskListQuery.of(null, null, null, "milk", null).fingerprint());
+        assertThat(TaskListQuery.of(null, "all", "newest", " deep   WÖRK ", "  milk ", "c").fingerprint(3L)).isEqualTo(base);
+        assertThat(TaskListQuery.of(null, "foo", "Due", "Deep Work", "milk", null).fingerprint(3L)).isEqualTo(base);
+        assertThat(TaskListQuery.of(null, "active", null, "Deep Work", "milk", null).fingerprint(3L)).isNotEqualTo(base);
+        assertThat(TaskListQuery.of(null, null, "due", "Deep Work", "milk", null).fingerprint(3L)).isNotEqualTo(base);
+        assertThat(TaskListQuery.of(null, null, null, "Work", "milk", null).fingerprint(3L)).isNotEqualTo(base);
+        assertThat(TaskListQuery.of(null, null, null, "Deep Work", "MILK", null).fingerprint(3L)).isNotEqualTo(base);
+        assertThat(TaskListQuery.of(null, null, null, "  ", "milk", null).fingerprint(3L))
+                .isEqualTo(TaskListQuery.of(null, null, null, null, "milk", null).fingerprint(3L));
     }
 }

@@ -169,7 +169,11 @@ class TaskIntegrationTest {
         assertThat(task.get("tags").isArray()).isTrue();
         assertThat(task.get("tags")).isEmpty();
         assertThat(task.has("ownerId")).isFalse();
-        assertThat(task.size()).isEqualTo(10);
+        // 0.12.0: listId, always present; a new task without listId is in "My tasks".
+        assertThat(task.get("listId").asLong()).isEqualTo(jdbc.queryForObject(
+                "select l.id from lists l join tasks t on t.owner_id = l.owner_id where t.id = ? and l.personal",
+                Long.class, id));
+        assertThat(task.size()).isEqualTo(11);
 
         Resp fetched = alice.get("/api/tasks/" + id);
         assertThat(fetched.status()).isEqualTo(200);
@@ -568,7 +572,7 @@ class TaskIntegrationTest {
         assertThat(alice.put(path, tagsBody("x", tenWithDupes)).json().get("tags")).hasSize(10);
     }
 
-    /** 200 tags per user: TAG_LIMIT is the only error and nothing is saved. */
+    /** 200 tags per list ("My tasks" here): TAG_LIMIT is the only error and nothing is saved. */
     @Test
     void tagLimitRejectsTheChangeAndSavesNothing() throws Exception {
         Browser alice = new Browser().signUp("Alice");
@@ -595,7 +599,7 @@ class TaskIntegrationTest {
         assertThat(body.get("errors")).hasSize(1);
         assertThat(body.get("errors").get(0).get("field").asText()).isEqualTo("tags");
         assertThat(body.get("errors").get(0).get("code").asText()).isEqualTo("TAG_LIMIT");
-        assertThat(body.get("errors").get(0).get("message").asText()).isEqualTo("You can have at most 200 tags");
+        assertThat(body.get("errors").get(0).get("message").asText()).isEqualTo("A list can have at most 200 tags");
         assertThat(alice.get(path).json()).isEqualTo(before);
         assertThat(alice.get("/api/tags").json()).hasSize(200);
         assertThat(dbCount("select count(*) from tags where name = 'brand new'")).isZero();
@@ -693,11 +697,11 @@ class TaskIntegrationTest {
 
         // Fill to 199 tags, then several requests each try to add a different new tag: exactly one fits.
         long holder = alice.create("holder").get("id").asLong();
-        jdbc.update("insert into tags (owner_id, name) select owner_id, concat('bulk ', n) from tasks"
+        jdbc.update("insert into tags (owner_id, list_id, name) select owner_id, list_id, concat('bulk ', n) from tasks"
                 + " join (with recursive s (n) as (select 1 union all select n + 1 from s where n < 198) select n from s) nums"
                 + " where tasks.id = ?", holder);
         jdbc.update("insert into task_tags (task_id, tag_id) select ?, id from tags where name like 'bulk %'"
-                + " and owner_id = (select owner_id from tasks where id = ?)", holder, holder);
+                + " and list_id = (select list_id from tasks where id = ?)", holder, holder);
         assertThat(alice.get("/api/tags").json()).hasSize(199);
         List<Callable<Resp>> racing = new ArrayList<>();
         for (int i = 0; i < ids.size(); i++) {
@@ -726,15 +730,19 @@ class TaskIntegrationTest {
     record Seeded(long id, String title, String priority, boolean done, java.time.LocalDate due, Instant createdAt) {
     }
 
-    private long ownerOf(Browser b) throws Exception {
+    /** The user's id and their "My tasks" id: {@code [owner, list]}. */
+    private long[] ownerOf(Browser b) throws Exception {
         long probe = b.create("probe").get("id").asLong();
         long owner = jdbc.queryForObject("select owner_id from tasks where id = ?", Long.class, probe);
+        long list = jdbc.queryForObject("select list_id from tasks where id = ?", Long.class, probe);
         jdbc.update("delete from tasks where id = ?", probe);
-        return owner;
+        return new long[] {owner, list};
     }
 
     /** {@code count} tasks with many ties on every sort key (title case, priority, due incl. none, createdAt). */
-    private List<Seeded> seed(long owner, int count) {
+    private List<Seeded> seed(long[] ownerAndList, int count) {
+        long owner = ownerAndList[0];
+        long list = ownerAndList[1];
         String[] titles = {"alpha", "Alpha", "beta", "BETA", "gamma", "Delta"};
         String[] priorities = {"NONE", "LOW", "MEDIUM", "HIGH"};
         String[] statuses = {"TODO", "IN_PROGRESS", "DONE"};
@@ -743,8 +751,8 @@ class TaskIntegrationTest {
             String status = statuses[i % 3];
             java.time.LocalDate due = i % 5 == 0 ? null : SEED_D0.plusDays(i % 7);
             Instant created = SEED_T0.plusSeconds(i / 4);
-            jdbc.update("insert into tasks (owner_id, title, priority, status, done, due_date, created_at, updated_at)"
-                    + " values (?, ?, ?, ?, ?, ?, ?, ?)", owner, titles[i % 6], priorities[i % 4], status,
+            jdbc.update("insert into tasks (owner_id, list_id, title, priority, status, done, due_date, created_at,"
+                    + " updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", owner, list, titles[i % 6], priorities[i % 4], status,
                     status.equals("DONE"), due, java.sql.Timestamp.from(created), java.sql.Timestamp.from(created));
             long id = jdbc.queryForObject("select last_insert_id()", Long.class);
             out.add(new Seeded(id, titles[i % 6], priorities[i % 4], status.equals("DONE"), due, created));
@@ -944,10 +952,9 @@ class TaskIntegrationTest {
         // Empty cursor = first page.
         assertThat(alice.get(base).json().get("items")).hasSize(50);
 
-        // Alice's cursor in Bob's session only positions within Bob's own list.
-        Resp bobWithAlicesCursor = bob.get(base + cursor);
-        assertThat(bobWithAlicesCursor.status()).isEqualTo(200);
-        List<Long> bobsIds = bobs.stream().map(Seeded::id).toList();
-        assertThat(ids(bobWithAlicesCursor.json())).isSubsetOf(bobsIds);
+        // 0.12.0: Alice's cursor carries her list, so in Bob's session (his "My tasks") it is rejected and never
+        // reaches anyone's tasks.
+        expectProblem(bob.get(base + cursor), "cursor", "INVALID_CURSOR");
+        assertThat(bobs).isNotEmpty();
     }
 }

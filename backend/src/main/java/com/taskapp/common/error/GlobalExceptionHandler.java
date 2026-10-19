@@ -9,6 +9,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -43,6 +44,9 @@ import com.taskapp.auth.WrongPasswordException;
 import com.taskapp.security.audit.SecurityEvent;
 import com.taskapp.security.audit.SecurityEventLogger;
 import com.taskapp.security.ratelimit.RateLimitedException;
+import com.taskapp.task.ListLimitException;
+import com.taskapp.task.ListNotFoundException;
+import com.taskapp.task.PersonalListException;
 import com.taskapp.task.TagLimitExceededException;
 import com.taskapp.task.TaskNotFoundException;
 
@@ -237,6 +241,52 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.badRequest().body(Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED,
                 "Validation failed", List.of(new ApiFieldError("tags", ErrorCode.TAG_LIMIT,
                         TagLimitExceededException.MESSAGE))));
+    }
+
+    @ExceptionHandler(ListNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleListNotFound(ListNotFoundException ex) {
+        return listNotFound();
+    }
+
+    @ExceptionHandler(ListLimitException.class)
+    ResponseEntity<ProblemDetail> handleListLimit(ListLimitException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                Problems.of(HttpStatus.CONFLICT, ErrorCode.LIST_LIMIT, ListLimitException.MESSAGE));
+    }
+
+    @ExceptionHandler(PersonalListException.class)
+    ResponseEntity<ProblemDetail> handlePersonalList(PersonalListException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                Problems.of(HttpStatus.CONFLICT, ErrorCode.PERSONAL_LIST, PersonalListException.MESSAGE));
+    }
+
+    /**
+     * Safety net (0.12.0): a task or tag insert that still hit the foreign key of a list deleted meanwhile is a 404,
+     * not a 500 (the locks normally prevent it). Any other integrity violation is unexpected.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ResponseEntity<ProblemDetail> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        if (isListForeignKey(ex)) {
+            log.warn("Write hit the foreign key of a deleted list; answered 404");
+            return listNotFound();
+        }
+        return handleUnexpected(ex);
+    }
+
+    /** The MySQL error names the constraint, e.g. {@code CONSTRAINT `fk_tasks_list` FOREIGN KEY}. */
+    static boolean isListForeignKey(Throwable ex) {
+        for (Throwable t = ex; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            String message = t.getMessage();
+            if (message != null && (message.contains("`fk_tasks_list`") || message.contains("`fk_tags_list`"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ResponseEntity<ProblemDetail> listNotFound() {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                Problems.of(HttpStatus.NOT_FOUND, ErrorCode.LIST_NOT_FOUND, ListNotFoundException.MESSAGE));
     }
 
     @ExceptionHandler(Exception.class)

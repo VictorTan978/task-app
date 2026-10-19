@@ -63,7 +63,8 @@ class V9MigrationTest {
                     + " (3, 2, 'other user done', true, '2026-01-01 12:00:00', '2026-01-04 12:00:00')");
             List<String> before = rows(st, "select id, owner_id, title, done, created_at, updated_at from tasks order by id");
 
-            flyway("latest").migrate();
+            // V9 only: later migrations change these tables again (V10MigrationTest covers V10).
+            flyway("9").migrate();
 
             assertThat(rows(st, "select version from flyway_schema_history where success = 1 order by installed_rank desc limit 1")).containsExactly("9");
             assertThat(rows(st, "select id, priority, status, done from tasks order by id"))

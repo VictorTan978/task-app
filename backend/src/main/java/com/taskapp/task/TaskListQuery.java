@@ -7,10 +7,11 @@ import java.util.Arrays;
 
 /**
  * The parameters of {@code GET /api/tasks} after the contract's normalising: unknown {@code filter}/{@code sort} are
- * already the defaults, {@code q} is trimmed ({@code ""} = no search). {@code tag} and {@code cursor} are the raw
- * first values (null when absent). Validated by {@link TaskService#list}.
+ * already the defaults, {@code q} is trimmed ({@code ""} = no search). {@code list} (0.12.0), {@code tag} and
+ * {@code cursor} are the raw first values (null when absent). Validated by {@link TaskService#list}; {@code list} is
+ * resolved by {@link ListService#resolve}.
  */
-public record TaskListQuery(TaskFilter filter, TaskSort sort, String tag, String q, String cursor) {
+public record TaskListQuery(String list, TaskFilter filter, TaskSort sort, String tag, String q, String cursor) {
 
     /** {@code q} at most this many UTF-16 code units after trimming. */
     public static final int MAX_SEARCH_LENGTH = 100;
@@ -19,8 +20,8 @@ public record TaskListQuery(TaskFilter filter, TaskSort sort, String tag, String
         q = q == null ? "" : q;
     }
 
-    public static TaskListQuery of(String filter, String sort, String tag, String q, String cursor) {
-        return new TaskListQuery(TaskFilter.parse(filter), TaskSort.parse(sort), tag, trim(q), cursor);
+    public static TaskListQuery of(String list, String filter, String sort, String tag, String q, String cursor) {
+        return new TaskListQuery(list, TaskFilter.parse(filter), TaskSort.parse(sort), tag, trim(q), cursor);
     }
 
     /** The search text, or null for no search. */
@@ -34,12 +35,13 @@ public record TaskListQuery(TaskFilter filter, TaskSort sort, String tag, String
     }
 
     /**
-     * 8 bytes identifying what the list shows (filter, sort, tag compared ignoring case/accents/spacing like the tag
-     * lookup, trimmed q). A cursor only fits a request with the same fingerprint.
+     * 8 bytes identifying what the page shows: the resolved list id (0.12.0, so a missing {@code list} and
+     * {@code ?list=<id of My tasks>} are the same), filter, sort, tag compared ignoring case/accents/spacing like the
+     * tag lookup, trimmed q. A cursor only fits a request with the same fingerprint.
      */
-    public byte[] fingerprint() {
+    public byte[] fingerprint(long listId) {
         String tagKey = TagNames.isBlank(tag) ? "" : TagNames.key(TagNames.normalize(tag));
-        String canonical = filter.name() + '\n' + sort.name() + '\n' + tagKey + '\n' + q;
+        String canonical = listId + "\n" + filter.name() + '\n' + sort.name() + '\n' + tagKey + '\n' + q;
         try {
             byte[] hash = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
             return Arrays.copyOf(hash, TaskCursor.FINGERPRINT_LENGTH);

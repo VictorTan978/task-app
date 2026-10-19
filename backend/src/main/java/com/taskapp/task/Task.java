@@ -15,6 +15,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * {@code listId} (V10) is not updatable through the entity: a move changes it with
+ * {@link TaskRepository#moveToList} only, so a concurrent PATCH/PUT that loaded the task before a move can never
+ * write the old list back.
+ */
 @Entity
 @Table(name = "tasks")
 public class Task {
@@ -25,6 +30,9 @@ public class Task {
 
     @Column(name = "owner_id", nullable = false, updatable = false)
     private Long ownerId;
+
+    @Column(name = "list_id", nullable = false, updatable = false)
+    private Long listId;
 
     @Column(nullable = false, length = 200)
     private String title;
@@ -61,8 +69,9 @@ public class Task {
     }
 
     /** New tasks are NONE / TODO (never done); {@code createdAt} and {@code updatedAt} start equal. */
-    public Task(long ownerId, String title, String description, LocalDate dueDate, Instant now) {
+    public Task(long ownerId, long listId, String title, String description, LocalDate dueDate, Instant now) {
         this.ownerId = ownerId;
+        this.listId = listId;
         this.title = title;
         this.description = description;
         this.dueDate = dueDate;
@@ -99,6 +108,15 @@ public class Task {
 
     public Long getOwnerId() {
         return ownerId;
+    }
+
+    public Long getListId() {
+        return listId;
+    }
+
+    /** Records a move already written by {@link TaskRepository#moveToList} (the column is not updatable here). */
+    void movedTo(long listId) {
+        this.listId = listId;
     }
 
     public String getTitle() {

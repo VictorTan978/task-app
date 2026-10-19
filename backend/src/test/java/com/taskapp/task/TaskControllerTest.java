@@ -54,7 +54,7 @@ class TaskControllerTest {
 
     private static final long OWNER = 7L;
     private static final Instant CREATED = Instant.parse("2026-10-08T09:15:02.123456Z");
-    private static final TaskResponse MILK = new TaskResponse(12L, "Buy milk", null, Priority.NONE, TaskStatus.TODO,
+    private static final TaskResponse MILK = new TaskResponse(12L, 3L, "Buy milk", null, Priority.NONE, TaskStatus.TODO,
             List.of(), false, LocalDate.parse("2026-10-10"), CREATED, CREATED);
 
     @Autowired
@@ -75,7 +75,7 @@ class TaskControllerTest {
     // ---- list ----
 
     private static TaskListQuery query(TaskFilter filter, String tag) {
-        return new TaskListQuery(filter, TaskSort.NEWEST, tag, "", null);
+        return new TaskListQuery(null, filter, TaskSort.NEWEST, tag, "", null);
     }
 
     @Test
@@ -86,7 +86,7 @@ class TaskControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
-                        {"items":[{"id":12,"title":"Buy milk","description":null,"priority":"NONE","status":"TODO",
+                        {"items":[{"id":12,"listId":3,"title":"Buy milk","description":null,"priority":"NONE","status":"TODO",
                           "tags":[],"done":false,"dueDate":"2026-10-10",
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
                          "total":120,"nextCursor":"AbC-_9"}""",
@@ -133,7 +133,7 @@ class TaskControllerTest {
         mockMvc.perform(get("/api/tasks").param("filter", "done").param("sort", "title", "due")
                 .param("tag", "Work").param("q", "  milk  ", "bread").param("cursor", "abc", "def").with(signedIn()))
                 .andExpect(status().isOk());
-        verify(taskService).list(OWNER, new TaskListQuery(TaskFilter.DONE, TaskSort.TITLE, "Work", "milk", "abc"));
+        verify(taskService).list(OWNER, new TaskListQuery(null, TaskFilter.DONE, TaskSort.TITLE, "Work", "milk", "abc"));
     }
 
     @ParameterizedTest
@@ -141,7 +141,7 @@ class TaskControllerTest {
     void knownSortsArePassed(String sort) throws Exception {
         mockMvc.perform(get("/api/tasks").param("sort", sort).with(signedIn())).andExpect(status().isOk());
         verify(taskService).list(OWNER,
-                new TaskListQuery(TaskFilter.ALL, TaskSort.valueOf(sort.toUpperCase()), null, "", null));
+                new TaskListQuery(null, TaskFilter.ALL, TaskSort.valueOf(sort.toUpperCase()), null, "", null));
     }
 
     @ParameterizedTest
@@ -192,7 +192,7 @@ class TaskControllerTest {
                 .andExpect(jsonPath("$.id").value(12))
                 .andExpect(jsonPath("$.ownerId").doesNotExist());
 
-        verify(taskService).create(OWNER, new CreateTaskRequest("Buy milk", null, LocalDate.parse("2026-10-10")));
+        verify(taskService).create(OWNER, new CreateTaskRequest("Buy milk", null, LocalDate.parse("2026-10-10"), null));
     }
 
     @Test
@@ -205,7 +205,7 @@ class TaskControllerTest {
                         "{\"title\":\"  " + title + "\\n\",\"description\":\"\\t" + description + "  \"}"))
                 .andExpect(status().isCreated());
 
-        verify(taskService).create(OWNER, new CreateTaskRequest(title, description, null));
+        verify(taskService).create(OWNER, new CreateTaskRequest(title, description, null, null));
     }
 
     @ParameterizedTest
@@ -315,7 +315,7 @@ class TaskControllerTest {
                 .andExpect(jsonPath("$.id").value(12));
 
         verify(taskService).replace(OWNER, 12L,
-                new ReplaceTaskRequest("Buy oat milk", null, null, null, null, true, null));
+                new ReplaceTaskRequest("Buy oat milk", null, null, null, null, true, null, null));
     }
 
     /** 0.10.0: done is no longer required. */
@@ -471,14 +471,14 @@ class TaskControllerTest {
 
     @Test
     void listReturnsPriorityStatusAndTags() throws Exception {
-        TaskResponse tagged = new TaskResponse(12L, "Buy milk", null, Priority.HIGH, TaskStatus.IN_PROGRESS,
+        TaskResponse tagged = new TaskResponse(12L, 3L, "Buy milk", null, Priority.HIGH, TaskStatus.IN_PROGRESS,
                 List.of("Errands", "Home"), false, null, CREATED, CREATED);
         when(taskService.list(OWNER, query(TaskFilter.ALL, null))).thenReturn(new TaskPage(List.of(tagged), 1, null));
 
         mockMvc.perform(get("/api/tasks").with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"items":[{"id":12,"title":"Buy milk","description":null,"priority":"HIGH",
+                        {"items":[{"id":12,"listId":3,"title":"Buy milk","description":null,"priority":"HIGH",
                           "status":"IN_PROGRESS","tags":["Errands","Home"],"done":false,"dueDate":null,
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
                          "total":1,"nextCursor":null}""",
@@ -514,7 +514,7 @@ class TaskControllerTest {
                 .andExpect(jsonPath("$.status").value("TODO"))
                 .andExpect(jsonPath("$.tags", hasSize(0)));
 
-        verify(taskService).create(OWNER, new CreateTaskRequest("x", null, null));
+        verify(taskService).create(OWNER, new CreateTaskRequest("x", null, null, null));
     }
 
     @Test
@@ -526,7 +526,7 @@ class TaskControllerTest {
                 .andExpect(status().isOk());
 
         verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("x", null, null, Priority.HIGH,
-                TaskStatus.IN_PROGRESS, null, List.of(" Home ", "Errands", "errands")));
+                TaskStatus.IN_PROGRESS, null, List.of(" Home ", "Errands", "errands"), null));
     }
 
     @Test
@@ -534,14 +534,14 @@ class TaskControllerTest {
         when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
 
         mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\"}")).andExpect(status().isOk());
-        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("x", null, null, null, null, null, null));
+        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("x", null, null, null, null, null, null, null));
 
         mockMvc.perform(json(put("/api/tasks/12"),
                 "{\"title\":\"y\",\"priority\":null,\"status\":null,\"done\":null,\"tags\":null}")).andExpect(status().isOk());
-        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("y", null, null, null, null, null, null));
+        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("y", null, null, null, null, null, null, null));
 
         mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"z\",\"tags\":[]}")).andExpect(status().isOk());
-        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("z", null, null, null, null, null, List.of()));
+        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("z", null, null, null, null, null, List.of(), null));
     }
 
     @ParameterizedTest
@@ -713,7 +713,7 @@ class TaskControllerTest {
                 .andExpect(content().json("""
                         {"type":"about:blank","title":"Bad Request","status":400,"detail":"Validation failed",
                          "instance":"/api/tasks/12","code":"VALIDATION_FAILED",
-                         "errors":[{"field":"tags","code":"TAG_LIMIT","message":"You can have at most 200 tags"}]}""",
+                         "errors":[{"field":"tags","code":"TAG_LIMIT","message":"A list can have at most 200 tags"}]}""",
                         true));
     }
 
@@ -754,5 +754,115 @@ class TaskControllerTest {
                 .andExpect(jsonPath("$.errors").doesNotExist());
 
         verifyNoInteractions(taskService);
+    }
+
+    // ---- lists (0.12.0) ----
+
+    @Test
+    void listPassesTheFirstRawListValue() throws Exception {
+        mockMvc.perform(get("/api/tasks").param("list", "8", "9").with(signedIn())).andExpect(status().isOk());
+        verify(taskService).list(OWNER, new TaskListQuery("8", TaskFilter.ALL, TaskSort.NEWEST, null, "", null));
+
+        mockMvc.perform(get("/api/tasks").param("list", " abc ").with(signedIn())).andExpect(status().isOk());
+        verify(taskService).list(OWNER, new TaskListQuery(" abc ", TaskFilter.ALL, TaskSort.NEWEST, null, "", null));
+    }
+
+    @Test
+    void listNotMineIs404ListNotFound() throws Exception {
+        when(taskService.list(eq(OWNER), any())).thenThrow(new ListNotFoundException());
+
+        mockMvc.perform(get("/api/tasks").param("list", "999999").with(signedIn()))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content().json("""
+                        {"type":"about:blank","title":"Not Found","status":404,"detail":"List not found",
+                         "instance":"/api/tasks","code":"LIST_NOT_FOUND"}""", true));
+    }
+
+    @Test
+    void createAndPutPassListId() throws Exception {
+        when(taskService.create(eq(OWNER), any())).thenReturn(MILK);
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+
+        mockMvc.perform(json(post("/api/tasks"), "{\"title\":\"x\",\"listId\":8}")).andExpect(status().isCreated());
+        verify(taskService).create(OWNER, new CreateTaskRequest("x", null, null, 8L));
+        mockMvc.perform(json(post("/api/tasks"), "{\"title\":\"y\",\"listId\":null}")).andExpect(status().isCreated());
+        verify(taskService).create(OWNER, new CreateTaskRequest("y", null, null, null));
+
+        mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\",\"listId\":8}")).andExpect(status().isOk());
+        verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("x", null, null, null, null, null, null, 8L));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"abc\"", "\"8\"", "1.5", "8.0", "true", "[8]", "{}", "99999999999999999999"})
+    void wrongTypedListIdIsMalformed(String listId) throws Exception {
+        for (MockHttpServletRequestBuilder request : List.of(post("/api/tasks"), put("/api/tasks/12"))) {
+            mockMvc.perform(json(request, "{\"title\":\"x\",\"listId\":" + listId + "}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                    .andExpect(jsonPath("$.errors").doesNotExist());
+        }
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void createInAListNotMineIs404ListNotFound() throws Exception {
+        when(taskService.create(eq(OWNER), any())).thenThrow(new ListNotFoundException());
+
+        mockMvc.perform(json(post("/api/tasks"), "{\"title\":\"x\",\"listId\":0}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LIST_NOT_FOUND"))
+                .andExpect(jsonPath("$.detail").value("List not found"));
+    }
+
+    /** Body validation runs before the list is looked at. */
+    @Test
+    void invalidBodyWithAListIdIs400First() throws Exception {
+        mockMvc.perform(json(post("/api/tasks"), "{\"title\":\" \",\"listId\":999}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void moveToAListNotMineIs404ListNotFoundAndATaskGoneIs404NotFound() throws Exception {
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenThrow(new ListNotFoundException());
+        mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\",\"listId\":99}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LIST_NOT_FOUND"));
+
+        when(taskService.replace(eq(OWNER), eq(13L), any())).thenThrow(new TaskNotFoundException());
+        mockMvc.perform(json(put("/api/tasks/13"), "{\"title\":\"x\",\"listId\":99}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.detail").value("Task not found"));
+    }
+
+    @Test
+    void responsesCarryListId() throws Exception {
+        when(taskService.get(OWNER, 12L)).thenReturn(MILK);
+
+        mockMvc.perform(get("/api/tasks/12").with(signedIn()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.listId").value(3));
+    }
+
+    /** Safety net: a write that still hits the FK of a just-deleted list is a 404, any other violation a 500. */
+    @Test
+    void listForeignKeyViolationIs404AndOtherViolationsAre500() throws Exception {
+        String fk = "Cannot add or update a child row: a foreign key constraint fails (`taskapp`.`tasks`, "
+                + "CONSTRAINT `fk_tasks_list` FOREIGN KEY (`list_id`) REFERENCES `lists` (`id`) ON DELETE CASCADE)";
+        when(taskService.create(eq(OWNER), any())).thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                "could not execute statement", new java.sql.SQLIntegrityConstraintViolationException(fk)));
+        mockMvc.perform(json(post("/api/tasks"), "{\"title\":\"x\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LIST_NOT_FOUND"));
+
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenThrow(
+                new org.springframework.dao.DataIntegrityViolationException("other",
+                        new java.sql.SQLIntegrityConstraintViolationException("CONSTRAINT `fk_tags_owner` ...")));
+        mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\"}"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
     }
 }

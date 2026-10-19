@@ -25,6 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.taskapp.auth.dto.ConnectionResponse;
 import com.taskapp.auth.dto.UserResponse;
+import com.taskapp.task.ListService;
 
 /**
  * The account matching matrix of specs/google-sign-in.md (AC2-AC5, AC12-AC13, AC17) against MySQL 8.4 with the
@@ -35,7 +36,7 @@ import com.taskapp.auth.dto.UserResponse;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({GoogleAccountService.class, GoogleAccountServiceTest.FixedClock.class})
+@Import({GoogleAccountService.class, ListService.class, GoogleAccountServiceTest.FixedClock.class})
 class GoogleAccountServiceTest {
 
     @Container
@@ -110,6 +111,24 @@ class GoogleAccountServiceTest {
                 user.id()).toInstant()).isEqualTo(NOW);
         assertThat(jdbc.queryForObject("select provider_subject from user_connections where user_id = ?",
                 String.class, user.id())).isEqualTo("111");
+        // specs/sharing-team-lists.md AC1: exactly one list, the personal "My tasks", in the same transaction.
+        assertThat(jdbc.queryForList("select name, personal from lists where owner_id = ?", user.id()))
+                .containsExactly(java.util.Map.of("name", "My tasks", "personal", true));
+    }
+
+    /** Signing in again or linking an existing account never creates another list. */
+    @Test
+    void onlyANewAccountGetsMyTasks() {
+        long ana = service.signIn(google("121", "ana2@gmail.com", true, "Ana")).user().id();
+        service.signIn(google("121", "ana2@gmail.com", true, "Ana"));
+        long jose = passwordAccount("jose2@example.com", "José 2", true);
+        service.signIn(google("122", "jose2@example.com", true, "José"));
+
+        assertThat(jdbc.queryForObject("select count(*) from lists where owner_id = ?", Integer.class, ana))
+                .isEqualTo(1);
+        // A password account inserted directly (not through register) has none; linking adds none.
+        assertThat(jdbc.queryForObject("select count(*) from lists where owner_id = ?", Integer.class, jose))
+                .isZero();
     }
 
     @Test
@@ -250,6 +269,7 @@ class GoogleAccountServiceTest {
 
         assertThat(result.outcome()).isEqualTo(GoogleLogin.Outcome.UNVERIFIED);
         assertThat(count("users")).isZero();
+        assertThat(count("lists")).isZero();
     }
 
     @Test

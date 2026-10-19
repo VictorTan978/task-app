@@ -39,15 +39,16 @@ public class TaskController {
     }
 
     /**
-     * {@code tag}, {@code q}, {@code sort} and {@code cursor} are read with {@code getParameter} (the first value):
-     * binding them to a String would join repeated values with commas. {@code filter} keeps its 0.10.0 binding
-     * (repeated values join into an unknown value, i.e. {@code all}).
+     * {@code list}, {@code tag}, {@code q}, {@code sort} and {@code cursor} are read with {@code getParameter} (the
+     * first value): binding them to a String would join repeated values with commas. {@code filter} keeps its 0.10.0
+     * binding (repeated values join into an unknown value, i.e. {@code all}).
      */
     @GetMapping
     public TaskPage list(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(name = "filter", required = false) String filter, HttpServletRequest request) {
-        return taskService.list(user.id(), TaskListQuery.of(filter, request.getParameter("sort"),
-                request.getParameter("tag"), request.getParameter("q"), request.getParameter("cursor")));
+        return taskService.list(user.id(), TaskListQuery.of(request.getParameter("list"), filter,
+                request.getParameter("sort"), request.getParameter("tag"), request.getParameter("q"),
+                request.getParameter("cursor")));
     }
 
     @PostMapping
