@@ -39,7 +39,8 @@ interface TaskPage {
   nextCursor: string | null;
 }
 
-const TASK_KEYS = ['createdAt', 'description', 'done', 'dueDate', 'id', 'priority', 'status', 'tags', 'title', 'updatedAt'];
+// 0.12.0 (T3a): Task gained the required listId.
+const TASK_KEYS = ['createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
 
 interface Watch {
   consoleErrors: string[];

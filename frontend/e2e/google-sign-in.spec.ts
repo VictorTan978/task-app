@@ -406,7 +406,8 @@ test.describe('Google on', () => {
     await a.page.locator('input[type="submit"]').click();
     await expect(a.page).toHaveURL(/\/tasks$/);
     expect(a.page.url()).not.toMatch(/code=|state=|oauth=/);
-    await expect(a.page.getByRole('heading', { name: 'My tasks' }).or(a.page.getByLabel('New task'))).toBeVisible();
+    // T3a: both the "My tasks" heading and the add box are visible now, so take the first match.
+    await expect(a.page.getByRole('heading', { name: 'My tasks' }).or(a.page.getByLabel('New task')).first()).toBeVisible();
     await expect(a.page.getByTestId('verify-email-banner')).toHaveCount(0);
     await expect(a.page.locator('header')).toContainText(name);
 

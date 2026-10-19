@@ -629,7 +629,8 @@ test.describe('States', () => {
       await route.continue();
     });
     await page.goto('/tasks');
-    await expect(page.getByRole('status')).toHaveText(/Loading tasks…/);
+    // T3a: the list picker has its own status ("Loading lists…"), so pick the tasks one.
+    await expect(page.getByRole('status').filter({ hasText: 'Loading tasks…' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/ac14-loading.png`, fullPage: true });
     release();
     await expect(page.getByRole('status')).toHaveCount(0);
