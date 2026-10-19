@@ -1283,6 +1283,87 @@ test.describe('T3b Sharing (default run)', () => {
     await closeAll(m, u);
   });
 
+  test('AC34/header: 320/375/390/641/1280 px with a 50-char name, badge 3 and the Admin link: no horizontal scroll, Invitations + Log out fully visible and clickable, badge readable', async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(90_000);
+    const longName = `W${'x'.repeat(30)}${uid()}`.slice(0, 50).padEnd(50, 'y');
+    const email = uniqueEmail('ac34hdr');
+    const res = await page.request.post('/api/auth/register', {
+      data: { displayName: longName, email, password: PASSWORD },
+      headers: { 'X-XSRF-TOKEN': await xsrf(page) },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    const id = ((await res.json()) as { id: number }).id;
+    verify(id);
+    sql(`UPDATE users SET role = 'ADMIN' WHERE id = ${id}`);
+    const inviters: User[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const o = await newUser(browser, `ac34hdr${i}`, true);
+      const l = await createList(o.page, `Hdr ${i}`);
+      expect((await invite(o.page, l.id, email)).status()).toBe(201);
+      inviters.push(o);
+    }
+    // fresh sign-in so the admin role is in the session
+    await page.context().clearCookies();
+    expect(
+      (await page.request.post('/api/auth/login', { data: { email, password: PASSWORD }, headers: { 'X-XSRF-TOKEN': await xsrf(page) } })).status(),
+    ).toBe(200);
+
+    const inside = async (label: string, loc: Locator, vw: number) => {
+      const b = (await loc.boundingBox())!;
+      expect(b, label).toBeTruthy();
+      expect(b.x, `${label} left`).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, `${label} right`).toBeLessThanOrEqual(vw + 0.5);
+      // the element itself is what's under its centre (not covered, so clickable)
+      const hit = await loc.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!top && (top === el || el.contains(top));
+      });
+      expect(hit, `${label} not covered`).toBe(true);
+      return b;
+    };
+    for (const width of [320, 375, 390, 641, 1280]) {
+      await page.setViewportSize({ width, height: 740 });
+      await page.goto('/tasks');
+      await settled(page);
+      await expect(badge(page)).toHaveText('3');
+      const sw = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(sw, `${width}: no horizontal scroll`).toBeLessThanOrEqual(width);
+      const header = page.locator('header.app-header');
+      await inside(`${width} Invitations`, page.getByTestId('invitations-link'), width);
+      await inside(`${width} Log out`, page.getByRole('button', { name: 'Log out' }), width);
+      await inside(`${width} Admin`, page.getByTestId('admin-link'), width);
+      const bb = await inside(`${width} badge`, badge(page), width);
+      expect(bb.height, `${width} badge height`).toBeGreaterThanOrEqual(14);
+      const style = await badge(page).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { fontSize: parseFloat(cs.fontSize), color: cs.color, bg: cs.backgroundColor, overflow: el.scrollWidth > el.clientWidth };
+      });
+      expect(style.fontSize, `${width} badge font`).toBeGreaterThanOrEqual(11);
+      expect(style.overflow, `${width} badge text not clipped`).toBe(false);
+      expect(style.color).not.toBe(style.bg);
+      // the greeting keeps the full name as its text (ellipsis is visual only) and links to /account
+      await expect(page.locator('.app-header__greeting')).toHaveText(`Hi, ${longName}`);
+      const hb = (await header.boundingBox())!;
+      expect(hb.width, `${width} header width`).toBeLessThanOrEqual(width + 0.5);
+      await shot(page, `ac34-header-${width}`);
+    }
+    // clickable for real at the narrowest width
+    await page.setViewportSize({ width: 320, height: 740 });
+    await page.goto('/tasks');
+    await settled(page);
+    await page.getByTestId('invitations-link').click();
+    await expect(page).toHaveURL(/\/invitations$/);
+    await expect(page.getByTestId('invitation')).toHaveCount(3);
+    await shot(page, 'ac34-header-320-invitations');
+    await page.getByRole('button', { name: 'Log out' }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    for (const o of inviters) await o.ctx.close();
+  });
+
   test('AC14/AC15 still hold with sharing: lists/tasks/tags of a non-member list never leak; admin sees only own lists; no list param = My tasks', async ({
     page,
     browser,
