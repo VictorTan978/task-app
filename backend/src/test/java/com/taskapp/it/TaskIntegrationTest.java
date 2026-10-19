@@ -173,7 +173,9 @@ class TaskIntegrationTest {
         assertThat(task.get("listId").asLong()).isEqualTo(jdbc.queryForObject(
                 "select l.id from lists l join tasks t on t.owner_id = l.owner_id where t.id = ? and l.personal",
                 Long.class, id));
-        assertThat(task.size()).isEqualTo(11);
+        // 0.13.0: addedBy, the creator's display name.
+        assertThat(task.get("addedBy").get("displayName").asText()).startsWith("Alice ");
+        assertThat(task.size()).isEqualTo(12);
 
         Resp fetched = alice.get("/api/tasks/" + id);
         assertThat(fetched.status()).isEqualTo(200);

@@ -31,7 +31,7 @@ import com.taskapp.task.dto.TagResponse;
 @Testcontainers
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({TagService.class, ListService.class})
+@Import({TagService.class, ListService.class, MembershipRepository.class})
 class TagRepositoryTest {
 
     @Container

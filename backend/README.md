@@ -64,3 +64,10 @@ admin, or nobody can manage admins from the app until you run the first statemen
 `RATE_LIMIT_ADMIN_ACTIONS_PER_USER_PER_MINUTE` (default 60): change requests (disable, enable, sign out
 everywhere, change role, delete) per admin per minute; over it the API answers 429. The user list is not limited.
 Raise it for e2e runs where many tests act as the same admin.
+
+### Sharing rate limits
+
+`RATE_LIMIT_INVITES_PER_USER_PER_HOUR` (default 30): list invitations per inviter per hour; over it the API answers
+429. `RATE_LIMIT_INVITE_EMAILS_PER_ACCOUNT_PER_HOUR` (default 5): invitation emails per recipient account per hour;
+silent (the invitation is still created, only the email is skipped). Raise both for e2e runs where many tests invite
+as one user or invite the same address.

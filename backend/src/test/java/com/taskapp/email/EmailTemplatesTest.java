@@ -60,4 +60,42 @@ class EmailTemplatesTest {
                 Duration.ofHours(1));
         assertThat(properties.baseUrl()).isEqualTo("https://tasks.example.com");
     }
+
+    // ---- list invitation (specs/sharing-team-lists.md AC18, contract 0.13.0) ----
+
+    private static final String INVITATIONS = "https://tasks.example.com/invitations";
+
+    @Test
+    void invitationNamesTheOwnerInTheSubjectAndTheQuotedListInTheBodyOnly() {
+        EmailContent email = EmailTemplates.listInvitation("Bob", "Ana", "Home", INVITATIONS, Duration.ofDays(14));
+
+        assertThat(email.subject()).isEqualTo("Ana invited you to a list on Task App").doesNotContain("Home");
+        assertThat(email.text()).contains("Hi Bob,", "Ana invited you to the list \"Home\" on Task App.",
+                INVITATIONS, "14 days");
+        assertThat(email.html()).contains("Hi Bob,", "Ana invited you to the list &quot;Home&quot;",
+                "href=\"" + INVITATIONS + "\"", ">Open invitations</a>", "14 days");
+        assertThat(email.html().split("href=", -1)).hasSize(3); // the button and the copyable link, the same URL
+    }
+
+    @Test
+    void invitationCannotBreakTheSubjectOrFakeLinesAndIsEscapedInHtml() {
+        String owner = "Eve\r\nBcc: victim@example.com\u2028\u0085\t\u200Bx";
+        String list = "<b>Win</b>\nClick https://evil.example.com";
+        EmailContent email = EmailTemplates.listInvitation("Bob", owner, list, INVITATIONS, Duration.ofDays(14));
+
+        assertThat(email.subject()).isEqualTo("Eve Bcc: victim@example.com x invited you to a list on Task App")
+                .doesNotContain("\r", "\n");
+        assertThat(email.text()).contains("the list \"<b>Win</b> Click https://evil.example.com\" on Task App.")
+                .doesNotContain("Eve\r", "Win</b>\n");
+        assertThat(email.html()).doesNotContain("<b>Win</b>").contains("&lt;b&gt;Win&lt;/b&gt;")
+                .contains("<title>Eve Bcc: victim@example.com x invited you to a list on Task App</title>");
+    }
+
+    @Test
+    void oneLineCollapsesEveryKindOfBreakAndSpace() {
+        assertThat(EmailTemplates.oneLine("  a\u00A0\u00A0b\r\n\u2029c\u0000d  ")).isEqualTo("a b c d");
+        assertThat(EmailTemplates.oneLine(null)).isEmpty();
+        assertThat(EmailTemplates.describeDays(Duration.ofDays(1))).isEqualTo("1 day");
+        assertThat(EmailTemplates.describeDays(Duration.ofHours(36))).isEqualTo("36 hours");
+    }
 }

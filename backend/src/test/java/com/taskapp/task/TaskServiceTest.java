@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -56,6 +58,22 @@ class TaskServiceTest {
     private static final TaskList MY_TASKS_LIST = list(MY_TASKS, true);
     private static final TaskList HOME_LIST = list(HOME, false);
 
+    private static final TaskResponse.AddedBy OWNER_NAME = new TaskResponse.AddedBy("Owner");
+
+    private static TaskRepository.UserName userName(long id, String name) {
+        return new TaskRepository.UserName() {
+            @Override
+            public Long getId() {
+                return id;
+            }
+
+            @Override
+            public String getDisplayName() {
+                return name;
+            }
+        };
+    }
+
     private static TaskList list(long id, boolean personal) {
         TaskList list = new TaskList(OWNER, personal ? "My tasks" : "Home", personal, CREATED);
         ReflectionTestUtils.setField(list, "id", id);
@@ -68,12 +86,17 @@ class TaskServiceTest {
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(listService.resolve(OWNER, null)).thenReturn(MY_TASKS);
         when(listService.personal(OWNER)).thenReturn(MY_TASKS_LIST);
-        when(listService.findOwned(OWNER, MY_TASKS)).thenReturn(Optional.of(MY_TASKS_LIST));
-        when(listService.findOwned(OWNER, HOME)).thenReturn(Optional.of(HOME_LIST));
-        when(listService.requireOwned(OWNER, MY_TASKS)).thenReturn(MY_TASKS_LIST);
-        when(listService.requireOwned(OWNER, HOME)).thenReturn(HOME_LIST);
-        when(listService.requireOwned(OWNER, 99L)).thenThrow(new ListNotFoundException());
-        when(listService.shareUser(OWNER)).thenReturn(true);
+        when(listService.findMember(OWNER, MY_TASKS)).thenReturn(Optional.of(MY_TASKS_LIST));
+        when(listService.findMember(OWNER, HOME)).thenReturn(Optional.of(HOME_LIST));
+        when(listService.requireMember(OWNER, MY_TASKS)).thenReturn(MY_TASKS_LIST);
+        when(listService.requireMember(OWNER, HOME)).thenReturn(HOME_LIST);
+        when(listService.requireMember(OWNER, 99L)).thenThrow(new ListNotFoundException());
+        when(listService.shareUsers(eq(OWNER), anyList())).thenReturn(true);
+        when(listService.shareMember(anyLong(), eq(OWNER))).thenReturn(true);
+        when(repository.findDisplayNames(any())).thenAnswer(inv -> {
+            java.util.Collection<Long> ids = inv.getArgument(0);
+            return ids.contains(OWNER) ? List.of(userName(OWNER, "Owner")) : List.of();
+        });
         when(listService.lockList(anyLong())).thenReturn(true);
         when(listService.shareList(anyLong())).thenReturn(true);
         when(repository.saveAndFlush(any(Task.class))).thenAnswer(inv -> {
@@ -115,20 +138,21 @@ class TaskServiceTest {
         TaskResponse created = service.create(OWNER,
                 new CreateTaskRequest("Buy milk", null, LocalDate.parse("2026-10-10"), null));
 
-        assertThat(created).isEqualTo(new TaskResponse(12L, MY_TASKS, "Buy milk", null, Priority.NONE, TaskStatus.TODO,
-                List.of(), false, LocalDate.parse("2026-10-10"), NOW_MICROS, NOW_MICROS));
+        assertThat(created).isEqualTo(new TaskResponse(12L, MY_TASKS, OWNER_NAME, "Buy milk", null, Priority.NONE,
+                TaskStatus.TODO, List.of(), false, LocalDate.parse("2026-10-10"), NOW_MICROS, NOW_MICROS));
         verify(repository).saveAndFlush(any(Task.class));
         verifyNoInteractions(tagService);
     }
 
     @Test
-    void createStoresTheSessionOwnerInMyTasksAfterLockingUserThenList() {
+    void createStoresTheSessionOwnerInMyTasksAfterLockingUsersThenListThenMembership() {
         service.create(OWNER, new CreateTaskRequest("x", null, null, null));
 
         InOrder order = inOrder(listService, repository);
-        order.verify(listService).shareUser(OWNER);
         order.verify(listService).personal(OWNER);
+        order.verify(listService).shareUsers(OWNER, List.of(OWNER));
         order.verify(listService).shareList(MY_TASKS);
+        order.verify(listService).shareMember(MY_TASKS, OWNER);
         order.verify(repository).saveAndFlush(org.mockito.ArgumentMatchers.argThat(
                 t -> t.getOwnerId() == OWNER && t.getListId() == MY_TASKS));
     }
@@ -347,7 +371,8 @@ class TaskServiceTest {
         TaskResponse updated = service.replace(OWNER, 12L,
                 new ReplaceTaskRequest("Buy oat milk", null, null, null, null, true, null, null));
 
-        assertThat(updated).isEqualTo(new TaskResponse(12L, MY_TASKS, "Buy oat milk", null, Priority.NONE, TaskStatus.DONE,
+        assertThat(updated).isEqualTo(new TaskResponse(12L, MY_TASKS, OWNER_NAME, "Buy oat milk", null, Priority.NONE,
+                TaskStatus.DONE,
                 List.of(), true, null, CREATED, NOW_MICROS));
     }
 
@@ -366,7 +391,7 @@ class TaskServiceTest {
         verify(tagService, never()).replaceTags(anyLong(), anyLong(), anyLong(), any());
         // PUT without tags or listId: the list FOR SHARE only (never waits for another field-only write).
         InOrder order = inOrder(listService, repository);
-        order.verify(listService).shareUser(OWNER);
+        order.verify(listService).shareUsers(eq(OWNER), anyList());
         order.verify(listService).shareList(MY_TASKS);
         order.verify(repository).findByIdAndListId(12L, MY_TASKS);
         verify(listService, never()).lockList(anyLong());
@@ -432,7 +457,7 @@ class TaskServiceTest {
         assertThat(updated.tags()).containsExactly("Home", "Work");
         InOrder order = inOrder(listService, tagService, repository);
         order.verify(repository).findAccessible(12L, OWNER);
-        order.verify(listService).shareUser(OWNER);
+        order.verify(listService).shareUsers(eq(OWNER), anyList());
         order.verify(listService).lockList(MY_TASKS);
         order.verify(repository).findByIdAndListId(12L, MY_TASKS);
         order.verify(repository).saveAndFlush(any(Task.class));
@@ -482,7 +507,7 @@ class TaskServiceTest {
         service.delete(OWNER, 12L);
 
         InOrder order = inOrder(listService, tagService, repository);
-        order.verify(listService).shareUser(OWNER);
+        order.verify(listService).shareUsers(eq(OWNER), anyList());
         order.verify(listService).lockList(MY_TASKS);
         order.verify(tagService).tagIdsOf(12L);
         order.verify(repository).delete(task);
@@ -599,7 +624,7 @@ class TaskServiceTest {
         assertThat(moved.updatedAt()).isEqualTo(NOW_MICROS);
         assertThat(task.getListId()).isEqualTo(HOME);
         InOrder order = inOrder(listService, tagService, repository);
-        order.verify(listService).shareUser(OWNER);
+        order.verify(listService).shareUsers(eq(OWNER), anyList());
         order.verify(listService).lockList(MY_TASKS);
         order.verify(listService).lockList(HOME);
         order.verify(repository).findByIdAndListId(12L, MY_TASKS);
@@ -669,13 +694,13 @@ class TaskServiceTest {
 
         assertThatThrownBy(() -> service.replace(OWNER, 12L, move(99L, null)))
                 .isInstanceOf(TaskNotFoundException.class);
-        verify(listService, never()).requireOwned(anyLong(), anyLong());
+        verify(listService, never()).requireMember(anyLong(), anyLong());
     }
 
     @Test
     void aTaskWhoseListIsDeletedBetweenTheReadsIsNotFound() {
         stored(12L, TaskStatus.TODO, Priority.NONE);
-        when(listService.findOwned(OWNER, MY_TASKS)).thenReturn(Optional.empty());
+        when(listService.findMember(OWNER, MY_TASKS)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.replace(OWNER, 12L, put(null, null, null, List.of("A"))))
                 .isInstanceOf(TaskNotFoundException.class);
@@ -713,7 +738,7 @@ class TaskServiceTest {
     @Test
     void anAccountDeletedMeanwhileIsNotFound() {
         stored(12L, TaskStatus.TODO, Priority.NONE);
-        when(listService.shareUser(OWNER)).thenReturn(false);
+        when(listService.shareUsers(eq(OWNER), anyList())).thenReturn(false);
 
         assertThatThrownBy(() -> service.delete(OWNER, 12L)).isInstanceOf(TaskNotFoundException.class);
         verify(listService, never()).lockList(anyLong());
@@ -734,11 +759,64 @@ class TaskServiceTest {
     void newTagsBelongToTheListsOwner() {
         TaskList othersList = new TaskList(42L, "Shared", false, CREATED);
         ReflectionTestUtils.setField(othersList, "id", MY_TASKS);
-        when(listService.findOwned(OWNER, MY_TASKS)).thenReturn(Optional.of(othersList));
+        when(listService.findMember(OWNER, MY_TASKS)).thenReturn(Optional.of(othersList));
         stored(12L, TaskStatus.TODO, Priority.NONE);
 
         service.replace(OWNER, 12L, put(null, null, null, List.of("A")));
 
         verify(tagService).replaceTags(42L, MY_TASKS, 12L, List.of("A"));
+    }
+
+    // ---- 0.13.0: shared lists ----
+
+    /** A member removed (or who left) between the read and the lock: the membership re-check fails, then 404. */
+    @Test
+    void aMemberRemovedMeanwhileIsNotFoundAndNothingIsWritten() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(listService.shareMember(MY_TASKS, OWNER)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.setStatus(OWNER, 12L, TaskStatus.DONE, null))
+                .isInstanceOf(TaskNotFoundException.class);
+        verify(listService, times(TaskService.MAX_LOCATE_ATTEMPTS)).shareMember(MY_TASKS, OWNER);
+        verify(repository, never()).findByIdAndListId(anyLong(), anyLong());
+        verify(repository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void aMoveTargetNoLongerMineIsListNotFound() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(listService.shareMember(HOME, OWNER)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.replace(OWNER, 12L, move(HOME, null)))
+                .isInstanceOf(ListNotFoundException.class);
+        verify(repository, never()).moveToList(anyLong(), anyLong(), anyLong());
+    }
+
+    /** A member's write in someone else's list: the caller's and the owner's users rows are locked first. */
+    @Test
+    void aWriteInASharedListLocksTheOwnersUserRowToo() {
+        TaskList shared = new TaskList(42L, "Shared", false, CREATED);
+        ReflectionTestUtils.setField(shared, "id", MY_TASKS);
+        when(listService.findMember(OWNER, MY_TASKS)).thenReturn(Optional.of(shared));
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+
+        service.replace(OWNER, 12L, put(null, null, null, List.of("A")));
+
+        InOrder order = inOrder(listService, tagService);
+        order.verify(listService).shareUsers(OWNER, List.of(42L));
+        order.verify(listService).lockList(MY_TASKS);
+        order.verify(listService).shareMember(MY_TASKS, OWNER);
+        order.verify(tagService).replaceTags(42L, MY_TASKS, 12L, List.of("A"));
+    }
+
+    @Test
+    void addedByIsTheAddersNameAndNullOnceTheirAccountIsGone() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        assertThat(service.get(OWNER, 12L).addedBy()).isEqualTo(OWNER_NAME);
+
+        Task orphan = existing(13L);
+        ReflectionTestUtils.setField(orphan, "ownerId", null);
+        when(repository.findAccessible(13L, OWNER)).thenReturn(Optional.of(orphan));
+        assertThat(service.get(OWNER, 13L).addedBy()).isNull();
     }
 }

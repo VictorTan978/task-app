@@ -9,21 +9,32 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
- * Lists and the row locks of the T3a concurrency design. Lock order everywhere: the user's {@code users} row, then
- * {@code lists} rows in ascending id, then task / tag / link rows. The locking reads below are by primary key and
- * are only used on lists already known to be the caller's (owners never change), so they never lock another user's
- * row.
+ * Lists and the row locks of the concurrency design (T3a, extended for sharing in T3b). Lock order everywhere:
+ * {@code users} rows FOR SHARE (the caller and the owners of the lists touched, ascending id; an account deletion
+ * takes its own row FOR UPDATE), then {@code lists} rows in ascending id, then the caller's {@code list_members} row
+ * FOR SHARE ({@link MembershipRepository#shareMember}), then task / tag / link / member / invitation rows by primary
+ * key. The locking reads below are by primary key; owners never change.
+ * <p>
+ * Access (0.13.0) is membership: a list is the user's when they have a {@code list_members} row for it (owners have
+ * one for each of their lists).
  */
 public interface ListRepository extends JpaRepository<TaskList, Long> {
 
     Optional<TaskList> findByIdAndOwnerId(long id, long ownerId);
 
-    Optional<TaskList> findByOwnerIdAndPersonalTrue(long ownerId);
+    /** The list, if {@code userId} is a member of it (owner or member). Plain read, two primary-key lookups. */
+    @Query(value = """
+            SELECT l.* FROM lists l JOIN list_members m ON m.list_id = l.id AND m.user_id = :userId
+            WHERE l.id = :listId""", nativeQuery = true)
+    Optional<TaskList> findAccessible(@Param("listId") long listId, @Param("userId") long userId);
 
-    /** "My tasks" first, then by name (column collation utf8mb4_0900_ai_ci), then id. */
-    @Query(value = "SELECT * FROM lists WHERE owner_id = :ownerId ORDER BY personal DESC, name, id",
-            nativeQuery = true)
-    List<TaskList> findAllOwned(@Param("ownerId") long ownerId);
+    /** Every list {@code userId} is a member of: "My tasks" first, then by name (column collation), then id. */
+    @Query(value = """
+            SELECT l.* FROM list_members m JOIN lists l ON l.id = m.list_id
+            WHERE m.user_id = :userId ORDER BY l.personal DESC, l.name, l.id""", nativeQuery = true)
+    List<TaskList> findAllForMember(@Param("userId") long userId);
+
+    Optional<TaskList> findByOwnerIdAndPersonalTrue(long ownerId);
 
     long countByOwnerId(long ownerId);
 

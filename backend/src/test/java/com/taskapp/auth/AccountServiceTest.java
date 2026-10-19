@@ -3,13 +3,18 @@ package com.taskapp.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Clock;
 import java.time.Duration;
@@ -21,10 +26,13 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionOperations;
 
 import com.taskapp.auth.dto.ChangeDisplayNameRequest;
 import com.taskapp.auth.dto.ChangePasswordRequest;
@@ -35,6 +43,7 @@ import com.taskapp.security.ratelimit.AuthRateLimiter;
 import com.taskapp.security.ratelimit.RateLimitProperties;
 import com.taskapp.security.ratelimit.RateLimitedException;
 import com.taskapp.security.Role;
+import com.taskapp.task.ListService;
 
 class AccountServiceTest {
 
@@ -49,6 +58,7 @@ class AccountServiceTest {
     private final UserRepository userRepository = mock(UserRepository.class);
     private final RememberMeTokenRepository rememberMeTokens = mock(RememberMeTokenRepository.class);
     private final UserConnectionRepository connections = mock(UserConnectionRepository.class);
+    private final ListService listService = mock(ListService.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private AccountService accountService;
     private User bob;
@@ -59,7 +69,10 @@ class AccountServiceTest {
         AuthRateLimiter rateLimiter = new AuthRateLimiter(new RateLimitProperties(
                 5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)), Clock.systemUTC());
         accountService = new AccountService(userRepository, passwordEncoder, rateLimiter, rememberMeTokens,
-                connections);
+                connections, listService, TransactionOperations.withoutTransaction());
+        // Delete account loads (and locks) the user with findByIdForUpdate: same answers as findById.
+        when(userRepository.findByIdForUpdate(anyLong()))
+                .thenAnswer(inv -> userRepository.findById(inv.<Long>getArgument(0)));
         bob = persisted(1L, "bob@example.com", "Bob");
         alice = persisted(2L, "alice@example.com", "Alice");
         when(userRepository.findById(1L)).thenReturn(Optional.of(bob));
@@ -244,6 +257,29 @@ class AccountServiceTest {
         assertThat(deleted).isEqualTo(new UserResponse(1L, "bob@example.com", "Bob", false, true, List.of(), Role.USER));
         verify(userRepository).delete(bob);
         verify(userRepository).flush();
+    }
+
+    /** 0.13.0: user row FOR UPDATE first, then the lists it touches (and its invitations), then the delete. */
+    @Test
+    void deleteLocksTheUserThenItsListsThenDeletes() {
+        accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD, null));
+
+        InOrder order = inOrder(userRepository, listService);
+        order.verify(userRepository).findByIdForUpdate(1L);
+        order.verify(listService).lockForAccountDeletion(1L, "bob@example.com");
+        order.verify(userRepository).delete(bob);
+        order.verify(userRepository).flush();
+    }
+
+    @Test
+    void deleteIsRunAgainAfterADeadlock() {
+        doThrow(new CannotAcquireLockException("x", new SQLException("x", "40001", 1213)))
+                .doNothing().when(userRepository).flush();
+
+        accountService.deleteAccount(1L, new DeleteAccountRequest(PASSWORD, null));
+
+        verify(userRepository, times(2)).findByIdForUpdate(1L);
+        verify(userRepository, times(2)).delete(bob);
     }
 
     @Test

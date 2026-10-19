@@ -68,8 +68,13 @@ class ListIntegrationTest {
         assertThat(lists).hasSize(1);
         assertThat(lists.get(0).get("name").asText()).isEqualTo("My tasks");
         assertThat(lists.get(0).get("personal").asBoolean()).isTrue();
-        assertThat(lists.get(0).size()).isEqualTo(3);
+        // 0.13.0: role and memberCount; the owner is the only member.
+        assertThat(lists.get(0).get("role").asText()).isEqualTo("OWNER");
+        assertThat(lists.get(0).get("memberCount").asInt()).isEqualTo(1);
+        assertThat(lists.get(0).size()).isEqualTo(5);
         assertThat(count("select count(*) from lists where owner_id = ?", alice.id)).isEqualTo(1);
+        assertThat(count("select count(*) from list_members m join lists l on l.id = m.list_id"
+                + " where l.owner_id = ? and m.user_id = l.owner_id", alice.id)).isEqualTo(1);
         // New tasks without listId go there.
         assertThat(alice.createTask("t", null).get("listId").asLong()).isEqualTo(alice.myTasks());
     }
@@ -100,7 +105,7 @@ class ListIntegrationTest {
         long home = created.json().get("id").asLong();
         assertThat(created.location()).isEqualTo("/api/lists/" + home);
         assertThat(created.json()).isEqualTo(JSON.readTree(
-                "{\"id\":" + home + ",\"name\":\"Home\",\"personal\":false}"));
+                "{\"id\":" + home + ",\"name\":\"Home\",\"personal\":false,\"role\":\"OWNER\",\"memberCount\":1}"));
         alice.post("/api/lists", "{\"name\":\"äpfel\"}");
         alice.post("/api/lists", "{\"name\":\"Zoo\"}");
         alice.post("/api/lists", "{\"name\":\"Home\"}");
@@ -114,7 +119,8 @@ class ListIntegrationTest {
         alice.createTask("two", home);
         alice.createTask("elsewhere", null);
         assertThat(alice.get("/api/lists/" + home).json()).isEqualTo(JSON.readTree(
-                "{\"id\":" + home + ",\"name\":\"Groceries\",\"personal\":false,\"taskCount\":2}"));
+                "{\"id\":" + home + ",\"name\":\"Groceries\",\"personal\":false,\"role\":\"OWNER\","
+                        + "\"memberCount\":1,\"taskCount\":2}"));
         assertThat(alice.get("/api/tasks?list=" + home).json().get("total").asLong()).isEqualTo(2);
 
         assertThat(alice.delete("/api/lists/" + home).status()).isEqualTo(204);

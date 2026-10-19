@@ -16,20 +16,23 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 @EnableConfigurationProperties({RateLimitProperties.class, EmailRateLimitProperties.class,
-        GoogleRateLimitProperties.class, AdminRateLimitProperties.class})
+        GoogleRateLimitProperties.class, AdminRateLimitProperties.class, InviteRateLimitProperties.class})
 public class RateLimitConfig implements WebMvcConfigurer {
 
     private final AuthRateLimiter authRateLimiter;
     private final EmailRateLimiter emailRateLimiter;
     private final GoogleRateLimiter googleRateLimiter;
     private final AdminRateLimiter adminRateLimiter;
+    private final InviteRateLimiter inviteRateLimiter;
 
     public RateLimitConfig(RateLimitProperties properties, EmailRateLimitProperties emailProperties,
-            GoogleRateLimitProperties googleProperties, AdminRateLimitProperties adminProperties) {
+            GoogleRateLimitProperties googleProperties, AdminRateLimitProperties adminProperties,
+            InviteRateLimitProperties inviteProperties) {
         this.authRateLimiter = new AuthRateLimiter(properties, Clock.systemUTC());
         this.emailRateLimiter = new EmailRateLimiter(emailProperties, Clock.systemUTC());
         this.googleRateLimiter = new GoogleRateLimiter(googleProperties, Clock.systemUTC());
         this.adminRateLimiter = new AdminRateLimiter(adminProperties, Clock.systemUTC());
+        this.inviteRateLimiter = new InviteRateLimiter(inviteProperties, Clock.systemUTC());
     }
 
     @Bean
@@ -52,6 +55,12 @@ public class RateLimitConfig implements WebMvcConfigurer {
     @Bean
     AdminRateLimiter adminRateLimiter() {
         return adminRateLimiter;
+    }
+
+    /** Counted by InvitationService (per inviter) and EmailJobs (silent, per recipient). */
+    @Bean
+    InviteRateLimiter inviteRateLimiter() {
+        return inviteRateLimiter;
     }
 
     @Override

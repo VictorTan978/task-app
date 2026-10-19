@@ -40,12 +40,16 @@ class ListServiceTest {
     private static final long OWNER = 7L;
     private static final Instant NOW = Instant.parse("2026-10-17T09:15:02.123456789Z");
 
+    private static final long MEMBER = 9L;
+
     private final ListRepository lists = mock(ListRepository.class);
+    private final MembershipRepository members = mock(MembershipRepository.class);
     private ListService service;
 
     @BeforeEach
     void setUp() {
-        service = new ListService(lists, TransactionOperations.withoutTransaction(), Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new ListService(lists, members, TransactionOperations.withoutTransaction(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
         when(lists.saveAndFlush(any(TaskList.class))).thenAnswer(inv -> {
             TaskList list = inv.getArgument(0);
             ReflectionTestUtils.setField(list, "id", 8L);
@@ -54,6 +58,11 @@ class ListServiceTest {
         when(lists.lockUser(OWNER)).thenReturn(Optional.of(OWNER));
         when(lists.shareUser(OWNER)).thenReturn(Optional.of(OWNER));
         when(lists.lockList(anyLong())).thenAnswer(inv -> Optional.of(inv.getArgument(0)));
+        // The owner's "My tasks" (3) and "Home" (8); MEMBER is a member of 8 too.
+        when(lists.findAccessible(3L, OWNER)).thenReturn(Optional.of(list(3, "My tasks", true)));
+        when(lists.findAccessible(8L, OWNER)).thenReturn(Optional.of(list(8, "Home", false)));
+        when(lists.findAccessible(8L, MEMBER)).thenReturn(Optional.of(list(8, "Home", false)));
+        when(members.countMembers(anyLong())).thenReturn(1);
     }
 
     private static TaskList list(long id, String name, boolean personal) {
@@ -68,13 +77,14 @@ class ListServiceTest {
 
         TaskListResponse created = service.create(OWNER, new CreateListRequest("Home"));
 
-        assertThat(created).isEqualTo(new TaskListResponse(8, "Home", false));
-        InOrder order = inOrder(lists);
+        assertThat(created).isEqualTo(new TaskListResponse(8, "Home", false, ListRole.OWNER, 1));
+        InOrder order = inOrder(lists, members);
         order.verify(lists).lockUser(OWNER);
         order.verify(lists).countByOwnerId(OWNER);
         order.verify(lists).saveAndFlush(org.mockito.ArgumentMatchers.argThat(l -> l.getOwnerId() == OWNER
                 && !l.isPersonal() && l.getName().equals("Home")
                 && l.getCreatedAt().equals(Instant.parse("2026-10-17T09:15:02.123456Z"))));
+        order.verify(members).insertMember(8L, OWNER, Instant.parse("2026-10-17T09:15:02.123456Z"));
     }
 
     @Test
@@ -110,10 +120,13 @@ class ListServiceTest {
     void renameIsOneScopedUpdateAndZeroRowsIsNotFound() {
         when(lists.rename(OWNER, 8L, "Groceries")).thenReturn(1);
         when(lists.findById(8L)).thenReturn(Optional.of(list(8, "Groceries", false)));
+        when(members.countMembers(8L)).thenReturn(3);
 
         assertThat(service.rename(OWNER, 8L, new RenameListRequest("Groceries")))
-                .isEqualTo(new TaskListResponse(8, "Groceries", false));
+                .isEqualTo(new TaskListResponse(8, "Groceries", false, ListRole.OWNER, 3));
 
+        // Passed the check, then deleted meanwhile: the scoped UPDATE matches 0 rows.
+        when(lists.findAccessible(9L, OWNER)).thenReturn(Optional.of(list(9, "Gone", false)));
         when(lists.rename(OWNER, 9L, "x")).thenReturn(0);
         assertThatThrownBy(() -> service.rename(OWNER, 9L, new RenameListRequest("x")))
                 .isInstanceOf(ListNotFoundException.class);
@@ -166,11 +179,11 @@ class ListServiceTest {
         verify(lists, never()).deleteNow(anyLong());
     }
 
-    /** Another user's list (their "My tasks" included) is 404, never 409: the owner check comes first. */
+    /** Another user's list (their "My tasks" included) is 404, never 409: the membership check comes first. */
     @Test
     void deletingAListNotMineOrGoneIs404() {
-        when(lists.findByIdAndOwnerId(4L, OWNER)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.delete(OWNER, 4L)).isInstanceOf(ListNotFoundException.class);
+        verify(lists, never()).shareUser(anyLong());
 
         when(lists.findByIdAndOwnerId(8L, OWNER)).thenReturn(Optional.of(list(8, "Home", false)));
         when(lists.lockList(8L)).thenReturn(Optional.empty());
@@ -184,25 +197,91 @@ class ListServiceTest {
         when(lists.findByIdAndOwnerId(8L, OWNER)).thenReturn(Optional.of(list(8, "Home", false)));
         when(lists.countTasks(8L)).thenReturn(12L);
 
-        assertThat(service.get(OWNER, 8L)).isEqualTo(new TaskListDetailsResponse(8, "Home", false, 12));
+        when(members.countMembers(8L)).thenReturn(3);
+        assertThat(service.get(OWNER, 8L))
+                .isEqualTo(new TaskListDetailsResponse(8, "Home", false, ListRole.OWNER, 3, 12));
+        assertThat(service.get(MEMBER, 8L))
+                .isEqualTo(new TaskListDetailsResponse(8, "Home", false, ListRole.MEMBER, 3, 12));
         assertThatThrownBy(() -> service.get(OWNER, 9L)).isInstanceOf(ListNotFoundException.class);
     }
 
     @Test
     void listMapsTheRepositoryOrder() {
-        when(lists.findAllOwned(OWNER)).thenReturn(List.of(list(3, "My tasks", true), list(8, "Home", false)));
+        TaskList shared = new TaskList(MEMBER, "Team", false, NOW);
+        ReflectionTestUtils.setField(shared, "id", 21L);
+        when(lists.findAllForMember(OWNER)).thenReturn(List.of(list(3, "My tasks", true), shared, list(8, "Home", false)));
+        when(members.countMembers(List.of(3L, 21L, 8L))).thenReturn(java.util.Map.of(3L, 1, 21L, 5, 8L, 2));
 
-        assertThat(service.list(OWNER)).containsExactly(new TaskListResponse(3, "My tasks", true),
-                new TaskListResponse(8, "Home", false));
+        assertThat(service.list(OWNER)).containsExactly(new TaskListResponse(3, "My tasks", true, ListRole.OWNER, 1),
+                new TaskListResponse(21, "Team", false, ListRole.MEMBER, 5),
+                new TaskListResponse(8, "Home", false, ListRole.OWNER, 2));
     }
 
     @Test
-    void createPersonalMakesMyTasks() {
+    void createPersonalMakesMyTasksWithTheOwnersMembership() {
         TaskList created = service.createPersonal(OWNER);
 
         assertThat(created.getName()).isEqualTo("My tasks");
         assertThat(created.isPersonal()).isTrue();
         assertThat(created.getOwnerId()).isEqualTo(OWNER);
+        verify(members).insertMember(8L, OWNER, Instant.parse("2026-10-17T09:15:02.123456Z"));
+    }
+
+    // ---- 0.13.0: owner-only actions and locks ----
+
+    @Test
+    void renameAndDeleteByAMemberAre403AndTouchNothing() {
+        assertThatThrownBy(() -> service.rename(MEMBER, 8L, new RenameListRequest("x")))
+                .isInstanceOf(OwnerOnlyException.class).hasMessage("Only the list owner can do this");
+        assertThatThrownBy(() -> service.delete(MEMBER, 8L)).isInstanceOf(OwnerOnlyException.class);
+        verify(lists, never()).shareUser(anyLong());
+        verify(lists, never()).rename(anyLong(), anyLong(), anyString());
+        verify(lists, never()).deleteNow(anyLong());
+    }
+
+    @Test
+    void requireOwnerIs404ForANonMemberAnd403ForAMember() {
+        assertThat(service.requireOwner(OWNER, 8L).getId()).isEqualTo(8L);
+        assertThatThrownBy(() -> service.requireOwner(MEMBER, 8L)).isInstanceOf(OwnerOnlyException.class);
+        assertThatThrownBy(() -> service.requireOwner(MEMBER, 3L)).isInstanceOf(ListNotFoundException.class);
+    }
+
+    @Test
+    void shareUsersLocksCallerAndOwnersOnceEachInAscendingId() {
+        when(lists.shareUser(anyLong())).thenAnswer(inv -> Optional.of(inv.getArgument(0)));
+
+        assertThat(service.shareUsers(9L, List.of(12L, 4L, 9L, 12L))).isTrue();
+
+        InOrder order = inOrder(lists);
+        order.verify(lists).shareUser(4L);
+        order.verify(lists).shareUser(9L);
+        order.verify(lists).shareUser(12L);
+        verify(lists, times(3)).shareUser(anyLong());
+    }
+
+    @Test
+    void shareUsersIsFalseOnlyWhenTheCallerIsGone() {
+        when(lists.shareUser(4L)).thenReturn(Optional.empty());
+        when(lists.shareUser(9L)).thenReturn(Optional.of(9L));
+        assertThat(service.shareUsers(9L, List.of(4L))).isTrue();
+
+        when(lists.shareUser(9L)).thenReturn(Optional.empty());
+        assertThat(service.shareUsers(9L, List.of(4L))).isFalse();
+    }
+
+    @Test
+    void accountDeletionLocksEveryTouchedListAscendingThenDeletesInvitationsByKey() {
+        when(members.listsTouchedBy(OWNER, "a@x.test")).thenReturn(List.of(3L, 8L, 21L));
+        when(members.invitationIdsFor("a@x.test")).thenReturn(List.of(31L, 40L));
+
+        service.lockForAccountDeletion(OWNER, "a@x.test");
+
+        InOrder order = inOrder(lists, members);
+        order.verify(lists).lockList(3L);
+        order.verify(lists).lockList(8L);
+        order.verify(lists).lockList(21L);
+        order.verify(members).deleteInvitation(31L);
+        order.verify(members).deleteInvitation(40L);
     }
 
     @Test
@@ -215,9 +294,8 @@ class ListServiceTest {
 
     @Test
     void resolveAPlainIdOfMine() {
-        when(lists.findByIdAndOwnerId(8L, OWNER)).thenReturn(Optional.of(list(8, "Home", false)));
-
         assertThat(service.resolve(OWNER, "8")).isEqualTo(8L);
+        assertThat(service.resolve(MEMBER, "8")).isEqualTo(8L);
         assertThat(service.resolve(OWNER, "0008")).isEqualTo(8L);
     }
 
@@ -225,7 +303,7 @@ class ListServiceTest {
     @ValueSource(strings = {" ", "abc", "1.5", " 8", "8 ", "+8", "-8", "0", "8a", "0x8", "１", "99999999999999999999",
             "9", "1e3"})
     void resolveAnythingElseIs404WithoutTouchingOtherListsForNonNumbers(String raw) {
-        when(lists.findByIdAndOwnerId(anyLong(), org.mockito.ArgumentMatchers.eq(OWNER))).thenReturn(Optional.empty());
+        when(lists.findAccessible(anyLong(), org.mockito.ArgumentMatchers.eq(OWNER))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.resolve(OWNER, raw)).isInstanceOf(ListNotFoundException.class);
         verify(lists, never()).findByOwnerIdAndPersonalTrue(anyLong());

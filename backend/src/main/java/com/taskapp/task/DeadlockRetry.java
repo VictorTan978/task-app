@@ -12,18 +12,18 @@ import org.springframework.dao.PessimisticLockingFailureException;
  * chose it as a deadlock victim (SQLState 40001 / error 1213; InnoDB has already rolled it back). One case cannot be
  * designed away: re-creating a tag name whose deleted index entry is not purged yet makes InnoDB's duplicate-key
  * check take a shared next-key lock, and that gap can border another user's tags. Lock wait timeouts are not
- * retried. Call it outside any transaction.
+ * retried. Call it outside any transaction. Public since 0.13.0: account deletion (self and admin) uses it too.
  */
-final class DeadlockRetry {
+public final class DeadlockRetry {
 
-    static final int MAX_ATTEMPTS = 3;
+    public static final int MAX_ATTEMPTS = 3;
 
     private static final Logger log = LoggerFactory.getLogger(DeadlockRetry.class);
 
     private DeadlockRetry() {
     }
 
-    static <T> T run(Supplier<T> transaction) {
+    public static <T> T run(Supplier<T> transaction) {
         for (int attempt = 1;; attempt++) {
             try {
                 return transaction.get();
@@ -36,7 +36,7 @@ final class DeadlockRetry {
         }
     }
 
-    static boolean isDeadlock(Throwable e) {
+    public static boolean isDeadlock(Throwable e) {
         for (Throwable c = e; c != null; c = c.getCause()) {
             if (c instanceof SQLException sql && ("40001".equals(sql.getSQLState()) || sql.getErrorCode() == 1213)) {
                 return true;

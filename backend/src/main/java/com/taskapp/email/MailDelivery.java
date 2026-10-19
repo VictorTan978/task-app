@@ -45,6 +45,11 @@ public class MailDelivery {
         return properties.baseUrl() + path + "?token=" + token;
     }
 
+    /** Builds a frontend link without a token: {@code <APP_BASE_URL><path>} (0.13.0: the invitations page). */
+    public String page(String path) {
+        return properties.baseUrl() + path;
+    }
+
     public EmailProperties properties() {
         return properties;
     }

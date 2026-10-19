@@ -366,6 +366,23 @@ class AdminUserServiceTest {
         assertThat(audit("ADMIN_USER_DISABLED")).hasSize(1);
     }
 
+    /** 0.13.0: an account deletion that loses deadlocks is run again (DeadlockRetry), then the usual extra retry. */
+    @Test
+    void aDeleteThatLosesDeadlocksIsRunAgain() {
+        User target = user(TARGET, "alice@example.com", Role.USER);
+        CannotAcquireLockException deadlock = new CannotAcquireLockException("deadlock",
+                new java.sql.SQLException("Deadlock found", "40001", 1213));
+        when(users.findAllByIdForUpdate(List.of(ACTOR, TARGET)))
+                .thenThrow(deadlock, deadlock)
+                .thenReturn(List.of(user(ACTOR, "admin@example.com", Role.ADMIN), target));
+
+        service().delete(ME, TARGET);
+
+        verify(users, times(3)).findAllByIdForUpdate(List.of(ACTOR, TARGET));
+        verify(accounts).deleteNow(target);
+        assertThat(audit("ADMIN_USER_DELETED")).hasSize(1);
+    }
+
     // ---- rate limit ----
 
     @Test

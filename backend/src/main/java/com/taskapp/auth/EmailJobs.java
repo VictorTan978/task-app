@@ -1,5 +1,6 @@
 package com.taskapp.auth;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -18,10 +19,12 @@ import com.taskapp.security.audit.AuditOrigin;
 import com.taskapp.security.audit.SecurityEvent;
 import com.taskapp.security.audit.SecurityEventLogger;
 import com.taskapp.security.ratelimit.EmailRateLimiter;
+import com.taskapp.security.ratelimit.InviteRateLimiter;
 import com.taskapp.security.ratelimit.RateLimitedException;
 
 /**
- * Sends the confirmation and reset emails in the background, after the response (specs/email-auth.md AC15): the
+ * Sends the confirmation, reset and (0.13.0) list invitation emails in the background, after the response
+ * (specs/email-auth.md AC15): the
  * request only queues a job, so a slow or broken mail server never slows down or fails it, and forgot-password does
  * no database work in the request (same timing whether or not the account exists).
  * <p>
@@ -56,19 +59,22 @@ public class EmailJobs implements DisposableBean {
 
     private static final String VERIFY_KIND = "verify_email";
     private static final String RESET_KIND = "reset_password";
+    private static final String INVITE_KIND = "list_invitation";
 
     private final EmailTokenService tokens;
     private final UserRepository users;
     private final MailDelivery delivery;
     private final EmailRateLimiter rateLimiter;
+    private final InviteRateLimiter inviteRateLimiter;
     private final ThreadPoolTaskExecutor executor;
 
     public EmailJobs(EmailTokenService tokens, UserRepository users, MailDelivery delivery,
-            EmailRateLimiter rateLimiter) {
+            EmailRateLimiter rateLimiter, InviteRateLimiter inviteRateLimiter) {
         this.tokens = tokens;
         this.users = users;
         this.delivery = delivery;
         this.rateLimiter = rateLimiter;
+        this.inviteRateLimiter = inviteRateLimiter;
         this.executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(THREADS);
         executor.setMaxPoolSize(THREADS);
@@ -147,6 +153,47 @@ public class EmailJobs implements DisposableBean {
         return "sent";
     }
 
+    /**
+     * Queues the email of a list invitation that was just created (call it after the transaction committed). The
+     * account is looked up here, in the background, never in the request (AC18: the response is the same whether or
+     * not an account has the address). Sent only to an active (not disabled) account, verified or not, within the
+     * silent per-recipient limit. Logs one {@code LIST_INVITATION_EMAIL} line with the outcome. {@code email} is the
+     * invited address (normalized); the owner's display name and the list name are as they were at invite time.
+     */
+    public void sendListInvitation(String email, String ownerDisplayName, String listName, Duration validFor) {
+        AuditOrigin origin = AuditOrigin.current();
+        submit(INVITE_KIND, email, origin, () -> {
+            String outcome;
+            try {
+                outcome = invitationJob(email, ownerDisplayName, listName, validFor, origin);
+            } catch (RuntimeException e) {
+                failed(INVITE_KIND, email, origin, e);
+                outcome = "failed";
+            }
+            SecurityEventLogger.log(SecurityEvent.LIST_INVITATION_EMAIL, origin, email, "outcome", outcome);
+        });
+    }
+
+    private String invitationJob(String email, String ownerDisplayName, String listName, Duration validFor,
+            AuditOrigin origin) {
+        User user = users.findByEmail(email).orElse(null);
+        if (user == null) {
+            return "no_account";
+        }
+        if (user.isDisabled()) {
+            // Before the per-recipient limit: not counted.
+            return "account_disabled";
+        }
+        if (!inviteRateLimiter.tryAcquireInviteEmail(user.getId())) {
+            SecurityEventLogger.log(SecurityEvent.RATE_LIMITED, origin, user.getEmail(),
+                    "limit", RateLimitedException.Limit.INVITE_EMAIL_ACCOUNT.logValue());
+            return "account_limit";
+        }
+        delivery.send(user.getEmail(), EmailTemplates.listInvitation(user.getDisplayName(), ownerDisplayName,
+                listName, delivery.page("/invitations"), validFor));
+        return "sent";
+    }
+
     private void send(EmailTokenService.IssuedToken token, EmailContent content) {
         delivery.send(token.email(), content);
     }
@@ -160,6 +207,9 @@ public class EmailJobs implements DisposableBean {
             log.warn("Email {} not queued: the queue is full or shutting down", kind);
             if (RESET_KIND.equals(kind)) {
                 SecurityEventLogger.log(SecurityEvent.PASSWORD_RESET_REQUESTED, origin, email, "outcome", "failed");
+            }
+            if (INVITE_KIND.equals(kind)) {
+                SecurityEventLogger.log(SecurityEvent.LIST_INVITATION_EMAIL, origin, email, "outcome", "failed");
             }
         }
     }

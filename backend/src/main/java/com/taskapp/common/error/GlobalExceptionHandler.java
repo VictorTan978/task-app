@@ -44,9 +44,14 @@ import com.taskapp.auth.WrongPasswordException;
 import com.taskapp.security.audit.SecurityEvent;
 import com.taskapp.security.audit.SecurityEventLogger;
 import com.taskapp.security.ratelimit.RateLimitedException;
+import com.taskapp.task.InvitationNotFoundException;
 import com.taskapp.task.ListLimitException;
 import com.taskapp.task.ListNotFoundException;
+import com.taskapp.task.MemberNotFoundException;
+import com.taskapp.task.OwnerCannotLeaveException;
+import com.taskapp.task.OwnerOnlyException;
 import com.taskapp.task.PersonalListException;
+import com.taskapp.task.SharingConflictException;
 import com.taskapp.task.TagLimitExceededException;
 import com.taskapp.task.TaskNotFoundException;
 
@@ -257,7 +262,39 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(PersonalListException.class)
     ResponseEntity<ProblemDetail> handlePersonalList(PersonalListException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(
-                Problems.of(HttpStatus.CONFLICT, ErrorCode.PERSONAL_LIST, PersonalListException.MESSAGE));
+                Problems.of(HttpStatus.CONFLICT, ErrorCode.PERSONAL_LIST, ex.getMessage()));
+    }
+
+    // ---- sharing (0.13.0) ----
+
+    @ExceptionHandler(OwnerOnlyException.class)
+    ResponseEntity<ProblemDetail> handleOwnerOnly(OwnerOnlyException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                Problems.of(HttpStatus.FORBIDDEN, ErrorCode.OWNER_ONLY, OwnerOnlyException.MESSAGE));
+    }
+
+    @ExceptionHandler(OwnerCannotLeaveException.class)
+    ResponseEntity<ProblemDetail> handleOwnerCannotLeave(OwnerCannotLeaveException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                Problems.of(HttpStatus.CONFLICT, ErrorCode.OWNER_CANNOT_LEAVE, OwnerCannotLeaveException.MESSAGE));
+    }
+
+    @ExceptionHandler(MemberNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleMemberNotFound(MemberNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                Problems.of(HttpStatus.NOT_FOUND, ErrorCode.MEMBER_NOT_FOUND, MemberNotFoundException.MESSAGE));
+    }
+
+    @ExceptionHandler(InvitationNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleInvitationNotFound(InvitationNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Problems.of(HttpStatus.NOT_FOUND,
+                ErrorCode.INVITATION_NOT_FOUND, InvitationNotFoundException.MESSAGE));
+    }
+
+    @ExceptionHandler(SharingConflictException.class)
+    ResponseEntity<ProblemDetail> handleSharingConflict(SharingConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                Problems.of(HttpStatus.CONFLICT, ex.code(), ex.getMessage()));
     }
 
     /**

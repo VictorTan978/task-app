@@ -23,7 +23,11 @@ public class RateLimitedException extends RuntimeException {
         /** Google flow callback; answered with the failure redirect, never a 429. */
         GOOGLE_CALLBACK_IP("google-callback-ip"),
         /** Admin change requests per acting admin (specs/roles-admin.md AC20). */
-        ADMIN_ACTION_USER("admin-action-user");
+        ADMIN_ACTION_USER("admin-action-user"),
+        /** List invitations per inviter (0.13.0). */
+        INVITE_USER("invite-user"),
+        /** Silent: invitation emails per recipient account; only logged by the background job (0.13.0). */
+        INVITE_EMAIL_ACCOUNT("invite-email-account");
 
         private final String logValue;
 
@@ -42,7 +46,8 @@ public class RateLimitedException extends RuntimeException {
 
     /**
      * {@code email} is the limited email for {@link Limit#LOGIN_EMAIL}, the signed-in user's email for
-     * {@link Limit#PASSWORD_CHECK_USER}, {@link Limit#RESEND_VERIFICATION_USER} and {@link Limit#ADMIN_ACTION_USER},
+     * {@link Limit#PASSWORD_CHECK_USER}, {@link Limit#RESEND_VERIFICATION_USER}, {@link Limit#ADMIN_ACTION_USER} and
+     * {@link Limit#INVITE_USER},
      * otherwise null (not known yet).
      */
     public RateLimitedException(Duration retryAfter, Limit limit, String email) {

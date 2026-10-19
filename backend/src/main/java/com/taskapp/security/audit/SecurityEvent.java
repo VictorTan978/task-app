@@ -27,7 +27,7 @@ public enum SecurityEvent {
     /**
      * Field {@code limit=login-ip|login-email|register-ip|password-check-user|forgot-password-ip|
      * reset-email-account|resend-verification-user|verify-email-ip|check-reset-token-ip|reset-password-ip|
-     * google-start-ip|google-callback-ip|admin-action-user}.
+     * google-start-ip|google-callback-ip|admin-action-user|invite-user|invite-email-account}.
      */
     RATE_LIMITED(Level.WARN),
     /** 401 from the security chain or from a session whose user no longer exists. */
@@ -58,6 +58,12 @@ public enum SecurityEvent {
      * finishes.
      */
     PASSWORD_RESET_REQUESTED(Level.INFO),
+    /**
+     * A list invitation was created (0.13.0), one line per invitation with the invited address, written when the
+     * background email job finishes. Field {@code outcome=sent|no_account|account_disabled|account_limit|failed}
+     * (server-side only: the API answers the same for all).
+     */
+    LIST_INVITATION_EMAIL(Level.INFO),
     /** A password was reset with an emailed link; all sessions and remember-me logins of the account ended. */
     PASSWORD_RESET_COMPLETED(Level.INFO),
     /**
@@ -66,7 +72,7 @@ public enum SecurityEvent {
      */
     EMAIL_TOKEN_REJECTED(Level.WARN),
     /**
-     * An email could not be sent. Fields {@code kind=verify_email|reset_password} and
+     * An email could not be sent. Fields {@code kind=verify_email|reset_password|list_invitation} and
      * {@code reason=smtp|queue_full|error}.
      */
     EMAIL_SEND_FAILED(Level.WARN),

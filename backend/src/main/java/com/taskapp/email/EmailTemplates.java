@@ -5,7 +5,8 @@ import java.time.Duration;
 import org.springframework.web.util.HtmlUtils;
 
 /**
- * The two emails of specs/email-auth.md (AC1, AC8, AC14), as plain text plus a simple HTML version. The display
+ * The two emails of specs/email-auth.md (AC1, AC8, AC14) and the list invitation (specs/sharing-team-lists.md AC18), as
+ * plain text plus a simple HTML version. The display
  * name is user input: it is HTML-escaped in the HTML part. Links are built from {@code APP_BASE_URL} and a
  * base64url token, so they need no URL encoding.
  */
@@ -53,7 +54,71 @@ public final class EmailTemplates {
             </html>
             """;
 
+    private static final String INVITATION_TEXT = """
+            Hi %s,
+
+            %s invited you to the list "%s" on Task App.
+
+            To accept or decline, open your invitations (sign in first if needed):
+
+            %s
+
+            The invitation expires in %s. If you don't know %s, you can ignore this email.
+            """;
+
     private EmailTemplates() {
+    }
+
+    /**
+     * "&lt;Owner&gt; invited you to a list on Task App", with an "Open invitations" link (0.13.0). The owner's display
+     * name and the list name are user input: line breaks and other control or invisible format characters are turned
+     * into spaces everywhere (so nothing can break the subject header or fake lines in the text part), and the HTML
+     * part escapes them. The list name only appears in the body, in quotes.
+     */
+    public static EmailContent listInvitation(String recipientDisplayName, String ownerDisplayName, String listName,
+            String link, Duration validFor) {
+        String recipient = oneLine(recipientDisplayName);
+        String owner = oneLine(ownerDisplayName);
+        String list = oneLine(listName);
+        String subject = owner + " invited you to a list on Task App";
+        String validity = describeDays(validFor);
+        return new EmailContent(subject,
+                INVITATION_TEXT.formatted(recipient, owner, list, link, validity, owner),
+                HTML.formatted(HtmlUtils.htmlEscape(subject), HtmlUtils.htmlEscape(recipient),
+                        HtmlUtils.htmlEscape(owner) + " invited you to the list &quot;" + HtmlUtils.htmlEscape(list)
+                                + "&quot; on Task App. To accept or decline, open your invitations (sign in first"
+                                + " if needed).",
+                        HtmlUtils.htmlEscape(link), "Open invitations",
+                        "The invitation expires in " + validity + ". If you don't know "
+                                + HtmlUtils.htmlEscape(owner) + ", you can ignore this email."));
+    }
+
+    /**
+     * User input on one line: every control character (Cc), format character (Cf), line or paragraph separator becomes
+     * a space, whitespace runs collapse to one space, and the ends are trimmed.
+     */
+    static String oneLine(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(value.length());
+        value.codePoints().forEach(cp -> {
+            int type = Character.getType(cp);
+            boolean blank = Character.isISOControl(cp) || type == Character.FORMAT
+                    || type == Character.LINE_SEPARATOR || type == Character.PARAGRAPH_SEPARATOR
+                    || Character.isWhitespace(cp) || Character.isSpaceChar(cp);
+            out.appendCodePoint(blank ? ' ' : cp);
+        });
+        return out.toString().replaceAll(" {2,}", " ").strip();
+    }
+
+    /** "14 days", "1 day"; anything shorter than whole days like {@link #describe}. */
+    static String describeDays(Duration duration) {
+        long seconds = duration.getSeconds();
+        if (seconds >= 86400 && seconds % 86400 == 0) {
+            return plural(seconds / 86400, "day");
+        }
+        return describe(duration);
     }
 
     /** "Confirm your email for Task App" with a "Confirm email" link. */

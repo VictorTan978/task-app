@@ -43,6 +43,7 @@ import com.taskapp.security.audit.AdminAudit;
 import com.taskapp.security.audit.AuditOrigin;
 import com.taskapp.security.audit.SecurityEvent;
 import com.taskapp.security.ratelimit.AdminRateLimiter;
+import com.taskapp.task.DeadlockRetry;
 
 import jakarta.validation.Validator;
 
@@ -180,8 +181,9 @@ public class AdminUserService {
     }
 
     /**
-     * Deletes the account like a self-service delete (tasks, connections and email links go with it). Its remember-me
-     * logins are deleted first, by primary key.
+     * Deletes the account like a self-service delete ({@link AccountService#deleteNow}: owned lists, memberships,
+     * connections and email links go; tasks it added to other people's lists stay). Its remember-me logins are deleted
+     * first, by primary key. The transaction is run again if it lost a deadlock ({@link DeadlockRetry}).
      */
     public void delete(AuthenticatedUser actor, long targetId) {
         change(actor, targetId, AdminAction.DELETE, (target, now) -> {
@@ -284,9 +286,15 @@ public class AdminUserService {
         return users.stream().filter(u -> u.getId() == id).findFirst().orElse(null);
     }
 
-    /** Own READ COMMITTED transaction; a lost lock conflict (deadlock victim, lock wait timeout) is retried once. */
+    /**
+     * Own READ COMMITTED transaction; a lost lock conflict (deadlock victim, lock wait timeout) is retried once. A
+     * delete (0.13.0, which locks every list the account touches) is first run under {@link DeadlockRetry}.
+     */
     private <T> T inTransaction(AdminAction action, Supplier<T> work) {
         try {
+            if (action == AdminAction.DELETE) {
+                return DeadlockRetry.run(() -> readCommitted.execute(status -> work.get()));
+            }
             return readCommitted.execute(status -> work.get());
         } catch (PessimisticLockingFailureException e) {
             log.warn("Admin {} lost a lock conflict, retrying once: {}", action.logValue(),

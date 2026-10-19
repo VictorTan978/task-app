@@ -26,6 +26,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import com.taskapp.auth.dto.ConnectionResponse;
 import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.task.ListService;
+import com.taskapp.task.MembershipRepository;
 
 /**
  * The account matching matrix of specs/google-sign-in.md (AC2-AC5, AC12-AC13, AC17) against MySQL 8.4 with the
@@ -36,7 +37,8 @@ import com.taskapp.task.ListService;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({GoogleAccountService.class, ListService.class, GoogleAccountServiceTest.FixedClock.class})
+@Import({GoogleAccountService.class, ListService.class, MembershipRepository.class,
+        GoogleAccountServiceTest.FixedClock.class})
 class GoogleAccountServiceTest {
 
     @Container
@@ -114,6 +116,9 @@ class GoogleAccountServiceTest {
         // specs/sharing-team-lists.md AC1: exactly one list, the personal "My tasks", in the same transaction.
         assertThat(jdbc.queryForList("select name, personal from lists where owner_id = ?", user.id()))
                 .containsExactly(java.util.Map.of("name", "My tasks", "personal", true));
+        // 0.13.0: with the owner's membership row.
+        assertThat(jdbc.queryForObject("select count(*) from list_members m join lists l on l.id = m.list_id"
+                + " where l.owner_id = ? and m.user_id = l.owner_id", Integer.class, user.id())).isEqualTo(1);
     }
 
     /** Signing in again or linking an existing account never creates another list. */

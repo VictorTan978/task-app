@@ -38,6 +38,22 @@ public final class ErrorCode {
     public static final String LIST_LIMIT = "LIST_LIMIT";
     /** 409 on {@code DELETE /api/lists/{id}}: "My tasks" can't be deleted (0.12.0). */
     public static final String PERSONAL_LIST = "PERSONAL_LIST";
+    /** 403: the caller is a member of the list but not its owner, and only the owner may do this (0.13.0). */
+    public static final String OWNER_ONLY = "OWNER_ONLY";
+    /** 409: the owner can't leave their list or be removed from it (0.13.0). */
+    public static final String OWNER_CANNOT_LEAVE = "OWNER_CANNOT_LEAVE";
+    /** 404 on {@code DELETE /api/lists/{id}/members/{userId}}: not a member of the list (0.13.0). */
+    public static final String MEMBER_NOT_FOUND = "MEMBER_NOT_FOUND";
+    /** 409 on invite: the address is a current member's (0.13.0). */
+    public static final String ALREADY_MEMBER = "ALREADY_MEMBER";
+    /** 409 on invite: a pending invitation for the address exists (0.13.0). */
+    public static final String ALREADY_INVITED = "ALREADY_INVITED";
+    /** 409 on invite and accept: the list has 20 members (0.13.0). */
+    public static final String MEMBER_LIMIT = "MEMBER_LIMIT";
+    /** 409 on invite: the list has 20 pending invitations (0.13.0). */
+    public static final String INVITATION_LIMIT = "INVITATION_LIMIT";
+    /** 404 on accept, decline and cancel: "This invitation is no longer valid" (0.13.0). */
+    public static final String INVITATION_NOT_FOUND = "INVITATION_NOT_FOUND";
 
     /** Field-level codes used inside {@code errors[]}. */
     public static final String REQUIRED = "REQUIRED";

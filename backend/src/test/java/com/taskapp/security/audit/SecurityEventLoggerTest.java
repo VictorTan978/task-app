@@ -80,7 +80,9 @@ class SecurityEventLoggerTest {
                     // specs/roles-admin.md: changes that happened (refusals and ended sessions are WARN).
                     || event == SecurityEvent.ADMIN_BOOTSTRAPPED || event == SecurityEvent.ADMIN_USER_DISABLED
                     || event == SecurityEvent.ADMIN_USER_ENABLED || event == SecurityEvent.ADMIN_USER_SESSIONS_REVOKED
-                    || event == SecurityEvent.ADMIN_ROLE_CHANGED || event == SecurityEvent.ADMIN_USER_DELETED;
+                    || event == SecurityEvent.ADMIN_ROLE_CHANGED || event == SecurityEvent.ADMIN_USER_DELETED
+                    // specs/sharing-team-lists.md (logged whatever the outcome, like PASSWORD_RESET_REQUESTED).
+                    || event == SecurityEvent.LIST_INVITATION_EMAIL;
             assertThat(event.level().name()).as(event.name()).isEqualTo(success ? "INFO" : "WARN");
         }
     }

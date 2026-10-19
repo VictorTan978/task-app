@@ -54,7 +54,8 @@ class TaskControllerTest {
 
     private static final long OWNER = 7L;
     private static final Instant CREATED = Instant.parse("2026-10-08T09:15:02.123456Z");
-    private static final TaskResponse MILK = new TaskResponse(12L, 3L, "Buy milk", null, Priority.NONE, TaskStatus.TODO,
+    private static final TaskResponse.AddedBy ADDED_BY = new TaskResponse.AddedBy("Ana");
+    private static final TaskResponse MILK = new TaskResponse(12L, 3L, ADDED_BY, "Buy milk", null, Priority.NONE, TaskStatus.TODO,
             List.of(), false, LocalDate.parse("2026-10-10"), CREATED, CREATED);
 
     @Autowired
@@ -86,7 +87,8 @@ class TaskControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
-                        {"items":[{"id":12,"listId":3,"title":"Buy milk","description":null,"priority":"NONE","status":"TODO",
+                        {"items":[{"id":12,"listId":3,"addedBy":{"displayName":"Ana"},
+                          "title":"Buy milk","description":null,"priority":"NONE","status":"TODO",
                           "tags":[],"done":false,"dueDate":"2026-10-10",
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
                          "total":120,"nextCursor":"AbC-_9"}""",
@@ -471,14 +473,15 @@ class TaskControllerTest {
 
     @Test
     void listReturnsPriorityStatusAndTags() throws Exception {
-        TaskResponse tagged = new TaskResponse(12L, 3L, "Buy milk", null, Priority.HIGH, TaskStatus.IN_PROGRESS,
+        TaskResponse tagged = new TaskResponse(12L, 3L, ADDED_BY, "Buy milk", null, Priority.HIGH, TaskStatus.IN_PROGRESS,
                 List.of("Errands", "Home"), false, null, CREATED, CREATED);
         when(taskService.list(OWNER, query(TaskFilter.ALL, null))).thenReturn(new TaskPage(List.of(tagged), 1, null));
 
         mockMvc.perform(get("/api/tasks").with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"items":[{"id":12,"listId":3,"title":"Buy milk","description":null,"priority":"HIGH",
+                        {"items":[{"id":12,"listId":3,"addedBy":{"displayName":"Ana"},
+                          "title":"Buy milk","description":null,"priority":"HIGH",
                           "status":"IN_PROGRESS","tags":["Errands","Home"],"done":false,"dueDate":null,
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
                          "total":1,"nextCursor":null}""",

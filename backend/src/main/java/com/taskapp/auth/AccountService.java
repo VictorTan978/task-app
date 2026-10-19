@@ -2,11 +2,15 @@ package com.taskapp.auth;
 
 import java.util.Locale;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.validation.DirectFieldBindingResult;
 
 import com.taskapp.auth.dto.ChangeDisplayNameRequest;
@@ -16,6 +20,8 @@ import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.HashedRememberMeServices;
 import com.taskapp.security.SessionRenewal;
 import com.taskapp.security.ratelimit.AuthRateLimiter;
+import com.taskapp.task.DeadlockRetry;
+import com.taskapp.task.ListService;
 
 /**
  * The signed-in user's own account. Request fields are already validated (and the display name trimmed).
@@ -29,15 +35,28 @@ public class AccountService {
     private final AuthRateLimiter rateLimiter;
     private final RememberMeTokenRepository rememberMeTokens;
     private final UserConnectionRepository connections;
+    private final ListService listService;
+    private final TransactionOperations transaction;
 
+    @Autowired
     public AccountService(UserRepository userRepository, PasswordEncoder passwordEncoder,
             AuthRateLimiter rateLimiter, RememberMeTokenRepository rememberMeTokens,
-            UserConnectionRepository connections) {
+            UserConnectionRepository connections, ListService listService,
+            PlatformTransactionManager transactions) {
+        this(userRepository, passwordEncoder, rateLimiter, rememberMeTokens, connections, listService,
+                new TransactionTemplate(transactions));
+    }
+
+    AccountService(UserRepository userRepository, PasswordEncoder passwordEncoder,
+            AuthRateLimiter rateLimiter, RememberMeTokenRepository rememberMeTokens,
+            UserConnectionRepository connections, ListService listService, TransactionOperations transaction) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.rateLimiter = rateLimiter;
         this.rememberMeTokens = rememberMeTokens;
         this.connections = connections;
+        this.listService = listService;
+        this.transaction = transaction;
     }
 
     /**
@@ -120,35 +139,46 @@ public class AccountService {
     }
 
     /**
-     * Hard-deletes the user; the database deletes their tasks ({@code fk_tasks_owner ON DELETE CASCADE}), remember-me
-     * logins ({@code fk_remember_me_tokens_user ON DELETE CASCADE}) and connections
-     * ({@code fk_user_connections_user ON DELETE CASCADE}). Returns the deleted user (for the security log).
+     * Hard-deletes the user (see {@link #deleteNow} for what goes and what stays). Returns the deleted user (for the
+     * security log).
      * <p>
      * An account with a password confirms with {@code password}; one without a password with {@code email}. Order:
      * the confirming field is required (400 VALIDATION_FAILED, nothing counted) > per-user limit (429) > the check
      * (400 WRONG_PASSWORD / EMAIL_MISMATCH, counted as one failure on the shared counter).
+     * <p>
+     * 0.13.0: one transaction whose first statement locks the user's row FOR UPDATE (so everything read after it is
+     * current, see {@link #deleteNow}), run again if it lost a deadlock ({@link DeadlockRetry}).
      */
-    @Transactional
     public UserResponse deleteAccount(long userId, DeleteAccountRequest request) {
-        User user = load(userId);
-        if (user.hasPassword()) {
-            requireField(request, "password", request.password(), "Password is required");
-            verifyPassword(user, request.password(), WrongPasswordException.Action.DELETE_ACCOUNT);
-        } else {
-            requireField(request, "email", request.email(), "Email is required");
-            verifyEmail(user, request.email());
-        }
-        UserResponse deleted = UserResponse.from(user);
-        deleteNow(user);
-        return deleted;
+        return DeadlockRetry.run(() -> transaction.execute(status -> {
+            User user = userRepository.findByIdForUpdate(userId).orElseThrow(UnauthenticatedException::new);
+            if (user.hasPassword()) {
+                requireField(request, "password", request.password(), "Password is required");
+                verifyPassword(user, request.password(), WrongPasswordException.Action.DELETE_ACCOUNT);
+            } else {
+                requireField(request, "email", request.email(), "Email is required");
+                verifyEmail(user, request.email());
+            }
+            UserResponse deleted = UserResponse.from(user);
+            deleteNow(user);
+            return deleted;
+        }));
     }
 
     /**
      * The delete itself, shared by {@link #deleteAccount} (after its checks) and the admin delete
-     * ({@code com.taskapp.admin.AdminUserService}): hard-deletes {@code user}, loaded in the caller's transaction; the
-     * database deletes the rows that reference it (see {@link #deleteAccount}). Checks nothing.
+     * ({@code com.taskapp.admin.AdminUserService}). Checks nothing. The caller's transaction holds {@code user}'s row
+     * FOR UPDATE and read nothing before taking it (or runs READ COMMITTED), and is run again on a deadlock.
+     * <p>
+     * First every list the deletion touches is locked FOR UPDATE, ascending, and the invitations to the user's email
+     * are deleted ({@link ListService#lockForAccountDeletion}), so the cascade below never meets a write in progress.
+     * Then the user is deleted and the database: deletes the lists they own with all their tasks, tags, members and
+     * invitations ({@code fk_lists_owner}), their memberships ({@code fk_list_members_user}), remember-me logins and
+     * connections; and keeps the tasks they added to other people's lists, with {@code owner_id} NULL
+     * ({@code fk_tasks_owner ON DELETE SET NULL}, V11), and those lists' tags (owned by the list owner).
      */
     public void deleteNow(User user) {
+        listService.lockForAccountDeletion(user.getId(), user.getEmail());
         userRepository.delete(user);
         userRepository.flush();
     }

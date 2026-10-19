@@ -28,7 +28,11 @@ public class Task {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "owner_id", nullable = false, updatable = false)
+    /**
+     * Who added the task ("added by", 0.13.0). NULL once that account was deleted (V11: ON DELETE SET NULL); the
+     * database sets it, never this entity.
+     */
+    @Column(name = "owner_id", updatable = false)
     private Long ownerId;
 
     @Column(name = "list_id", nullable = false, updatable = false)
@@ -106,6 +110,7 @@ public class Task {
         return id;
     }
 
+    /** The user who added the task; null when their account was deleted. */
     public Long getOwnerId() {
         return ownerId;
     }

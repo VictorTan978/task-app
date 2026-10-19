@@ -27,7 +27,7 @@ import com.taskapp.task.dto.TaskListResponse;
 @Testcontainers
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(ListService.class)
+@Import({ListService.class, MembershipRepository.class})
 class ListRepositoryTest {
 
     @Container
@@ -111,7 +111,7 @@ class ListRepositoryTest {
 
         assertThat(lists.findByIdAndOwnerId(home, alice)).isPresent();
         assertThat(lists.findByIdAndOwnerId(home, bob)).isEmpty();
-        assertThatThrownBy(() -> listService.requireOwned(bob, home)).isInstanceOf(ListNotFoundException.class);
+        assertThatThrownBy(() -> listService.requireMember(bob, home)).isInstanceOf(ListNotFoundException.class);
         assertThatThrownBy(() -> listService.resolve(bob, Long.toString(home)))
                 .isInstanceOf(ListNotFoundException.class);
     }

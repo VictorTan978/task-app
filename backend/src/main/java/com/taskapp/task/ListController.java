@@ -25,7 +25,8 @@ import com.taskapp.task.dto.TaskListResponse;
 import jakarta.validation.Valid;
 
 /**
- * The signed-in user's lists (contract 0.12.0). Anonymous callers never reach this: the security chain answers 401.
+ * The signed-in user's lists (contract 0.12.0; 0.13.0: owned and shared, rename and delete owner only). Anonymous
+ * callers never reach this: the security chain answers 401.
  * The path id is bound before the body, so a non-integer id is reported before anything in the body.
  */
 @RestController

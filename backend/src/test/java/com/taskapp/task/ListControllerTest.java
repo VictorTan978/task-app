@@ -65,24 +65,26 @@ class ListControllerTest {
 
     @Test
     void listReturnsTheListsInContractShape() throws Exception {
-        when(listService.list(OWNER)).thenReturn(List.of(new TaskListResponse(3, "My tasks", true),
-                new TaskListResponse(8, "Home", false)));
+        when(listService.list(OWNER)).thenReturn(List.of(new TaskListResponse(3, "My tasks", true, ListRole.OWNER, 1),
+                new TaskListResponse(8, "Home", false, ListRole.OWNER, 1)));
 
         mockMvc.perform(get("/api/lists").with(signedIn()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
-                        [{"id":3,"name":"My tasks","personal":true},{"id":8,"name":"Home","personal":false}]""",
+                        [{"id":3,"name":"My tasks","personal":true,"role":"OWNER","memberCount":1},
+                        {"id":8,"name":"Home","personal":false,"role":"OWNER","memberCount":1}]""",
                         true));
     }
 
     @Test
     void getReturnsTheTaskCount() throws Exception {
-        when(listService.get(OWNER, 8L)).thenReturn(new TaskListDetailsResponse(8, "Home", false, 12));
+        when(listService.get(OWNER, 8L)).thenReturn(new TaskListDetailsResponse(8, "Home", false, ListRole.OWNER, 3, 12));
 
         mockMvc.perform(get("/api/lists/8").with(signedIn()))
                 .andExpect(status().isOk())
-                .andExpect(content().json("{\"id\":8,\"name\":\"Home\",\"personal\":false,\"taskCount\":12}", true));
+                .andExpect(content().json("{\"id\":8,\"name\":\"Home\",\"personal\":false,\"role\":\"OWNER\",\"memberCount\":3,"
+                        + "\"taskCount\":12}", true));
     }
 
     @Test
@@ -103,6 +105,24 @@ class ListControllerTest {
         }
     }
 
+    /** 0.13.0: a member (not the owner) renaming or deleting gets 403 OWNER_ONLY. */
+    @Test
+    void aMemberRenamingOrDeletingIs403OwnerOnly() throws Exception {
+        when(listService.rename(eq(OWNER), eq(21L), any())).thenThrow(new OwnerOnlyException());
+        doThrow(new OwnerOnlyException()).when(listService).delete(OWNER, 21L);
+
+        for (MockHttpServletRequestBuilder request : List.of(json(patch("/api/lists/21"), "{\"name\":\"x\"}"),
+                delete("/api/lists/21").with(signedIn()).with(csrf()))) {
+            mockMvc.perform(request)
+                    .andExpect(status().isForbidden())
+                    .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(content().json("""
+                            {"type":"about:blank","title":"Forbidden","status":403,
+                             "detail":"Only the list owner can do this","instance":"/api/lists/21",
+                             "code":"OWNER_ONLY"}""", true));
+        }
+    }
+
     @Test
     void nonIntegerIdIsMalformed() throws Exception {
         for (MockHttpServletRequestBuilder request : List.of(get("/api/lists/abc").with(signedIn()),
@@ -118,12 +138,13 @@ class ListControllerTest {
 
     @Test
     void createReturns201WithLocationAndAStrippedName() throws Exception {
-        when(listService.create(eq(OWNER), any())).thenReturn(new TaskListResponse(8, "Home", false));
+        when(listService.create(eq(OWNER), any())).thenReturn(new TaskListResponse(8, "Home", false, ListRole.OWNER, 1));
 
         mockMvc.perform(json(post("/api/lists"), "{\"name\":\"  Home \",\"personal\":true,\"id\":1,\"ownerId\":2}"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/api/lists/8"))
-                .andExpect(content().json("{\"id\":8,\"name\":\"Home\",\"personal\":false}", true));
+                .andExpect(content().json(
+                        "{\"id\":8,\"name\":\"Home\",\"personal\":false,\"role\":\"OWNER\",\"memberCount\":1}", true));
         verify(listService).create(OWNER, new CreateListRequest("Home"));
     }
 
@@ -144,8 +165,8 @@ class ListControllerTest {
 
     @Test
     void nameIsAtMost100UnitsAfterStripping() throws Exception {
-        when(listService.create(eq(OWNER), any())).thenReturn(new TaskListResponse(8, "x", false));
-        when(listService.rename(eq(OWNER), eq(8L), any())).thenReturn(new TaskListResponse(8, "x", false));
+        when(listService.create(eq(OWNER), any())).thenReturn(new TaskListResponse(8, "x", false, ListRole.OWNER, 1));
+        when(listService.rename(eq(OWNER), eq(8L), any())).thenReturn(new TaskListResponse(8, "x", false, ListRole.OWNER, 1));
         String hundred = "é".repeat(98) + "😀";
 
         mockMvc.perform(json(post("/api/lists"), "{\"name\":\"  " + hundred + " \"}")).andExpect(status().isCreated());
@@ -190,11 +211,12 @@ class ListControllerTest {
     @Test
     void renameReturnsTheList() throws Exception {
         when(listService.rename(OWNER, 3L, new RenameListRequest("Inbox")))
-                .thenReturn(new TaskListResponse(3, "Inbox", true));
+                .thenReturn(new TaskListResponse(3, "Inbox", true, ListRole.OWNER, 1));
 
         mockMvc.perform(json(patch("/api/lists/3"), "{\"name\":\" Inbox \",\"personal\":false}"))
                 .andExpect(status().isOk())
-                .andExpect(content().json("{\"id\":3,\"name\":\"Inbox\",\"personal\":true}", true));
+                .andExpect(content().json(
+                        "{\"id\":3,\"name\":\"Inbox\",\"personal\":true,\"role\":\"OWNER\",\"memberCount\":1}", true));
     }
 
     @Test
