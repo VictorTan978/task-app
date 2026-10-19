@@ -6,6 +6,7 @@ import {
   fitsLoaded,
   hasMore,
   insertSorted,
+  moveOut,
   removeTask,
   shownTotal,
   TaskListState,
@@ -19,6 +20,7 @@ function task(id: number, overrides: Partial<Task> = {}): Task {
   const status = overrides.status ?? (overrides.done ? 'DONE' : 'TODO');
   return {
     id,
+    listId: 3,
     title: `Task ${id}`,
     description: null,
     priority: 'NONE',
@@ -277,6 +279,22 @@ describe('task-list', () => {
     it('never goes below zero', () => {
       const s = removeTask({ ...firstPage(page([task(9)], 0, null)) }, 9);
       expect(s.total).toBe(0);
+    });
+  });
+
+  describe('moveOut', () => {
+    it('drops the moved task, lowers the total and skips it on later pages', () => {
+      const s = moveOut(firstPage(page([task(9), task(8)], 5, 'c1')), 8);
+      expect(ids(s)).toEqual([9]);
+      expect(s.total).toBe(4);
+      expect(s.deleted.has(8)).toBe(true);
+      const next = appendPage(s, page([task(8), task(7)], 4, null));
+      expect(ids(next)).toEqual([9, 7]);
+    });
+
+    it('a task that was not shown leaves the total alone', () => {
+      const s = moveOut(firstPage(page([task(9)], 3, 'c1')), 2);
+      expect(s.total).toBe(3);
     });
   });
 });

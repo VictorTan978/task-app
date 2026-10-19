@@ -17,6 +17,7 @@ const FUTURE = '2999-12-31';
 function task(overrides: Partial<Task> & { id: number }): Task {
   const status = overrides.status ?? (overrides.done ? 'DONE' : 'TODO');
   return {
+    listId: 3,
     title: `Task ${overrides.id}`,
     description: null,
     priority: 'NONE',
@@ -158,7 +159,7 @@ describe('TasksPage', () => {
       await flushList([]);
       expect(el.querySelector('[role=status]')).toBeNull();
       expect(text()).toContain('No tasks yet — add your first one above');
-      expect(el.querySelector('h1')?.textContent).toContain('Your tasks');
+      expect(el.querySelector('h1')?.textContent).toContain('My tasks');
     });
 
     it('shows the tasks in the order the server sent them', async () => {
@@ -569,6 +570,7 @@ describe('TasksPage', () => {
         ['Status', 'task-edit-status'],
         ['Due date', 'task-edit-due'],
         ['Tags', 'task-edit-tags'],
+        ['List', 'task-edit-list'],
       ]);
     });
 
@@ -836,13 +838,13 @@ describe('TasksPage', () => {
         .expectOne({ method: 'PUT', url: '/api/tasks/2' })
         .flush(
           problem(400, 'VALIDATION_FAILED', [
-            { field: 'tags', code: 'TAG_LIMIT', message: 'You can have at most 200 tags' },
+            { field: 'tags', code: 'TAG_LIMIT', message: 'A list can have at most 200 tags' },
           ]),
           { status: 400, statusText: 'Bad Request' },
         );
       await stable();
       expect(el.querySelector('#task-edit-tags-error')?.textContent).toContain(
-        'You can have at most 200 tags',
+        'A list can have at most 200 tags',
       );
       expect(chips()).toEqual(['New']);
       removeTag('New');

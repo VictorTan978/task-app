@@ -1,0 +1,120 @@
+<div class="list-picker" data-testid="list-picker">
+  @if (loaded()) {
+    <div class="list-picker__phone">
+      <label for="list-picker-select" class="list-picker__label">List</label>
+      <select id="list-picker-select" (change)="onSelect($event)">
+        @if (!activeKnown()) {
+          <option value="" disabled selected>Choose a list</option>
+        }
+        @for (l of lists(); track l.id) {
+          <option [value]="l.id" [selected]="l.id === activeId()">{{ l.name }}</option>
+        }
+      </select>
+    </div>
+
+    <nav class="list-picker__nav" aria-label="Lists">
+      <h2 class="list-picker__heading">Lists</h2>
+      <ul class="list-picker__items">
+        @for (l of lists(); track l.id) {
+          <li>
+            <a
+              class="list-picker__link"
+              [routerLink]="link(l)"
+              [class.list-picker__link--active]="l.id === activeId()"
+              [attr.aria-current]="l.id === activeId() ? 'page' : null"
+              >{{ l.name }}</a
+            >
+          </li>
+        }
+      </ul>
+    </nav>
+  } @else if (loading()) {
+    <p class="list-picker__status" role="status">
+      <span class="spinner" aria-hidden="true"></span>
+      Loading lists…
+    </p>
+  }
+
+  @if (loadFailed()) {
+    <div class="notice notice--error list-picker__error" role="alert">
+      <span>{{ loadError }}</span>
+      <button type="button" class="btn btn--secondary" [disabled]="loading()" (click)="retryLoad()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (creating()) {
+    <form
+      class="list-picker__create"
+      [formGroup]="form"
+      (ngSubmit)="submit()"
+      (keydown)="onKeydown($event)"
+      novalidate
+    >
+      <div class="field">
+        <label for="list-create-name">New list</label>
+        <input
+          #nameInput
+          id="list-create-name"
+          type="text"
+          formControlName="name"
+          autocomplete="off"
+          placeholder="List name"
+          [readOnly]="pending()"
+          [attr.aria-invalid]="nameError() ? true : null"
+          [attr.aria-describedby]="
+            nameError() ? 'list-create-name-error' : createError() ? 'list-create-error' : null
+          "
+        />
+        @if (nameError(); as message) {
+          <p class="field-error" id="list-create-name-error">{{ message }}</p>
+        } @else if (createError(); as e) {
+          <p class="field-error" id="list-create-error" role="alert">
+            {{ e.message }}
+            @if (e.retry; as retry) {
+              <button
+                type="button"
+                class="btn btn--secondary list-picker__retry"
+                [disabled]="pending()"
+                (click)="retry()"
+              >
+                Retry
+              </button>
+            }
+          </p>
+        }
+      </div>
+      <div class="list-picker__actions">
+        <button
+          type="button"
+          class="btn btn--secondary"
+          [disabled]="pending()"
+          (click)="cancelCreate()"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="btn btn--primary"
+          [disabled]="pending()"
+          [attr.aria-busy]="pending()"
+        >
+          @if (pending()) {
+            <span class="spinner" aria-hidden="true"></span>
+          }
+          Create
+        </button>
+      </div>
+    </form>
+  } @else {
+    <button
+      #newButton
+      type="button"
+      class="btn btn--secondary list-picker__new"
+      (click)="openCreate()"
+    >
+      + New list
+    </button>
+  }
+</div>

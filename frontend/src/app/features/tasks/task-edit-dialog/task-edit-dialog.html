@@ -95,6 +95,28 @@
       />
     </div>
 
+    <div class="field">
+      <label for="task-edit-list">List</label>
+      <select
+        id="task-edit-list"
+        [disabled]="pending() || !listsReady()"
+        [attr.aria-invalid]="listError() ? true : null"
+        [attr.aria-describedby]="
+          listError() ? 'task-edit-list-error' : listNote() ? 'task-edit-list-note' : null
+        "
+        (change)="onListChange($event)"
+      >
+        @for (l of listOptions(); track l.id) {
+          <option [value]="l.id" [selected]="l.id === targetListId()">{{ l.name }}</option>
+        }
+      </select>
+      @if (listError(); as message) {
+        <p class="field-error" id="task-edit-list-error">{{ message }}</p>
+      } @else if (listNote(); as note) {
+        <p class="field-hint" id="task-edit-list-note">{{ note }}</p>
+      }
+    </div>
+
     <div class="dialog__actions">
       <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
         Cancel

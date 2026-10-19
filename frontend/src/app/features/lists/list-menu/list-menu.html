@@ -1,0 +1,27 @@
+<div class="list-menu">
+  <button
+    #toggleButton
+    type="button"
+    class="list-menu__toggle"
+    aria-label="List actions"
+    aria-controls="list-menu-items"
+    [attr.aria-expanded]="open()"
+    (click)="toggle()"
+  >
+    ⋯
+  </button>
+  @if (open()) {
+    <div class="list-menu__items" id="list-menu-items">
+      <button type="button" class="list-menu__item" (click)="choose('rename')">Rename</button>
+      @if (!list().personal) {
+        <button
+          type="button"
+          class="list-menu__item list-menu__item--danger"
+          (click)="choose('remove')"
+        >
+          Delete
+        </button>
+      }
+    </div>
+  }
+</div>

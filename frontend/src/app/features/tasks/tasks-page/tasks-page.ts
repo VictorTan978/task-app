@@ -8,8 +8,12 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Params, Router, RouterLink } from '@angular/router';
-import { distinctUntilChanged, map, Subscription } from 'rxjs';
+import { ActivatedRoute, NavigationEnd, Params, Router, RouterLink } from '@angular/router';
+import { distinctUntilChanged, filter, map, merge, of, Subscription } from 'rxjs';
+import { ListHeader } from '../../lists/list-header/list-header';
+import { ListPicker } from '../../lists/list-picker/list-picker';
+import { isListNotFound, LIST_NOT_FOUND_MESSAGE } from '../../lists/lists.logic';
+import { ListsStore } from '../../lists/lists.store';
 import { ConfirmDeleteDialog } from '../confirm-delete-dialog/confirm-delete-dialog';
 import { AddFailure, TaskAddForm } from '../task-add-form/task-add-form';
 import { TaskEditDialog } from '../task-edit-dialog/task-edit-dialog';
@@ -30,6 +34,7 @@ import {
   emptyList,
   firstPage,
   hasMore,
+  moveOut,
   removeTask,
   shownTotal,
   TaskChange,
@@ -37,16 +42,18 @@ import {
 } from '../task-list';
 import { TaskRow } from '../task-row/task-row';
 import { findTag } from '../task-tags';
-import {
-  normaliseFilter,
-  normaliseQuery,
-  normaliseSort,
-  normaliseTagParam,
-  SEARCH_MAX,
-  todayLocal,
-} from '../tasks.logic';
+import { normaliseQuery, normaliseSort, SEARCH_MAX, todayLocal } from '../tasks.logic';
 import { Task, TaskFilter, TaskListQuery, TaskSort } from '../tasks.models';
 import { TasksService } from '../tasks.service';
+import {
+  ListRef,
+  listParam,
+  PageRoute,
+  PERSONAL,
+  readPageRoute,
+  sameListRef,
+  samePageRoute,
+} from './page-route';
 
 /** Delay between the last keystroke in the search box and the search. */
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -82,18 +89,28 @@ const NO_TAGGED_TASKS = 'No tasks with this tag';
 
 const DEFAULT_QUERY: TaskListQuery = { filter: 'all', tag: null, q: null, sort: 'newest' };
 
-function sameQuery(a: TaskListQuery, b: TaskListQuery): boolean {
-  return a.filter === b.filter && a.tag === b.tag && a.q === b.q && a.sort === b.sort;
-}
-
+/**
+ * "My tasks" (`/tasks`) or one of my lists (`/lists/:id`), with the list picker beside it.
+ * The same component serves both routes; moving between two `/lists/:id` reuses it, so a list
+ * change resets paging, search, banners and dialogs here.
+ */
 @Component({
   selector: 'app-tasks-page',
-  imports: [RouterLink, TaskAddForm, TaskRow, TaskEditDialog, ConfirmDeleteDialog],
+  imports: [
+    RouterLink,
+    TaskAddForm,
+    TaskRow,
+    TaskEditDialog,
+    ConfirmDeleteDialog,
+    ListPicker,
+    ListHeader,
+  ],
   templateUrl: './tasks-page.html',
   styleUrl: './tasks-page.scss',
 })
 export class TasksPage {
   private readonly tasksApi = inject(TasksService);
+  private readonly lists = inject(ListsStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -101,12 +118,15 @@ export class TasksPage {
   private moreSub: Subscription | null = null;
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
   private addedTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped on every list change; late answers for the previous list are ignored. */
+  private generation = 0;
 
   private readonly searchInput = viewChild.required<ElementRef<HTMLInputElement>>('searchInput');
 
   protected readonly searchMax = SEARCH_MAX;
   protected readonly loadMoreError = LOAD_MORE_ERROR;
   protected readonly addedMessage = TASK_ADDED_MESSAGE;
+  protected readonly listNotFoundMessage = LIST_NOT_FOUND_MESSAGE;
 
   protected readonly tabs: readonly FilterTab[] = [
     { filter: 'all', label: 'All', param: null },
@@ -123,6 +143,27 @@ export class TasksPage {
     { value: 'title', label: 'Title A–Z' },
   ];
 
+  /** List selected in the URL. */
+  protected readonly listRef = signal<ListRef>(PERSONAL);
+  /** `list` for requests (null on `/tasks`). */
+  protected readonly listId = computed(() => listParam(this.listRef()));
+  /** The open list from the store; null until the lists are loaded (or if it isn't mine). */
+  protected readonly currentList = computed(() => {
+    const ref = this.listRef();
+    if (ref.kind === 'personal') {
+      return this.lists.personal();
+    }
+    return ref.kind === 'list' ? (this.lists.byId().get(ref.id) ?? null) : null;
+  });
+  /** Real id of the open list, for the picker's highlight. */
+  protected readonly activeListId = computed(() => this.currentList()?.id ?? this.listId());
+  protected readonly headingFallback = computed(() =>
+    this.listRef().kind === 'personal' ? 'My tasks' : 'List',
+  );
+  /** "My tasks" by its current name, for the "List not found" link. */
+  protected readonly personalName = computed(() => this.lists.personal()?.name ?? 'My tasks');
+  /** The list doesn't exist or isn't mine (bad id, or the API said 404 `LIST_NOT_FOUND`). */
+  protected readonly listNotFound = signal(false);
   /** Query selected in the URL (normalised). */
   protected readonly query = signal<TaskListQuery>(DEFAULT_QUERY);
   /** Query the shown list was loaded with (differs from `query` only after a failed load). */
@@ -179,26 +220,16 @@ export class TasksPage {
   });
 
   constructor() {
-    this.route.queryParamMap
+    this.lists.load();
+    // One stream for the list (path) and the query (query params), read once per navigation, so
+    // a navigation changing both gives one load.
+    merge(of(null), this.router.events.pipe(filter((e) => e instanceof NavigationEnd)))
       .pipe(
-        map((params): TaskListQuery => ({
-          filter: normaliseFilter(params.get('filter')),
-          tag: normaliseTagParam(params.get('tag')),
-          q: normaliseQuery(params.get('q')),
-          sort: normaliseSort(params.get('sort')),
-        })),
-        distinctUntilChanged(sameQuery),
+        map(() => readPageRoute(this.route.snapshot.paramMap, this.route.snapshot.queryParamMap)),
+        distinctUntilChanged(samePageRoute),
         takeUntilDestroyed(),
       )
-      .subscribe((query) => {
-        this.query.set(query);
-        // Back / refresh / a link changed the search: show it (unless it's what is typed).
-        if (normaliseQuery(this.searchText()) !== query.q) {
-          this.cancelSearchTimer();
-          this.searchText.set(query.q ?? '');
-        }
-        this.load();
-      });
+      .subscribe((route) => this.onRoute(route));
     this.destroyRef.onDestroy(() => {
       this.loadSub?.unsubscribe();
       this.moreSub?.unsubscribe();
@@ -207,6 +238,60 @@ export class TasksPage {
         clearTimeout(this.addedTimer);
       }
     });
+  }
+
+  private onRoute({ list, query }: PageRoute): void {
+    if (!sameListRef(list, this.listRef())) {
+      this.resetForList();
+    }
+    this.listRef.set(list);
+    this.query.set(query);
+    // Back / refresh / a link changed the search: show it (unless it's what is typed).
+    if (normaliseQuery(this.searchText()) !== query.q) {
+      this.cancelSearchTimer();
+      this.searchText.set(query.q ?? '');
+    }
+    if (list.kind === 'invalid') {
+      this.cancelLoads();
+      this.loading.set(false);
+      this.listNotFound.set(true);
+      return;
+    }
+    this.load();
+  }
+
+  /** Another list opened: start from scratch (first page, no banners, dialogs closed). */
+  private resetForList(): void {
+    this.generation++;
+    this.cancelLoads();
+    this.cancelSearchTimer();
+    this.clearAdded();
+    this.list.set(emptyList());
+    this.listQuery.set(DEFAULT_QUERY);
+    this.loaded.set(false);
+    this.listNotFound.set(false);
+    this.banner.set(null);
+    this.busyIds.set(new Set());
+    this.editing.set(null);
+    this.deleting.set(null);
+  }
+
+  /** The open list is gone or not mine: show "List not found" and refetch the picker. */
+  protected listGone(): void {
+    this.cancelLoads();
+    this.loading.set(false);
+    this.editing.set(null);
+    this.deleting.set(null);
+    this.banner.set(null);
+    this.clearAdded();
+    this.listNotFound.set(true);
+    this.lists.refresh();
+  }
+
+  /** True if a task from the server belongs in the open list. */
+  private belongsHere(task: Task): boolean {
+    const ref = this.listRef();
+    return ref.kind === 'personal' || (ref.kind === 'list' && task.listId === ref.id);
   }
 
   protected isBusy(id: number): boolean {
@@ -218,25 +303,36 @@ export class TasksPage {
     if (clearBanner) {
       this.banner.set(null);
     }
+    const ref = this.listRef();
+    if (ref.kind === 'invalid') {
+      return;
+    }
     const query = this.query();
-    this.loadSub?.unsubscribe();
-    this.moreSub?.unsubscribe();
-    this.loadingMore.set(false);
-    this.loadMoreFailed.set(false);
+    this.cancelLoads();
     this.loading.set(true);
-    this.loadSub = this.tasksApi.list(query).subscribe({
+    this.loadSub = this.tasksApi.list(query, null, listParam(ref)).subscribe({
       next: (page) => {
         this.loading.set(false);
         this.today.set(todayLocal());
         this.listQuery.set(query);
         this.list.set(firstPage(page));
         this.loaded.set(true);
+        this.listNotFound.set(false);
+        // A list of mine the picker doesn't know yet (e.g. created in another tab).
+        if (ref.kind === 'list' && this.lists.loaded() && !this.lists.byId().has(ref.id)) {
+          this.lists.refresh();
+        }
       },
       error: (error: unknown) => {
         this.loading.set(false);
-        if (!isUnauthenticated(error)) {
-          this.banner.set({ message: LOAD_ERROR, retry: () => this.load() });
+        if (isUnauthenticated(error)) {
+          return;
         }
+        if (isListNotFound(error)) {
+          this.listGone();
+          return;
+        }
+        this.banner.set({ message: LOAD_ERROR, retry: () => this.load() });
       },
     });
   }
@@ -249,7 +345,7 @@ export class TasksPage {
     }
     this.loadMoreFailed.set(false);
     this.loadingMore.set(true);
-    this.moreSub = this.tasksApi.list(this.listQuery(), cursor).subscribe({
+    this.moreSub = this.tasksApi.list(this.listQuery(), cursor, this.listId()).subscribe({
       next: (page) => {
         this.loadingMore.set(false);
         this.today.set(todayLocal());
@@ -262,6 +358,10 @@ export class TasksPage {
         }
         if (isInvalidCursor(error)) {
           this.load();
+          return;
+        }
+        if (isListNotFound(error)) {
+          this.listGone();
           return;
         }
         this.loadMoreFailed.set(true);
@@ -316,10 +416,16 @@ export class TasksPage {
   }
 
   protected onCreated(task: Task): void {
-    this.apply(task, 'created');
+    if (this.belongsHere(task)) {
+      this.apply(task, 'created');
+    }
   }
 
   protected onAddFailed(failure: AddFailure): void {
+    if (failure.listNotFound) {
+      this.listGone();
+      return;
+    }
     this.banner.set({ message: ADD_ERROR, retry: failure.retry });
   }
 
@@ -339,15 +445,22 @@ export class TasksPage {
     }
     this.banner.set(null);
     this.setBusy(task.id, true);
+    const generation = this.generation;
     this.tasksApi
       .setStatus(task.id, done ? 'DONE' : 'TODO')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (updated) => {
+          if (generation !== this.generation) {
+            return;
+          }
           this.setBusy(task.id, false);
-          this.apply(updated, 'updated');
+          this.applyOrMoveOut(updated);
         },
         error: (error: unknown) => {
+          if (generation !== this.generation) {
+            return;
+          }
           this.setBusy(task.id, false);
           if (isUnauthenticated(error)) {
             return;
@@ -372,8 +485,14 @@ export class TasksPage {
   }
 
   protected onSaved(task: Task): void {
+    const before = this.editing();
     this.editing.set(null);
-    this.apply(task, 'updated');
+    if (before !== null && before.listId !== task.listId) {
+      // Moved to another list: it leaves this view.
+      this.list.update((state) => moveOut(state, task.id));
+      return;
+    }
+    this.applyOrMoveOut(task);
   }
 
   protected onDeleted(id: number): void {
@@ -389,6 +508,15 @@ export class TasksPage {
     this.load(false);
   }
 
+  /** An updated task: placed in the view, or dropped if it is now in another list. */
+  private applyOrMoveOut(task: Task): void {
+    if (this.belongsHere(task)) {
+      this.apply(task, 'updated');
+    } else {
+      this.list.update((state) => moveOut(state, task.id));
+    }
+  }
+
   private apply(task: Task, change: TaskChange): void {
     const result = applyChange(this.list(), task, this.listQuery(), change);
     this.list.set(result.state);
@@ -398,14 +526,30 @@ export class TasksPage {
   }
 
   private showAdded(): void {
-    if (this.addedTimer !== null) {
-      clearTimeout(this.addedTimer);
-    }
+    this.clearAdded();
     this.addedNotice.set(true);
     this.addedTimer = setTimeout(() => {
       this.addedTimer = null;
       this.addedNotice.set(false);
     }, ADDED_NOTICE_MS);
+  }
+
+  private clearAdded(): void {
+    if (this.addedTimer !== null) {
+      clearTimeout(this.addedTimer);
+      this.addedTimer = null;
+    }
+    this.addedNotice.set(false);
+  }
+
+  /** Cancels the first-page and "Load more" requests in flight. */
+  private cancelLoads(): void {
+    this.loadSub?.unsubscribe();
+    this.moreSub?.unsubscribe();
+    this.loadSub = null;
+    this.moreSub = null;
+    this.loadingMore.set(false);
+    this.loadMoreFailed.set(false);
   }
 
   private cancelSearchTimer(): void {

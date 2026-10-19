@@ -76,7 +76,7 @@ test.describe('Registration', () => {
     await expect(page.getByText(`Hi, ${nameAliceQA}`)).toBeVisible();
     await expect(page.getByText('Task App')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Log out', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/ac1-tasks-after-register.png`, fullPage: true });
     console.log('AC1 console errors:', JSON.stringify(w.consoleErrors));
     expect(appErrors(w.consoleErrors)).toEqual([]);

@@ -1,6 +1,7 @@
 import {
   afterNextRender,
   Component,
+  computed,
   DestroyRef,
   ElementRef,
   inject,
@@ -12,6 +13,8 @@ import {
 } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
+import { isListNotFound } from '../../lists/lists.logic';
+import { ListsStore } from '../../lists/lists.store';
 import {
   applyTaskFieldErrors,
   descriptionValidators,
@@ -25,10 +28,25 @@ import {
 } from '../task-form';
 import { TaskTagInput } from '../task-tag-input/task-tag-input';
 import { PRIORITIES, PRIORITY_LABELS, STATUS_LABELS, STATUSES } from '../tasks.logic';
-import { Priority, ReplaceTaskRequest, Task, TaskFieldName, TaskStatus } from '../tasks.models';
+import {
+  Priority,
+  ReplaceTaskRequest,
+  Task,
+  TaskFieldName,
+  TaskProblem,
+  TaskStatus,
+} from '../tasks.models';
 import { TasksService } from '../tasks.service';
 
 type ShownField = Extract<TaskFieldName, 'title' | 'description' | 'status' | 'tags'>;
+
+export const MOVE_LIST_GONE = 'This list no longer exists. Choose another list.';
+export const LISTS_UNAVAILABLE = "Couldn't load your lists, so the task can't be moved right now.";
+
+/** Own text for `tags` / `TAG_LIMIT` on a move, naming the target list. */
+export function moveTagLimitMessage(listName: string): string {
+  return `Can't move to "${listName}": a list can have at most 200 tags`;
+}
 
 @Component({
   selector: 'app-task-edit-dialog',
@@ -38,10 +56,13 @@ type ShownField = Extract<TaskFieldName, 'title' | 'description' | 'status' | 't
 })
 export class TaskEditDialog implements OnInit {
   private readonly tasks = inject(TasksService);
+  private readonly lists = inject(ListsStore);
   private readonly destroyRef = inject(DestroyRef);
   private sub: Subscription | null = null;
 
   readonly task = input.required<Task>();
+  /** List whose tags are suggested (the open list); null leaves `list` out ("My tasks"). */
+  readonly tagsListId = input<number | null>(null);
 
   readonly saved = output<Task>();
   readonly closed = output<void>();
@@ -69,6 +90,19 @@ export class TaskEditDialog implements OnInit {
   protected readonly knownTags = signal<readonly string[]>([]);
   private lastRequest: ReplaceTaskRequest | null = null;
 
+  /** "List" select: my lists; the task moves when another one is picked. */
+  protected readonly listOptions = this.lists.lists;
+  protected readonly targetListId = signal(0);
+  protected readonly listError = signal<string | null>(null);
+  protected readonly listsReady = this.lists.loaded;
+  /** Why the List select is disabled (lists not loaded), else null. */
+  protected readonly listNote = computed(() => {
+    if (this.lists.loaded()) {
+      return null;
+    }
+    return this.lists.error() ? LISTS_UNAVAILABLE : 'Loading lists…';
+  });
+
   private readonly dialog = viewChild.required<ElementRef<HTMLDialogElement>>('dialog');
   private readonly tagInput = viewChild.required(TaskTagInput);
 
@@ -87,8 +121,10 @@ export class TaskEditDialog implements OnInit {
       dueDate: t.dueDate ?? '',
       tags: [...t.tags],
     });
+    this.targetListId.set(t.listId);
+    this.lists.load();
     // Fresh on every open; a failure only means no suggestions.
-    const tagsSub = this.tasks.listTags().subscribe({
+    const tagsSub = this.tasks.listTags(this.tagsListId()).subscribe({
       next: (tags) => this.knownTags.set(tags.map((t) => t.name)),
       error: () => this.knownTags.set([]),
     });
@@ -101,6 +137,11 @@ export class TaskEditDialog implements OnInit {
       return null;
     }
     return taskFieldMessage(field, control);
+  }
+
+  protected onListChange(event: Event): void {
+    this.targetListId.set(Number((event.target as HTMLSelectElement).value));
+    this.listError.set(null);
   }
 
   protected clearDueDate(): void {
@@ -131,14 +172,20 @@ export class TaskEditDialog implements OnInit {
       return;
     }
     const { title, description, priority, status, dueDate, tags } = this.form.getRawValue();
-    this.send({
+    const request: ReplaceTaskRequest = {
       title: title.trim(),
       description: normaliseDescription(description),
       dueDate: dueDate || null,
       priority,
       status,
       tags: tags.filter((t) => t.trim() !== ''),
-    });
+    };
+    // listId only when another list was picked (a move).
+    const target = this.targetListId();
+    if (target !== this.task().listId) {
+      request.listId = target;
+    }
+    this.send(request);
   }
 
   protected retry(): void {
@@ -153,6 +200,7 @@ export class TaskEditDialog implements OnInit {
     }
     this.lastRequest = request;
     this.error.set(null);
+    this.listError.set(null);
     this.setPending(true);
     this.sub = this.tasks.replace(this.task().id, request).subscribe({
       next: (task) => {
@@ -165,11 +213,22 @@ export class TaskEditDialog implements OnInit {
         if (isUnauthenticated(error)) {
           return;
         }
+        const moving = request.listId !== undefined && request.listId !== null;
+        if (moving && isListNotFound(error)) {
+          // The target list was deleted meanwhile; the task itself is fine.
+          this.listError.set(MOVE_LIST_GONE);
+          this.targetListId.set(this.task().listId);
+          this.lists.refresh();
+          return;
+        }
         if (isNotFound(error)) {
           this.notFound.emit();
           return;
         }
         const problem = taskValidationProblem(error);
+        if (problem && moving && this.applyMoveTagLimit(problem, request.listId as number)) {
+          return;
+        }
         const controls = { ...this.form.controls, done: this.form.controls.status };
         if (problem && applyTaskFieldErrors(problem, controls)) {
           return;
@@ -177,6 +236,17 @@ export class TaskEditDialog implements OnInit {
         this.error.set(SAVE_ERROR);
       },
     });
+  }
+
+  /** `tags` / `TAG_LIMIT` on a move: shown next to the List select, naming the target list. */
+  private applyMoveTagLimit(problem: TaskProblem, target: number): boolean {
+    const errors = problem.errors ?? [];
+    if (!errors.some((e) => e.field === 'tags' && e.code === 'TAG_LIMIT')) {
+      return false;
+    }
+    const name = this.lists.byId().get(target)?.name ?? 'that list';
+    this.listError.set(moveTagLimitMessage(name));
+    return true;
   }
 
   /** While saving, every control is disabled; the input is kept for a retry. */

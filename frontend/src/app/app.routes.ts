@@ -33,6 +33,8 @@ export const routes: Routes = [
     canActivate: [authGuard],
     children: [
       { path: 'tasks', title: 'Tasks · Task App', component: TasksPage },
+      // One of my lists (T3a). "My tasks" stays at /tasks; same page component.
+      { path: 'lists/:id', title: 'Tasks · Task App', component: TasksPage },
       { path: 'account', title: 'Account · Task App', component: AccountPage },
       {
         path: 'admin/users',

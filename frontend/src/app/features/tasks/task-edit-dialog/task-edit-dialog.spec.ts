@@ -7,6 +7,7 @@ import { TaskEditDialog } from './task-edit-dialog';
 
 const TASK: Task = {
   id: 7,
+  listId: 3,
   title: 'Plan trip',
   description: 'Book hotel',
   priority: 'MEDIUM',
@@ -175,7 +176,7 @@ describe('TaskEditDialog', () => {
     ['INVALID_CHARACTERS', "Tags can't contain commas or control characters"],
     ['TOO_LONG', 'Tags must be 30 characters or fewer'],
     ['TOO_MANY', 'A task can have at most 10 tags'],
-    ['TAG_LIMIT', 'You can have at most 200 tags'],
+    ['TAG_LIMIT', 'A list can have at most 200 tags'],
   ])('shows tags/%s from the server under Tags', async (code, message) => {
     flushTags();
     submit();

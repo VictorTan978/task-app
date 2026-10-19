@@ -218,7 +218,7 @@ async function order(page: Page): Promise<string[]> {
 }
 async function gotoTasks(page: Page, query = '') {
   await page.goto(`/tasks${query}`);
-  await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
   await expect(page.getByText('Loading tasks…')).toHaveCount(0);
 }
 function search(page: Page): Locator {
@@ -640,7 +640,7 @@ test.describe('T2 Search (AC1-AC4)', () => {
 
 /** Waits until the first page has rendered (list, footer or empty text). */
 async function gotoTasksSettled(page: Page) {
-  await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
   await expect(page.getByText('Loading tasks…')).toHaveCount(0);
   await expect(footer(page).or(page.locator('.tasks-empty'))).toBeVisible();
 }

@@ -55,7 +55,7 @@ test('AC16: full data path works through the UI with the restricted app user', a
   await page.locator('#register-confirm-password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/tasks$/);
-  await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
 
   // INSERT
   await page.getByLabel('New task').fill('D first');

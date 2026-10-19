@@ -1,0 +1,78 @@
+<div class="list-header">
+  <h1 class="list-header__name" [id]="headingId()">{{ name() }}</h1>
+  @if (list(); as l) {
+    @if (!renaming()) {
+      <app-list-menu [list]="l" (rename)="startRename()" (remove)="startDelete()" />
+    }
+  }
+</div>
+
+@if (renaming()) {
+  <form
+    class="list-header__rename"
+    [formGroup]="form"
+    (ngSubmit)="submitRename()"
+    (keydown)="onRenameKeydown($event)"
+    novalidate
+  >
+    <div class="field">
+      <label for="list-rename-name">List name</label>
+      <div class="list-header__row">
+        <input
+          #nameInput
+          id="list-rename-name"
+          type="text"
+          formControlName="name"
+          autocomplete="off"
+          [readOnly]="pending()"
+          [attr.aria-invalid]="nameError() ? true : null"
+          [attr.aria-describedby]="nameError() ? 'list-rename-name-error' : null"
+        />
+        <button
+          type="submit"
+          class="btn btn--primary"
+          [disabled]="pending()"
+          [attr.aria-busy]="pending()"
+        >
+          @if (pending()) {
+            <span class="spinner" aria-hidden="true"></span>
+          }
+          Save
+        </button>
+        <button
+          type="button"
+          class="btn btn--secondary"
+          [disabled]="pending()"
+          (click)="cancelRename()"
+        >
+          Cancel
+        </button>
+      </div>
+      @if (nameError(); as message) {
+        <p class="field-error" id="list-rename-name-error">{{ message }}</p>
+      }
+    </div>
+    @if (renameError(); as message) {
+      <div class="notice notice--error notice--action" role="alert">
+        <span>{{ message }}</span>
+        <button
+          type="button"
+          class="btn btn--secondary"
+          [disabled]="pending()"
+          (click)="retryRename()"
+        >
+          Retry
+        </button>
+      </div>
+    }
+  </form>
+}
+
+@if (deleting(); as l) {
+  <app-delete-list-dialog
+    [list]="l"
+    (deleted)="onDeleted($event)"
+    (closed)="deleting.set(null)"
+    (notFound)="onDeleteNotFound()"
+  />
+}

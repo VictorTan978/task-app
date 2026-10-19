@@ -223,9 +223,9 @@ describe('TaskTagInput', () => {
   });
 
   it('shows an outside (server) error and links it', async () => {
-    host.error.set('You can have at most 200 tags');
+    host.error.set('A list can have at most 200 tags');
     await stable();
-    expect(errorText()).toBe('You can have at most 200 tags');
+    expect(errorText()).toBe('A list can have at most 200 tags');
     expect(input().getAttribute('aria-invalid')).toBe('true');
   });
 

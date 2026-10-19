@@ -134,7 +134,7 @@ async function order(page: Page): Promise<string[]> {
 }
 async function gotoTasks(page: Page, query = '') {
   await page.goto(`/tasks${query}`);
-  await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveCount(0);
 }
 function addBox(page: Page) {

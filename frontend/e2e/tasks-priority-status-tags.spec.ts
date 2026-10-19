@@ -218,7 +218,7 @@ async function order(page: Page): Promise<string[]> {
 }
 async function gotoTasks(page: Page, query = '') {
   await page.goto(`/tasks${query}`);
-  await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveCount(0);
 }
 function nav(page: Page): Locator {
@@ -837,7 +837,7 @@ test.describe('T1 Tags', () => {
     const extra = await createTask(page, { title: 'Over cap', description: 'keep' });
     const res = await api(page, 'PUT', `/api/tasks/${extra.id}`, { title: 'Changed', description: 'keep', tags: ['brand new'] });
     const b = await expectProblem(res, 400, 'VALIDATION_FAILED');
-    expect(b.errors).toEqual([{ field: 'tags', code: 'TAG_LIMIT', message: 'You can have at most 200 tags' }]);
+    expect(b.errors).toEqual([{ field: 'tags', code: 'TAG_LIMIT', message: 'A list can have at most 200 tags' }]);
     expect(await getTask(page, extra.id)).toEqual(extra); // nothing saved (title unchanged)
     // reusing existing tags is fine at the cap
     expect((await putTask(page, extra.id, { title: 'Over cap', tags: ['C0-0', 'c1-1'] })).tags).toEqual(['c0-0', 'c1-1']);
@@ -863,7 +863,7 @@ test.describe('T1 Tags', () => {
     await tagsBox(page).fill('Totally new');
     await tagsBox(page).press('Enter');
     await editDialog(page).getByRole('button', { name: 'Save' }).click();
-    await expect(editDialog(page).locator('#task-edit-tags-error')).toHaveText('You can have at most 200 tags');
+    await expect(editDialog(page).locator('#task-edit-tags-error')).toHaveText('A list can have at most 200 tags');
     await expect(editDialog(page)).toBeVisible();
     await expect(chips(page)).toHaveText(['c0-0', 'c1-1', 'Totally new']);
     await expect(editDialog(page).getByRole('alert')).toHaveCount(0);

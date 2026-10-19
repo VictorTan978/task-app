@@ -6,6 +6,7 @@ import { TaskRow } from './task-row';
 
 const BASE: Task = {
   id: 1,
+  listId: 3,
   title: 'Buy milk',
   description: null,
   priority: 'NONE',

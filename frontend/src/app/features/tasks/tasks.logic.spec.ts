@@ -23,6 +23,7 @@ import { Task } from './tasks.models';
 function task(overrides: Partial<Task> & { id: number }): Task {
   const status = overrides.status ?? (overrides.done ? 'DONE' : 'TODO');
   return {
+    listId: 3,
     title: `Task ${overrides.id}`,
     description: null,
     priority: 'NONE',

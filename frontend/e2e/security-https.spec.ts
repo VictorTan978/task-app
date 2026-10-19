@@ -42,7 +42,7 @@ test('AC10: dev over plain HTTP: register, logout, login, CSRF; cookies not Secu
   await page.locator('#register-confirm-password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/tasks$/);
-  await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
 
   let cookies = await context.cookies();
   const session = cookies.find((c) => c.name === 'JSESSIONID');
@@ -68,7 +68,7 @@ test('AC10: dev over plain HTTP: register, logout, login, CSRF; cookies not Secu
   await page.locator('#login-password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/tasks$/);
-  await expect(page.getByRole('heading', { name: 'Your tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/ac10-logged-in.png`, fullPage: true });
 
   expect(setCookies.length).toBeGreaterThan(0);

@@ -139,6 +139,14 @@ export function removeTask(state: TaskListState, id: number): TaskListState {
   };
 }
 
+/**
+ * A task moved to another list (or found to be in one): it leaves this view like a delete —
+ * removed (total − 1 if it was shown) and skipped if a later page still has it.
+ */
+export function moveOut(state: TaskListState, id: number): TaskListState {
+  return removeTask(state, id);
+}
+
 /** Number for "of N": never fewer than what is shown. */
 export function shownTotal(state: TaskListState): number {
   return Math.max(state.total, state.items.length);

@@ -1,7 +1,8 @@
-import { Component, computed, DestroyRef, inject, output, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, input, output, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { finalize, Subscription } from 'rxjs';
+import { isListNotFound } from '../../lists/lists.logic';
 import {
   applyTaskFieldErrors,
   isUnauthenticated,
@@ -15,6 +16,8 @@ import { TasksService } from '../tasks.service';
 /** A failed create that the page can offer to retry. */
 export interface AddFailure {
   retry: () => void;
+  /** 404 `LIST_NOT_FOUND`: the list was deleted meanwhile (nothing was created). */
+  listNotFound: boolean;
 }
 
 @Component({
@@ -26,6 +29,9 @@ export interface AddFailure {
 export class TaskAddForm {
   private readonly tasks = inject(TasksService);
   private sub: Subscription | null = null;
+
+  /** List to add to; null leaves `listId` out ("My tasks"). */
+  readonly listId = input<number | null>(null);
 
   readonly created = output<Task>();
   readonly failed = output<AddFailure>();
@@ -65,7 +71,9 @@ export class TaskAddForm {
       this.form.markAllAsTouched();
       return;
     }
-    this.send({ title: this.form.controls.title.value.trim() });
+    const listId = this.listId();
+    const title = this.form.controls.title.value.trim();
+    this.send(listId === null ? { title } : { title, listId });
   }
 
   private send(request: CreateTaskRequest): void {
@@ -91,7 +99,10 @@ export class TaskAddForm {
           if (problem && applyTaskFieldErrors(problem, this.form.controls)) {
             return;
           }
-          this.failed.emit({ retry: () => this.send(request) });
+          this.failed.emit({
+            retry: () => this.send(request),
+            listNotFound: isListNotFound(error),
+          });
         },
       });
   }

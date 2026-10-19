@@ -7,6 +7,7 @@ import { TasksService } from './tasks.service';
 
 const TASK: Task = {
   id: 12,
+  listId: 3,
   title: 'Buy milk',
   description: null,
   priority: 'NONE',

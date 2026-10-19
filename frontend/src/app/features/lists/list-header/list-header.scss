@@ -1,0 +1,35 @@
+.list-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1.25rem;
+
+  &__name {
+    margin: 0;
+    min-width: 0;
+    font-size: 1.5rem;
+    overflow-wrap: anywhere;
+  }
+
+  &__rename {
+    margin: -0.5rem 0 1.25rem;
+  }
+
+  &__row {
+    display: flex;
+    gap: 0.5rem;
+
+    input {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+}
+
+.notice--action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.5rem 0 0;
+}

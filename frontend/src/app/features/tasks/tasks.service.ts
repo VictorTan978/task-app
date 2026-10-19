@@ -13,7 +13,7 @@ import {
   TaskStatus,
 } from './tasks.models';
 
-/** Typed HTTP access to `/api/tasks` and `/api/tags`. Stateless: the page owns the list state. */
+/** Typed HTTP access to `/api/tasks` and `/api/tags` (inside one list). Stateless: the page owns the list state. */
 @Injectable({ providedIn: 'root' })
 export class TasksService {
   private readonly http = inject(HttpClient);
@@ -21,10 +21,18 @@ export class TasksService {
   /**
    * One page of `GET /api/tasks`. Params at their default are left out: no `filter` for `all`,
    * no `tag` / `q` when null or blank, no `sort` for `newest`, no `cursor` for the first page.
-   * `cursor` must be the `nextCursor` of a page loaded with the same query.
+   * `cursor` must be the `nextCursor` of a page loaded with the same query and list.
+   * `listId` null leaves `list` out ("My tasks").
    */
-  list(query: TaskListQuery, cursor: string | null = null): Observable<TaskPage> {
+  list(
+    query: TaskListQuery,
+    cursor: string | null = null,
+    listId: number | null = null,
+  ): Observable<TaskPage> {
     let params = new HttpParams();
+    if (listId !== null) {
+      params = params.set('list', listId);
+    }
     if (query.filter !== 'all') {
       params = params.set('filter', query.filter);
     }
@@ -61,8 +69,9 @@ export class TasksService {
     return this.http.delete<unknown>(TASKS_API.one(id)).pipe(map(() => undefined));
   }
 
-  /** The signed-in user's tags, for suggestions. */
-  listTags(): Observable<Tag[]> {
-    return this.http.get<Tag[]>(TASKS_API.tags);
+  /** The tags of one of my lists, for suggestions. `listId` null leaves `list` out ("My tasks"). */
+  listTags(listId: number | null = null): Observable<Tag[]> {
+    const params = listId === null ? new HttpParams() : new HttpParams().set('list', listId);
+    return this.http.get<Tag[]>(TASKS_API.tags, { params });
   }
 }

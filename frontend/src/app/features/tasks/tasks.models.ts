@@ -1,4 +1,4 @@
-/** Models matching the task schemas in `contracts/openapi.yaml` (v0.11.0) exactly. */
+/** Models matching the task schemas in `contracts/openapi.yaml` (v0.12.0) exactly. */
 import { Problem } from '../../core/auth/auth.models';
 
 /** `Priority`: `NONE` is the default (no badge). */
@@ -9,6 +9,8 @@ export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
 
 export interface Task {
   id: number;
+  /** The list the task is in (0.12.0; always present). */
+  listId: number;
   title: string;
   /** Never an empty string; null when absent. */
   description: string | null;
@@ -29,6 +31,8 @@ export interface CreateTaskRequest {
   title: string;
   description?: string | null;
   dueDate?: string | null;
+  /** One of my lists (0.12.0); missing or null → "My tasks". */
+  listId?: number | null;
 }
 
 /**
@@ -43,6 +47,11 @@ export interface ReplaceTaskRequest {
   priority?: Priority | null;
   status?: TaskStatus | null;
   tags?: string[] | null;
+  /**
+   * Another of my lists moves the task there (0.12.0). Missing, null or the current list → it
+   * stays. The UI sends it only when the user picked another list.
+   */
+  listId?: number | null;
 }
 
 /** `PATCH /api/tasks/{id}`: at least one of `done` and `status`. The UI sends `status`. */

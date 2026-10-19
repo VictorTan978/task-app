@@ -1,6 +1,34 @@
-.tasks-page h1 {
-  margin: 0 0 1.25rem;
-  font-size: 1.5rem;
+/* List picker beside the tasks; above them on phone width */
+.tasks-layout {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (max-width: 640px) {
+  .tasks-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+}
+
+.tasks-not-found {
+  padding: 1rem 0;
+
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.5rem;
+  }
+
+  p {
+    margin: 0 0 1rem;
+    color: var(--color-muted);
+  }
+
+  a {
+    text-decoration: none;
+  }
 }
 
 .tasks-tabs {

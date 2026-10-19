@@ -1,0 +1,47 @@
+<dialog
+  #dialog
+  class="dialog dialog--narrow"
+  aria-labelledby="list-delete-heading"
+  aria-describedby="list-delete-note"
+  (cancel)="onCancel($event)"
+>
+  <h2 id="list-delete-heading" class="dialog__title">{{ question() }}</h2>
+
+  @if (counting()) {
+    <p class="link-status" role="status">
+      <span class="spinner" aria-hidden="true"></span>
+      Counting tasks…
+    </p>
+  }
+
+  <p id="list-delete-note" class="field-hint">
+    The list, its tasks and its tags are deleted for good. This can't be undone.
+  </p>
+
+  @if (error(); as e) {
+    <div class="notice notice--error notice--action" role="alert">
+      <span>{{ e.message }}</span>
+      <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="e.retry()">
+        Retry
+      </button>
+    </div>
+  }
+
+  <div class="dialog__actions">
+    <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
+      Cancel
+    </button>
+    <button
+      type="button"
+      class="btn btn--danger"
+      [disabled]="pending() || taskCount() === null"
+      [attr.aria-busy]="pending()"
+      (click)="confirm()"
+    >
+      @if (pending()) {
+        <span class="spinner" aria-hidden="true"></span>
+      }
+      Delete
+    </button>
+  </div>
+</dialog>
