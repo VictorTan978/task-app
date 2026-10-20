@@ -1,8 +1,53 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.14.0
+  version: 0.15.0
   description: |
+    ## Changes in 0.15.0 (recurring tasks, specs/due-times-reminders.md Part B / T4b)
+    Additive. Clients that never send `repeat` behave as before.
+    - `Task` gains `repeat` (`RepeatRule` or `null`), always present. `PUT /api/tasks/{id}` gains
+      `repeat`. See "Recurring tasks".
+    - `PUT /api/tasks/{id}` and `PATCH /api/tasks/{id}` answer with `TaskResult`: every `Task`
+      field plus `nextTask` (the copy created by this call, or `null`). `GET` and `POST` still
+      answer with a plain `Task`.
+    - New error codes: `INVALID_REPEAT` (new `FieldError.field` value `repeat`). `REQUIRED` and
+      `REQUIRES_DUE_DATE` also apply to `repeat`.
+    - **One-off effects at deploy:** every existing task has `repeat: null`.
+
+    ## Recurring tasks (0.15.0)
+    - **Rule.** `repeat` is `{ "frequency": DAILY|WEEKLY|MONTHLY|YEARLY, "weekdays": [...] }`.
+      `weekdays` (`MON`..`SUN`, returned in that order) is non-empty only for `WEEKLY` and `[]`
+      otherwise, never `null`. A rule exists only on a task with a `dueDate`. Monthly repeats
+      on the same day of the month, yearly on the same month and day; the 29th-31st fall back
+      to the last day of shorter months (Jan 31 -> Feb 28 -> Mar 31; Feb 29 -> Feb 28 ->
+      Feb 29 in the next leap year). This does not drift: the server remembers the day the
+      rule was set (not exposed) and counts from it. Setting or changing the rule or the
+      `dueDate` restarts that count from the new date.
+    - **Completing creates the next task.** When a call moves a task from not-`DONE` to `DONE`
+      (`PATCH` `done: true` / `status: DONE`, or `PUT` with the same effect) and the task has a
+      rule, the server in the same transaction (a) creates a copy in the same list: same
+      title, description, priority, tags, `dueTime`, the rule, `status: TODO`, `addedBy` = the
+      person who completed it; (b) **moves the rule to the copy**: the completed task gets
+      `repeat: null` and keeps its `dueDate`. The copy is returned as `nextTask`. Reopening the
+      completed task and completing it again therefore creates nothing (set a rule again to
+      repeat it). A `DONE` -> `DONE` call never creates a copy; neither does `PUT` with
+      `repeat: "NEVER"` that completes the task. A `PUT` that also changes `repeat`, `dueDate`,
+      `dueTime`, `tags` or `listId` uses the values after the update.
+    - **Next date.** `DAILY`: +1 day. `WEEKLY`: the next selected weekday strictly after the old
+      `dueDate`. `MONTHLY` / `YEARLY`: the next occurrence strictly after the old `dueDate`.
+      Then, if that is before today (in the completer's time zone, UTC if unset), the first
+      occurrence on or after today instead, so no backlog of copies is created.
+    - **Reminders on the copy.** Every member's reminder on the completed task is copied (same
+      offset) if that member is still a member of the list, recomputed for the new date in
+      their own time zone. A fire time already in the past is kept but never fires
+      (`myReminderPassed: true`), as in 0.14.0. The completed task keeps its reminders (it is
+      `DONE`, so they do not fire; reopening re-arms them).
+    - **Concurrency.** Two simultaneous completions of the same repeating task create exactly
+      one copy; both calls answer 200, `nextTask` is set only on the one that won, `null` on
+      the other. Never a 500.
+    - Deleting a repeating task deletes only that task; no copy is created. `POST /api/tasks`
+      never takes a rule and always creates `TODO` tasks, so it creates no copy.
+
     ## Changes in 0.14.0 (due times, reminders, notifications, specs/due-times-reminders.md Part A / T4a)
     Additive. Clients that never send `dueTime` or `reminder` behave as before.
     - `Task` gains `dueTime` (`"HH:mm"` or `null`), `myReminder` (my reminder offset or `null`)
@@ -2431,6 +2476,20 @@ paths:
           (`myReminderPassed: true` in the response).
         - Any member who can edit the task can set or clear its date and time; everyone sees the
           same values. `PATCH` (status/done) never changes a time or a reminder.
+
+        **Repeat (new in 0.15.0, see "Recurring tasks"):**
+        - `repeat` (`RepeatRule` object or the string `"NEVER"`): **missing/`null`** → unchanged;
+          `"NEVER"` → the rule is removed; an object → sets it (shared by all members). A rule
+          needs the task to have a `dueDate` after this update: otherwise 400 `repeat` /
+          `REQUIRES_DUE_DATE`. Clearing the `dueDate` (missing/`null`) also drops the rule
+          (unless the same call sends a rule, which is then the error above).
+        - 400 `repeat` / `REQUIRED`: `frequency` missing, or `WEEKLY` with no `weekdays`.
+          400 `repeat` / `INVALID_REPEAT`: unknown `frequency` or weekday (case-sensitive), a
+          string other than `"NEVER"`, or `weekdays` non-empty on a non-`WEEKLY` rule. Duplicate
+          weekdays are accepted and collapsed. A `repeat` of another JSON type (number,
+          array) → 400 `MALFORMED_REQUEST`. All are reported with the other body errors.
+        - If this call moves the task to `DONE` (not-`DONE` before) and the task has a rule after
+          the update, the next task is created and returned as `nextTask`.
         - `REQUIRES_DUE_DATE` and an unknown `reminder` value are reported with the other body
           errors (before 404). Whether a valid offset fits the task depends on the stored time
           when `dueTime` is missing, so that `INVALID_REMINDER` is only reported once the task
@@ -2482,6 +2541,22 @@ paths:
                   dueDate: '2026-10-21'
                   dueTime: '09:30'
                   reminder: ONE_HOUR
+              weekly:
+                summary: Repeat every Monday and Thursday (0.15.0)
+                value:
+                  title: Gym
+                  description: null
+                  dueDate: '2026-10-22'
+                  repeat:
+                    frequency: WEEKLY
+                    weekdays: [MON, THU]
+              stopRepeating:
+                summary: Stop repeating (0.15.0)
+                value:
+                  title: Gym
+                  description: null
+                  dueDate: '2026-10-22'
+                  repeat: NEVER
               move:
                 summary: Move to list 8, keeping the current tags (0.12.0)
                 value:
@@ -2491,11 +2566,13 @@ paths:
                   listId: 8
       responses:
         '200':
-          description: The updated (and possibly moved) task
+          description: |
+            The updated (and possibly moved) task; since 0.15.0 also `nextTask`, the copy created
+            if this call completed a repeating task, else `null`.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/TaskResult'
               example:
                 id: 12
                 listId: 3
@@ -2509,10 +2586,12 @@ paths:
                 done: false
                 dueDate: null
                 dueTime: null
+                repeat: null
                 myReminder: null
                 myReminderPassed: false
                 createdAt: '2026-10-08T09:15:02.123456Z'
                 updatedAt: '2026-10-08T10:02:44.901Z'
+                nextTask: null
         '400':
           $ref: '#/components/responses/TaskValidationFailed'
         '401':
@@ -2531,6 +2610,11 @@ paths:
         `IN_PROGRESS` as they are; `status` sets the status; both sent and disagreeing → 400
         `status` / `STATUS_CONFLICT`. `updatedAt` is set to now on every successful call, even if
         the value did not change.
+
+        0.15.0: if the call moves a repeating task from not-`DONE` to `DONE`, the next task is
+        created and returned as `nextTask`, and the completed task's `repeat` becomes `null`
+        (see "Recurring tasks"). Otherwise `nextTask` is `null` (including when a concurrent
+        call already completed the task). `PATCH` never changes `repeat` any other way.
       operationId: setTaskDone
       tags: [tasks]
       security:
@@ -2551,28 +2635,72 @@ paths:
                   status: IN_PROGRESS
       responses:
         '200':
-          description: The updated task
+          description: The updated task, plus `nextTask` (0.15.0)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
-              example:
-                id: 12
-                listId: 3
-                addedBy:
-                  displayName: Ana
-                title: Buy milk
-                description: null
-                priority: NONE
-                status: DONE
-                tags: []
-                done: true
-                dueDate: '2026-10-10'
-                dueTime: null
-                myReminder: null
-                myReminderPassed: false
-                createdAt: '2026-10-08T09:15:02.123456Z'
-                updatedAt: '2026-10-08T10:05:00.000123Z'
+                $ref: '#/components/schemas/TaskResult'
+              examples:
+                plain:
+                  value:
+                    id: 12
+                    listId: 3
+                    addedBy:
+                      displayName: Ana
+                    title: Buy milk
+                    description: null
+                    priority: NONE
+                    status: DONE
+                    tags: []
+                    done: true
+                    dueDate: '2026-10-10'
+                    dueTime: null
+                    repeat: null
+                    myReminder: null
+                    myReminderPassed: false
+                    createdAt: '2026-10-08T09:15:02.123456Z'
+                    updatedAt: '2026-10-08T10:05:00.000123Z'
+                    nextTask: null
+                completedRepeating:
+                  summary: Completed a daily task on its due day
+                  value:
+                    id: 12
+                    listId: 3
+                    addedBy:
+                      displayName: Ana
+                    title: Water plants
+                    description: null
+                    priority: NONE
+                    status: DONE
+                    tags: []
+                    done: true
+                    dueDate: '2026-10-10'
+                    dueTime: null
+                    repeat: null
+                    myReminder: null
+                    myReminderPassed: false
+                    createdAt: '2026-10-08T09:15:02.123456Z'
+                    updatedAt: '2026-10-10T10:05:00.000123Z'
+                    nextTask:
+                      id: 15
+                      listId: 3
+                      addedBy:
+                        displayName: Ana
+                      title: Water plants
+                      description: null
+                      priority: NONE
+                      status: TODO
+                      tags: []
+                      done: false
+                      dueDate: '2026-10-11'
+                      dueTime: null
+                      repeat:
+                        frequency: DAILY
+                        weekdays: []
+                      myReminder: null
+                      myReminderPassed: false
+                      createdAt: '2026-10-10T10:05:00.000123Z'
+                      updatedAt: '2026-10-10T10:05:00.000123Z'
         '400':
           $ref: '#/components/responses/TaskValidationFailed'
         '401':
@@ -5473,7 +5601,7 @@ components:
 
     Task:
       type: object
-      required: [id, listId, addedBy, title, description, priority, status, tags, done, dueDate, dueTime, myReminder, myReminderPassed, createdAt, updatedAt]
+      required: [id, listId, addedBy, title, description, priority, status, tags, done, dueDate, dueTime, repeat, myReminder, myReminderPassed, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -5550,6 +5678,14 @@ components:
             is `null`. Same time for every member; it is that clock time in each member's own
             time zone. Returned exactly as stored.
           example: '09:30'
+        repeat:
+          allOf:
+            - $ref: '#/components/schemas/RepeatRule'
+          nullable: true
+          description: |
+            New in 0.15.0, always present. The repeat rule (shared by all members), or `null`.
+            Never non-null when `dueDate` is `null`. A completed task has `null` (the rule moved
+            to the next task, see "Recurring tasks").
         myReminder:
           allOf:
             - $ref: '#/components/schemas/ReminderOffset'
@@ -5577,6 +5713,47 @@ components:
           format: date-time
           description: Same format as `createdAt`. Equals `createdAt` on creation; set to now on every PUT/PATCH.
           example: '2026-10-08T09:15:02.123456Z'
+
+    Weekday:
+      type: string
+      enum: [MON, TUE, WED, THU, FRI, SAT, SUN]
+      description: New in 0.15.0. Case-sensitive.
+
+    RepeatRule:
+      type: object
+      required: [frequency, weekdays]
+      description: |
+        New in 0.15.0. In requests `weekdays` may be omitted for non-`WEEKLY` frequencies; in
+        responses it is always present.
+      properties:
+        frequency:
+          type: string
+          enum: [DAILY, WEEKLY, MONTHLY, YEARLY]
+        weekdays:
+          type: array
+          maxItems: 7
+          description: |
+            `WEEKLY`: 1-7 different weekdays (returned Monday first). Any other frequency: `[]`
+            (non-empty → 400 `repeat` / `INVALID_REPEAT`).
+          items:
+            $ref: '#/components/schemas/Weekday'
+          example: [MON, THU]
+
+    TaskResult:
+      description: |
+        New in 0.15.0. Body of `PUT` and `PATCH /api/tasks/{id}`: a `Task` plus `nextTask`.
+      allOf:
+        - $ref: '#/components/schemas/Task'
+        - type: object
+          required: [nextTask]
+          properties:
+            nextTask:
+              allOf:
+                - $ref: '#/components/schemas/Task'
+              nullable: true
+              description: |
+                The task created by this call because it completed a repeating task, else `null`
+                (nothing to repeat, `DONE` -> `DONE`, or a concurrent call created it).
 
     CreateTaskRequest:
       type: object
@@ -5658,6 +5835,17 @@ components:
             `REQUIRES_DUE_DATE`); wrong for the task type or unknown → 400 `reminder` /
             `INVALID_REMINDER`.
           example: ONE_HOUR
+        repeat:
+          nullable: true
+          oneOf:
+            - $ref: '#/components/schemas/RepeatRule'
+            - type: string
+              enum: [NEVER]
+          description: |
+            New in 0.15.0. Missing/`null` → unchanged; `"NEVER"` → removes the rule; a
+            `RepeatRule` → sets it. Needs a `dueDate` (400 `repeat` / `REQUIRES_DUE_DATE`);
+            `WEEKLY` needs weekdays (`REQUIRED`); malformed → `INVALID_REPEAT`. See
+            `PUT /api/tasks/{id}`.
         priority:
           allOf:
             - $ref: '#/components/schemas/Priority'
@@ -5723,7 +5911,7 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat]
           description: |
             Name of the request field (exactly as in the request body, or the query parameter).
             `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
@@ -5732,10 +5920,10 @@ components:
             `POST /api/lists/{id}/invitations` (0.13.0). `dueTime` and `reminder` (`PUT
             /api/tasks/{id}`), `timeZone` (`PUT /api/account/time-zone`), `enabled`
             (`PUT /api/account/reminder-emails`) and `limit` (`GET /api/notifications`) are new in
-            0.14.0.
+            0.14.0. `repeat` (`PUT /api/tasks/{id}`) is new in 0.15.0.
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR, REQUIRES_DUE_DATE, INVALID_REMINDER, INVALID_TIME_ZONE]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR, REQUIRES_DUE_DATE, INVALID_REMINDER, INVALID_TIME_ZONE, INVALID_REPEAT]
           description: |
             Stable machine-readable reason.
             - REQUIRED: missing, null, empty or blank (for `tags`: an element is; for `done` on
@@ -5753,6 +5941,12 @@ components:
               `PUT /api/tasks/{id}`) a time or a reminder was sent without a `dueDate`
             - INVALID_REMINDER: (new in 0.14.0, field `reminder`) not one of the offsets, or an
               offset that does not fit the task (timed vs date-only)
+            - INVALID_REPEAT: (new in 0.15.0, field `repeat`) unknown frequency or weekday, a
+              string other than `NEVER`, or weekdays on a non-weekly rule
+            - REQUIRED also: (0.15.0, field `repeat`) `frequency` missing, or `WEEKLY` without
+              weekdays
+            - REQUIRES_DUE_DATE also: (0.15.0, field `repeat`) a rule was sent without a
+              `dueDate`
             - INVALID_TIME_ZONE: (new in 0.14.0, field `timeZone`) not an IANA region id
             - OUT_OF_RANGE also: (0.14.0, `limit` of `GET /api/notifications`) not an integer
               1-50
