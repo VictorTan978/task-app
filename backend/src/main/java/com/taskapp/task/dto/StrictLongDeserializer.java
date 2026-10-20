@@ -1,11 +1,10 @@
 package com.taskapp.task.dto;
 
-import java.io.IOException;
-
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
+import tools.jackson.databind.DeserializationContext;
+import tools.jackson.databind.deser.std.StdDeserializer;
 
 /**
  * Only accepts a JSON integer that fits a {@code long} (nulls are handled by Jackson before this is called). Used for
@@ -18,7 +17,7 @@ class StrictLongDeserializer extends StdDeserializer<Long> {
     }
 
     @Override
-    public Long deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+    public Long deserialize(JsonParser p, DeserializationContext ctxt) throws JacksonException {
         if (p.currentToken() == JsonToken.VALUE_NUMBER_INT) {
             // Throws (a malformed body) when the value does not fit a long.
             return p.getLongValue();

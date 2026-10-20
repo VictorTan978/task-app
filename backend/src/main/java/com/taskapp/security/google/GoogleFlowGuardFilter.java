@@ -18,7 +18,7 @@ import org.springframework.security.web.servlet.util.matcher.PathPatternRequestM
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.taskapp.common.error.ErrorCode;
 import com.taskapp.common.error.Problems;
 import com.taskapp.security.AuthenticatedUser;

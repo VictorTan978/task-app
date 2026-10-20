@@ -1,11 +1,10 @@
 package com.taskapp.task.dto;
 
-import java.io.IOException;
-
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
+import tools.jackson.databind.DeserializationContext;
+import tools.jackson.databind.deser.std.StdDeserializer;
 
 /**
  * Only accepts JSON strings (nulls are handled by Jackson before this is called). Used for {@code tags} elements so
@@ -18,9 +17,9 @@ class StrictStringDeserializer extends StdDeserializer<String> {
     }
 
     @Override
-    public String deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+    public String deserialize(JsonParser p, DeserializationContext ctxt) throws JacksonException {
         if (p.currentToken() == JsonToken.VALUE_STRING) {
-            return p.getText();
+            return p.getString();
         }
         return (String) ctxt.handleUnexpectedToken(String.class, p);
     }

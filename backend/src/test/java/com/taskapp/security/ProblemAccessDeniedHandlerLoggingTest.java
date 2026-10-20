@@ -15,7 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.csrf.InvalidCsrfTokenException;
 import org.springframework.security.web.csrf.DefaultCsrfToken;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.taskapp.security.audit.SecurityLogCapture;
 
 /** No endpoint currently answers a plain 403, so ACCESS_DENIED is checked on the handler directly. */
