@@ -55,6 +55,9 @@ public final class ErrorCode {
     /** 404 on accept, decline and cancel: "This invitation is no longer valid" (0.13.0). */
     public static final String INVITATION_NOT_FOUND = "INVITATION_NOT_FOUND";
 
+    /** 404 on {@code POST /api/notifications/{id}/read}: unknown or another user's notification (0.14.0). */
+    public static final String NOTIFICATION_NOT_FOUND = "NOTIFICATION_NOT_FOUND";
+
     /** Field-level codes used inside {@code errors[]}. */
     public static final String REQUIRED = "REQUIRED";
     public static final String INVALID_EMAIL = "INVALID_EMAIL";
@@ -74,6 +77,13 @@ public final class ErrorCode {
     public static final String STATUS_CONFLICT = "STATUS_CONFLICT";
     /** {@code cursor} of the task list: unreadable or issued for another filter/sort/tag/search (0.11.0). */
     public static final String INVALID_CURSOR = "INVALID_CURSOR";
+
+    /** {@code dueTime} / {@code reminder} sent without a {@code dueDate} (0.14.0). */
+    public static final String REQUIRES_DUE_DATE = "REQUIRES_DUE_DATE";
+    /** {@code reminder}: unknown, or does not fit a timed / date-only task (0.14.0). */
+    public static final String INVALID_REMINDER = "INVALID_REMINDER";
+    /** {@code timeZone}: not an IANA region id (0.14.0). */
+    public static final String INVALID_TIME_ZONE = "INVALID_TIME_ZONE";
 
     private ErrorCode() {
     }

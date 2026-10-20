@@ -2,6 +2,7 @@ package com.taskapp.task;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
@@ -20,6 +21,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.validation.MapBindingResult;
 
 import com.taskapp.auth.InvalidFieldsException;
+import com.taskapp.reminder.ReminderOffset;
+import com.taskapp.reminder.ReminderService;
+import com.taskapp.task.validation.ValidReminderValue;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.TaskPage;
@@ -59,20 +63,23 @@ public class TaskService {
     private final TaskRepository taskRepository;
     private final TagService tagService;
     private final ListService listService;
+    private final ReminderService reminders;
     private final TransactionOperations transaction;
     private final Clock clock;
 
     @Autowired
     public TaskService(TaskRepository taskRepository, TagService tagService, ListService listService,
-            PlatformTransactionManager transactions) {
-        this(taskRepository, tagService, listService, new TransactionTemplate(transactions), Clock.systemUTC());
+            ReminderService reminders, PlatformTransactionManager transactions) {
+        this(taskRepository, tagService, listService, reminders, new TransactionTemplate(transactions),
+                Clock.systemUTC());
     }
 
     TaskService(TaskRepository taskRepository, TagService tagService, ListService listService,
-            TransactionOperations transaction, Clock clock) {
+            ReminderService reminders, TransactionOperations transaction, Clock clock) {
         this.taskRepository = taskRepository;
         this.tagService = tagService;
         this.listService = listService;
+        this.reminders = reminders;
         this.transaction = transaction;
         this.clock = clock;
     }
@@ -122,16 +129,17 @@ public class TaskService {
                 : null;
         Map<Long, List<String>> tags = tagService.namesByTask(listId, tasks.stream().map(Task::getId).toList());
         Map<Long, String> names = displayNames(tasks.stream().map(Task::getOwnerId).toList());
+        Map<Long, ReminderService.Mine> mine = reminders.mine(userId, tasks.stream().map(Task::getId).toList());
         List<TaskResponse> items = tasks.stream()
                 .map(task -> TaskResponse.from(task, tags.getOrDefault(task.getId(), List.of()),
-                        names.get(task.getOwnerId())))
+                        names.get(task.getOwnerId()), mine.get(task.getId())))
                 .toList();
         return new TaskPage(items, total, nextCursor);
     }
 
     @Transactional(readOnly = true)
     public TaskResponse get(long userId, long id) {
-        return withTags(find(userId, id));
+        return withTags(userId, find(userId, id));
     }
 
     /**
@@ -151,7 +159,7 @@ public class TaskService {
             }
             Task task = new Task(userId, list.getId(), request.title(), request.description(), request.dueDate(),
                     now());
-            return respond(taskRepository.saveAndFlush(task), List.of());
+            return respond(userId, taskRepository.saveAndFlush(task), List.of());
         }));
     }
 
@@ -166,32 +174,48 @@ public class TaskService {
             return writeLocked(userId, id, null, false, (task, lists) -> {
                 applyFields(task, request);
                 saveOrNotFound(task);
-                return withTags(task);
+                reminders.afterTaskSaved(task, userId, request.reminder());
+                return withTags(userId, task);
             });
         }
         return writeLocked(userId, id, request.listId(), true, (task, lists) -> {
             applyFields(task, request);
             saveOrNotFound(task);
+            reminders.afterTaskSaved(task, userId, request.reminder());
             TaskList source = lists.source();
             TaskList target = lists.target();
             if (target == null) {
                 List<String> tags = request.tags() == null ? tagService.namesOf(source.getId(), task.getId())
                         : tagService.replaceTags(source.getOwnerId(), source.getId(), task.getId(), request.tags());
-                return respond(task, tags);
+                return respond(userId, task, tags);
             }
             if (taskRepository.moveToList(task.getId(), source.getId(), target.getId()) == 0) {
                 // Not reachable: the source list's lock keeps the task in it.
                 throw new TaskNotFoundException();
             }
             task.movedTo(target.getId());
-            return respond(task, tagService.moveTags(target.getOwnerId(), source.getId(), target.getId(),
+            return respond(userId, task, tagService.moveTags(target.getOwnerId(), source.getId(), target.getId(),
                     task.getId(), request.tags()));
         });
     }
 
+    /**
+     * The due time is replaced like the date, except that a time that is not sent stays (0.14.0); clearing the date
+     * drops it. A reminder offset must fit the resulting task (timed or date-only), else 400 {@code reminder} /
+     * {@code INVALID_REMINDER} and nothing is saved.
+     */
     private void applyFields(Task task, ReplaceTaskRequest request) {
         Instant now = now();
-        task.replace(request.title(), request.description(), request.dueDate(), now);
+        LocalTime dueTime = request.dueDate() == null ? null
+                : request.dueTime() == null ? task.getDueTime() : request.dueTime().value();
+        ReminderOffset.parse(request.reminder()).ifPresent(offset -> {
+            if (request.dueDate() != null && !offset.fits(dueTime != null)) {
+                MapBindingResult errors = new MapBindingResult(new HashMap<>(), "replaceTaskRequest");
+                errors.rejectValue("reminder", "InvalidReminder", ValidReminderValue.MESSAGE);
+                throw new InvalidFieldsException(errors);
+            }
+        });
+        task.replace(request.title(), request.description(), request.dueDate(), dueTime, now);
         if (request.priority() != null) {
             task.changePriority(request.priority(), now);
         }
@@ -206,7 +230,7 @@ public class TaskService {
         return writeLocked(userId, id, null, false, (task, lists) -> {
             task.changeStatus(TaskStatus.resolve(task.getStatus(), status, done), now());
             saveOrNotFound(task);
-            return withTags(task);
+            return withTags(userId, task);
         });
     }
 
@@ -320,15 +344,18 @@ public class TaskService {
     private record Located(TaskList source, TaskList target) {
     }
 
-    private TaskResponse withTags(Task task) {
-        return respond(task, tagService.namesOf(task.getListId(), task.getId()));
+    private TaskResponse withTags(long userId, Task task) {
+        return respond(userId, task, tagService.namesOf(task.getListId(), task.getId()));
     }
 
-    /** The response with {@code addedBy} looked up (one primary-key read; none when the adder's account is gone). */
-    private TaskResponse respond(Task task, List<String> tags) {
+    /**
+     * The response with {@code addedBy} looked up (one primary-key read; none when the adder's account is gone) and
+     * the caller's own reminder on the task (one indexed read).
+     */
+    private TaskResponse respond(long userId, Task task, List<String> tags) {
         Long adder = task.getOwnerId();
         String name = adder == null ? null : displayNames(List.of(adder)).get(adder);
-        return TaskResponse.from(task, tags, name);
+        return TaskResponse.from(task, tags, name, reminders.mine(userId, List.of(task.getId())).get(task.getId()));
     }
 
     /** Display name per user id, one query; null ids (deleted adders) and deleted accounts are absent. */

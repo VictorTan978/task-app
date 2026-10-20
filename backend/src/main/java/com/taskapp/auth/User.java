@@ -60,6 +60,14 @@ public class User {
     @Column(name = "disabled_at")
     private Instant disabledAt;
 
+    /** IANA region id (V12); null until set, then reminders are computed in UTC. */
+    @Column(name = "time_zone", length = 64)
+    private String timeZone;
+
+    /** Whether a fired reminder also sends an email (V12; the in-app notification is always created). */
+    @Column(name = "reminder_emails", nullable = false)
+    private boolean reminderEmails = true;
+
     /**
      * Connected external sign-in accounts (V7). Rows are written through {@link UserConnectionRepository}. Deleting
      * the user deletes them first by primary key (REMOVE cascade, needed once they are loaded; the database's
@@ -127,6 +135,23 @@ public class User {
     /** The connected external sign-in accounts, ordered by provider. */
     public List<UserConnection> getConnections() {
         return connections;
+    }
+
+    public String getTimeZone() {
+        return timeZone;
+    }
+
+    public boolean isReminderEmails() {
+        return reminderEmails;
+    }
+
+    /** {@code timeZone} must already be a valid region id. */
+    public void changeTimeZone(String timeZone) {
+        this.timeZone = timeZone;
+    }
+
+    public void changeReminderEmails(boolean reminderEmails) {
+        this.reminderEmails = reminderEmails;
     }
 
     public Role getRole() {

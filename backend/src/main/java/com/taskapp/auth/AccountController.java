@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.taskapp.auth.dto.ChangeDisplayNameRequest;
 import com.taskapp.auth.dto.ChangePasswordRequest;
 import com.taskapp.auth.dto.DeleteAccountRequest;
+import com.taskapp.auth.dto.SetReminderEmailsRequest;
+import com.taskapp.auth.dto.SetTimeZoneRequest;
 import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.security.SessionAuthenticator;
@@ -45,6 +47,19 @@ public class AccountController {
             SecurityEventLogger.log(SecurityEvent.DISPLAY_NAME_CHANGED, request, change.user().email());
         }
         return change.user();
+    }
+
+    /** Contract 0.14.0. Nothing about the session changes (the principal does not carry the zone). */
+    @PutMapping("/time-zone")
+    public UserResponse setTimeZone(@AuthenticationPrincipal AuthenticatedUser principal,
+            @Valid @RequestBody SetTimeZoneRequest body) {
+        return accountService.setTimeZone(principal.id(), body.timeZone(), body.onlyIfUnset());
+    }
+
+    @PutMapping("/reminder-emails")
+    public UserResponse setReminderEmails(@AuthenticationPrincipal AuthenticatedUser principal,
+            @Valid @RequestBody SetReminderEmailsRequest body) {
+        return accountService.setReminderEmails(principal.id(), body.enabled());
     }
 
     /** Also ends all other sessions; this one stays signed in with a new session id. */

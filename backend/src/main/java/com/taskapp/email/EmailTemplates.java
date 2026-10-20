@@ -1,6 +1,10 @@
 package com.taskapp.email;
 
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 import org.springframework.web.util.HtmlUtils;
 
@@ -66,7 +70,53 @@ public final class EmailTemplates {
             The invitation expires in %s. If you don't know %s, you can ignore this email.
             """;
 
+    private static final String REMINDER_TEXT = """
+            Hi %s,
+
+            %s
+
+            List: %s
+
+            Open it (sign in first if needed):
+
+            %s
+
+            You get this email because reminder emails are on for your Task App account. To turn them off, open \
+            Account in Task App and switch off "Reminder emails".
+            """;
+
+    private static final DateTimeFormatter REMINDER_DATE = DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.ENGLISH);
+    private static final DateTimeFormatter REMINDER_TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
+    private static final int REMINDER_SUBJECT_TITLE_MAX = 80;
+
     private EmailTemplates() {
+    }
+
+    /**
+     * "Reminder: &lt;title&gt;" (T4a, contract 0.14.0). {@code dueDate} / {@code dueTime} are the task's wall-clock
+     * values as stored, shown as they are (a due time is the same clock time in every member's zone). The task title
+     * and list name are user input: handled like in {@link #listInvitation} (one line, HTML-escaped in the HTML part).
+     * Never contains the description. {@code late}: the reminder is more than a few minutes after its time.
+     */
+    public static EmailContent reminder(String recipientDisplayName, String title, LocalDate dueDate,
+            LocalTime dueTime, String listName, String link, boolean late) {
+        String recipient = oneLine(recipientDisplayName);
+        String task = oneLine(title);
+        String list = oneLine(listName);
+        String shortTitle = task.length() > REMINDER_SUBJECT_TITLE_MAX
+                ? task.substring(0, REMINDER_SUBJECT_TITLE_MAX - 1) + "…" : task;
+        String subject = "Reminder: " + shortTitle;
+        String due = REMINDER_DATE.format(dueDate) + (dueTime == null ? "" : " at " + REMINDER_TIME.format(dueTime));
+        String lateNote = late ? " This reminder is late." : "";
+        String sentence = "Your task \"" + task + "\" is due on " + due + "." + lateNote;
+        String htmlSentence = "Your task &quot;" + HtmlUtils.htmlEscape(task) + "&quot; is due on "
+                + HtmlUtils.htmlEscape(due) + "." + lateNote + "<br>List: " + HtmlUtils.htmlEscape(list);
+        return new EmailContent(subject,
+                REMINDER_TEXT.formatted(recipient, sentence, list, link),
+                HTML.formatted(HtmlUtils.htmlEscape(subject), HtmlUtils.htmlEscape(recipient), htmlSentence,
+                        HtmlUtils.htmlEscape(link), "Open the list",
+                        "You get this email because reminder emails are on for your Task App account. To turn"
+                                + " them off, open Account in Task App and switch off &quot;Reminder emails&quot;."));
     }
 
     /**

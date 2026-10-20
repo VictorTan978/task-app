@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
@@ -26,19 +27,27 @@ import java.util.zip.CRC32;
  * <p>
  * Wire format: base64url WITHOUT padding (only {@code A-Z a-z 0-9 - _}) of a binary record: version, sort, the
  * {@link TaskListQuery#fingerprint(long) fingerprint} of the request it was issued for, done, the sort's own key
- * (due date, priority or title), created_at in epoch microseconds, id; then a CRC32 of all that, so a damaged
+ * (due date and, since 3, due time; priority; or title), created_at in epoch microseconds, id; then a CRC32 of all that, so a damaged
  * cursor is rejected. Not signed: the list is always checked against the session's user first, so a forged cursor
  * can only move inside one of the caller's own lists. At most 1024 characters (the longest, a 200-character title of 3-byte UTF-8 characters,
  * is about 845).
  */
-public record TaskCursor(boolean done, LocalDate dueDate, Priority priority, String title, Instant createdAt,
-        long id) {
+public record TaskCursor(boolean done, LocalDate dueDate, LocalTime dueTime, Priority priority, String title,
+        Instant createdAt, long id) {
+
+    /** A cursor without a due time (every sort but {@code due}, or a task with a date only). */
+    public TaskCursor(boolean done, LocalDate dueDate, Priority priority, String title, Instant createdAt, long id) {
+        this(done, dueDate, null, priority, title, createdAt, id);
+    }
 
     public static final int MAX_LENGTH = 1024;
     static final int FINGERPRINT_LENGTH = 8;
 
-    /** 2 since 0.12.0: the fingerprint includes the list, so every version 1 cursor is rejected once. */
-    private static final int VERSION = 2;
+    /**
+     * 3 since 0.14.0: the due sort carries the due time; 2 since 0.12.0: the fingerprint includes the list. Cursors of
+     * an older version are rejected once.
+     */
+    private static final int VERSION = 3;
     private static final int CHECKSUM_LENGTH = 4;
     private static final int MAX_TITLE_LENGTH = 200;
     private static final Pattern BASE64URL_NO_PADDING = Pattern.compile("[A-Za-z0-9_-]+");
@@ -49,6 +58,7 @@ public record TaskCursor(boolean done, LocalDate dueDate, Priority priority, Str
     public static TaskCursor after(Task task, TaskSort sort) {
         return new TaskCursor(task.isDone(),
                 sort == TaskSort.DUE ? task.getDueDate() : null,
+                sort == TaskSort.DUE ? task.getDueTime() : null,
                 sort == TaskSort.PRIORITY ? task.getPriority() : null,
                 sort == TaskSort.TITLE ? task.getTitle() : null,
                 task.getCreatedAt(), task.getId());
@@ -66,6 +76,10 @@ public record TaskCursor(boolean done, LocalDate dueDate, Priority priority, Str
                     out.writeBoolean(dueDate != null);
                     if (dueDate != null) {
                         out.writeLong(dueDate.toEpochDay());
+                        out.writeBoolean(dueTime != null);
+                        if (dueTime != null) {
+                            out.writeInt(dueTime.toSecondOfDay());
+                        }
                     }
                 }
                 case PRIORITY -> out.writeByte(priority.ordinal());
@@ -119,12 +133,16 @@ public record TaskCursor(boolean done, LocalDate dueDate, Priority priority, Str
             }
             boolean done = readBoolean(in);
             LocalDate due = null;
+            LocalTime dueTime = null;
             Priority priority = null;
             String title = null;
             switch (sort) {
                 case DUE -> {
                     if (readBoolean(in)) {
                         due = LocalDate.ofEpochDay(in.readLong());
+                        if (readBoolean(in)) {
+                            dueTime = LocalTime.ofSecondOfDay(in.readInt());
+                        }
                     }
                 }
                 case PRIORITY -> {
@@ -148,7 +166,7 @@ public record TaskCursor(boolean done, LocalDate dueDate, Priority priority, Str
             if (in.available() != 0 || !inSqlRange(due) || !inSqlRange(LocalDate.ofInstant(createdAt, ZoneOffset.UTC))) {
                 return Optional.empty();
             }
-            return Optional.of(new TaskCursor(done, due, priority, title, createdAt, id));
+            return Optional.of(new TaskCursor(done, due, dueTime, priority, title, createdAt, id));
         } catch (IOException | RuntimeException e) {
             // EOF (truncated), a date or instant out of range, ...
             return Optional.empty();

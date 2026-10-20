@@ -16,6 +16,7 @@ import org.springframework.validation.DirectFieldBindingResult;
 import com.taskapp.auth.dto.ChangeDisplayNameRequest;
 import com.taskapp.auth.dto.ChangePasswordRequest;
 import com.taskapp.auth.dto.DeleteAccountRequest;
+import com.taskapp.reminder.ReminderService;
 import com.taskapp.auth.dto.UserResponse;
 import com.taskapp.security.HashedRememberMeServices;
 import com.taskapp.security.SessionRenewal;
@@ -36,20 +37,23 @@ public class AccountService {
     private final RememberMeTokenRepository rememberMeTokens;
     private final UserConnectionRepository connections;
     private final ListService listService;
+    private final ReminderService reminders;
     private final TransactionOperations transaction;
 
     @Autowired
     public AccountService(UserRepository userRepository, PasswordEncoder passwordEncoder,
             AuthRateLimiter rateLimiter, RememberMeTokenRepository rememberMeTokens,
-            UserConnectionRepository connections, ListService listService,
+            UserConnectionRepository connections, ListService listService, ReminderService reminders,
             PlatformTransactionManager transactions) {
-        this(userRepository, passwordEncoder, rateLimiter, rememberMeTokens, connections, listService,
+        this(userRepository, passwordEncoder, rateLimiter, rememberMeTokens, connections, listService, reminders,
                 new TransactionTemplate(transactions));
     }
 
     AccountService(UserRepository userRepository, PasswordEncoder passwordEncoder,
             AuthRateLimiter rateLimiter, RememberMeTokenRepository rememberMeTokens,
-            UserConnectionRepository connections, ListService listService, TransactionOperations transaction) {
+            UserConnectionRepository connections, ListService listService, ReminderService reminders,
+            TransactionOperations transaction) {
+        this.reminders = reminders;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.rateLimiter = rateLimiter;
@@ -84,6 +88,44 @@ public class AccountService {
             throw e;
         }
         return new DisplayNameChange(UserResponse.from(user), true);
+    }
+
+    /**
+     * Sets the user's IANA time zone ({@code timeZone} is already validated) and recomputes the fire time of all
+     * their reminders when it changed. {@code ifUnset}: one atomic {@code UPDATE ... WHERE time_zone IS NULL}, so
+     * two devices signing in at once cannot overwrite each other; if a zone exists nothing changes. Otherwise the
+     * user's row is locked, the zone replaced (the same zone changes nothing). Runs again if it lost a deadlock
+     * with a task save (both lock reminder rows).
+     */
+    public UserResponse setTimeZone(long userId, String timeZone, boolean ifUnset) {
+        return DeadlockRetry.run(() -> transaction.execute(status -> {
+            boolean changed;
+            if (ifUnset) {
+                changed = userRepository.setTimeZoneIfUnset(userId, timeZone) == 1;
+            } else {
+                User user = userRepository.findByIdForUpdate(userId).orElseThrow(UnauthenticatedException::new);
+                changed = !timeZone.equals(user.getTimeZone());
+                if (changed) {
+                    user.changeTimeZone(timeZone);
+                    userRepository.saveAndFlush(user);
+                }
+            }
+            if (changed) {
+                reminders.zoneChanged(userId);
+            }
+            return UserResponse.from(load(userId));
+        }));
+    }
+
+    /** Turns reminder emails on or off; respected from the next reminder. */
+    @Transactional
+    public UserResponse setReminderEmails(long userId, boolean enabled) {
+        User user = load(userId);
+        if (user.isReminderEmails() != enabled) {
+            user.changeReminderEmails(enabled);
+            userRepository.saveAndFlush(user);
+        }
+        return UserResponse.from(user);
     }
 
     /**

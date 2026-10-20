@@ -55,6 +55,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("select u from User u where u.id in :ids order by u.id")
     List<User> findAllByIdForUpdate(@Param("ids") Collection<Long> ids);
 
+    /** Sets the zone only if the user has none yet (one atomic statement). Row count 1 = it was set now. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update User u set u.timeZone = :timeZone where u.id = :id and u.timeZone is null")
+    int setTimeZoneIfUnset(@Param("id") long id, @Param("timeZone") String timeZone);
+
     boolean existsByRole(Role role);
 
     /**

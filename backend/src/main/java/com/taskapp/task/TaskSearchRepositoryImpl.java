@@ -102,6 +102,10 @@ class TaskSearchRepositoryImpl implements TaskSearchRepository {
                 keys.add(new Key("(t.due_date IS NULL)", true, after == null ? null : after.dueDate() == null ? 1 : 0));
                 // Inside the "no due date" part every due_date is NULL: nothing to compare.
                 keys.add(new Key("t.due_date", true, after == null ? null : after.dueDate()));
+                // Inside one date: timed tasks first by time, then date-only tasks (every due_time NULL: nothing to
+                // compare). Inside "no due date" both are constant, so these keys never decide anything there.
+                keys.add(new Key("(t.due_time IS NULL)", true, after == null ? null : after.dueTime() == null ? 1 : 0));
+                keys.add(new Key("t.due_time", true, after == null ? null : after.dueTime()));
             }
             case PRIORITY -> keys.add(new Key(PRIORITY_RANK, true, after == null ? null : rank(after.priority())));
             case TITLE -> keys.add(new Key("t.title", true, after == null ? null : after.title()));

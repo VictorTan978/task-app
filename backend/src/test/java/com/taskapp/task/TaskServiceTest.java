@@ -50,6 +50,7 @@ class TaskServiceTest {
     private final TaskRepository repository = mock(TaskRepository.class);
     private final TagService tagService = mock(TagService.class);
     private final ListService listService = mock(ListService.class);
+    private final com.taskapp.reminder.ReminderService reminders = mock(com.taskapp.reminder.ReminderService.class);
     private TaskService service;
 
     /** The owner's "My tasks" (3) and another list of theirs (8). */
@@ -82,7 +83,8 @@ class TaskServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new TaskService(repository, tagService, listService, TransactionOperations.withoutTransaction(),
+        service = new TaskService(repository, tagService, listService, reminders,
+                TransactionOperations.withoutTransaction(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(listService.resolve(OWNER, null)).thenReturn(MY_TASKS);
         when(listService.personal(OWNER)).thenReturn(MY_TASKS_LIST);
@@ -139,7 +141,8 @@ class TaskServiceTest {
                 new CreateTaskRequest("Buy milk", null, LocalDate.parse("2026-10-10"), null));
 
         assertThat(created).isEqualTo(new TaskResponse(12L, MY_TASKS, OWNER_NAME, "Buy milk", null, Priority.NONE,
-                TaskStatus.TODO, List.of(), false, LocalDate.parse("2026-10-10"), NOW_MICROS, NOW_MICROS));
+                TaskStatus.TODO, List.of(), false, LocalDate.parse("2026-10-10"), null, null, false, NOW_MICROS,
+                NOW_MICROS));
         verify(repository).saveAndFlush(any(Task.class));
         verifyNoInteractions(tagService);
     }
@@ -373,7 +376,7 @@ class TaskServiceTest {
 
         assertThat(updated).isEqualTo(new TaskResponse(12L, MY_TASKS, OWNER_NAME, "Buy oat milk", null, Priority.NONE,
                 TaskStatus.DONE,
-                List.of(), true, null, CREATED, NOW_MICROS));
+                List.of(), true, null, null, null, false, CREATED, NOW_MICROS));
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.taskapp.task;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -63,6 +64,10 @@ public class Task {
     @Column(name = "due_date")
     private LocalDate dueDate;
 
+    /** Wall-clock time of the due date (V12), the same clock time in every member's zone; null = date-only. */
+    @Column(name = "due_time")
+    private LocalTime dueTime;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -86,11 +91,20 @@ public class Task {
         this.updatedAt = now;
     }
 
-    /** Full replacement of the text fields and due date. Priority, status and tags are set separately. */
+    /** Full replacement of the text fields and due date; the due time is dropped. */
     public void replace(String title, String description, LocalDate dueDate, Instant now) {
+        replace(title, description, dueDate, null, now);
+    }
+
+    /**
+     * Full replacement of the text fields, due date and due time ({@code dueTime} only together with a date: the
+     * caller has dropped it when the date is cleared). Priority, status and tags are set separately.
+     */
+    public void replace(String title, String description, LocalDate dueDate, LocalTime dueTime, Instant now) {
         this.title = title;
         this.description = description;
         this.dueDate = dueDate;
+        this.dueTime = dueDate == null ? null : dueTime;
         this.updatedAt = now;
     }
 
@@ -146,6 +160,10 @@ public class Task {
 
     public LocalDate getDueDate() {
         return dueDate;
+    }
+
+    public LocalTime getDueTime() {
+        return dueTime;
     }
 
     public Instant getCreatedAt() {

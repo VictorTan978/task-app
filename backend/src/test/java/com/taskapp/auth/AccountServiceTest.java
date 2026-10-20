@@ -59,6 +59,7 @@ class AccountServiceTest {
     private final RememberMeTokenRepository rememberMeTokens = mock(RememberMeTokenRepository.class);
     private final UserConnectionRepository connections = mock(UserConnectionRepository.class);
     private final ListService listService = mock(ListService.class);
+    private final com.taskapp.reminder.ReminderService reminders = mock(com.taskapp.reminder.ReminderService.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private AccountService accountService;
     private User bob;
@@ -69,7 +70,7 @@ class AccountServiceTest {
         AuthRateLimiter rateLimiter = new AuthRateLimiter(new RateLimitProperties(
                 5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)), Clock.systemUTC());
         accountService = new AccountService(userRepository, passwordEncoder, rateLimiter, rememberMeTokens,
-                connections, listService, TransactionOperations.withoutTransaction());
+                connections, listService, reminders, TransactionOperations.withoutTransaction());
         // Delete account loads (and locks) the user with findByIdForUpdate: same answers as findById.
         when(userRepository.findByIdForUpdate(anyLong()))
                 .thenAnswer(inv -> userRepository.findById(inv.<Long>getArgument(0)));

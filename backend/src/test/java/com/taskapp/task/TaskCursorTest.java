@@ -98,12 +98,12 @@ class TaskCursorTest {
         assertThat(TaskCursor.decode(encoded, TaskSort.TITLE, query.fingerprint(4L))).isEmpty();
     }
 
-    /** 0.12.0 writes version 2; a version 1 cursor (0.11.0) is rejected, see otherRequestsAndFormatsAreRejected. */
+    /** 0.14.0 writes version 3; older cursors are rejected once, see otherRequestsAndFormatsAreRejected. */
     @Test
-    void cursorsAreVersion2() {
+    void cursorsAreVersion3() {
         String encoded = cursor(TaskSort.NEWEST, null).encode(TaskSort.NEWEST, FINGERPRINT);
         byte[] raw = Base64.getUrlDecoder().decode(encoded);
-        assertThat(raw[0]).isEqualTo((byte) 2);
+        assertThat(raw[0]).isEqualTo((byte) 3);
     }
 
     @Test
@@ -118,5 +118,19 @@ class TaskCursorTest {
         assertThat(TaskListQuery.of(null, null, null, "Deep Work", "MILK", null).fingerprint(3L)).isNotEqualTo(base);
         assertThat(TaskListQuery.of(null, null, null, "  ", "milk", null).fingerprint(3L))
                 .isEqualTo(TaskListQuery.of(null, null, null, null, "milk", null).fingerprint(3L));
+    }
+
+    @org.junit.jupiter.api.Test
+    void dueCursorCarriesTheDueTime() {
+        TaskCursor timed = new TaskCursor(false, LocalDate.parse("2026-10-21"), java.time.LocalTime.of(9, 30), null,
+                null, CREATED, 7L);
+        assertThat(TaskCursor.decode(timed.encode(TaskSort.DUE, FINGERPRINT), TaskSort.DUE, FINGERPRINT))
+                .contains(timed);
+        TaskCursor dateOnly = new TaskCursor(false, LocalDate.parse("2026-10-21"), null, null, null, CREATED, 8L);
+        assertThat(TaskCursor.decode(dateOnly.encode(TaskSort.DUE, FINGERPRINT), TaskSort.DUE, FINGERPRINT))
+                .contains(dateOnly);
+        TaskCursor noDate = new TaskCursor(true, null, null, null, null, CREATED, 9L);
+        assertThat(TaskCursor.decode(noDate.encode(TaskSort.DUE, FINGERPRINT), TaskSort.DUE, FINGERPRINT))
+                .contains(noDate);
     }
 }
