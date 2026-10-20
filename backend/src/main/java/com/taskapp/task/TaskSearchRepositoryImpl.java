@@ -25,6 +25,10 @@ class TaskSearchRepositoryImpl implements TaskSearchRepository {
     /** LIKE escape character. Not a backslash: MySQL also treats that as a string escape. */
     static final char LIKE_ESCAPE = '!';
 
+    /** The cursor's due time as text: a bound LocalTime would be shifted by the JVM zone (see WallClockTimeType). */
+    private static final java.time.format.DateTimeFormatter TIME_PARAM =
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
+
     private static final String PRIORITY_RANK =
             "CASE t.priority WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 WHEN 'LOW' THEN 2 ELSE 3 END";
 
@@ -105,7 +109,7 @@ class TaskSearchRepositoryImpl implements TaskSearchRepository {
                 // Inside one date: timed tasks first by time, then date-only tasks (every due_time NULL: nothing to
                 // compare). Inside "no due date" both are constant, so these keys never decide anything there.
                 keys.add(new Key("(t.due_time IS NULL)", true, after == null ? null : after.dueTime() == null ? 1 : 0));
-                keys.add(new Key("t.due_time", true, after == null ? null : after.dueTime()));
+                keys.add(new Key("t.due_time", true, after == null || after.dueTime() == null ? null : after.dueTime().format(TIME_PARAM)));
             }
             case PRIORITY -> keys.add(new Key(PRIORITY_RANK, true, after == null ? null : rank(after.priority())));
             case TITLE -> keys.add(new Key("t.title", true, after == null ? null : after.title()));

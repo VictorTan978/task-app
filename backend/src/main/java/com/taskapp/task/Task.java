@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Type;
 import org.hibernate.type.SqlTypes;
 
 import jakarta.persistence.Column;
@@ -65,6 +66,7 @@ public class Task {
     private LocalDate dueDate;
 
     /** Wall-clock time of the due date (V12), the same clock time in every member's zone; null = date-only. */
+    @Type(WallClockTimeType.class)
     @Column(name = "due_time")
     private LocalTime dueTime;
 
