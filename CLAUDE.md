@@ -24,6 +24,20 @@ Full-stack task app: Angular frontend + Spring Boot backend + MySQL.
 | `frontend-dev` | States data needs, builds UI | `frontend/` |
 | `tester` | Verifies against the spec; never fixes code | `frontend/e2e/`, `test-results/` |
 
+### Model routing
+
+Built-in agents have no model of their own, so set `model` on every Agent call:
+
+| Agent | Model |
+|---|---|
+| Main session, `Plan` | Opus 5.5 (inherited; pass no `model`) |
+| `backend-dev`, `frontend-dev`, `tester` | Sonnet 5.5 (pinned in agent file) |
+| `researcher` | Haiku 5.5 (pinned in agent file) |
+| `general-purpose` (incl. swarm fan-outs) | pass `model: "sonnet"` |
+| `Explore`, quick lookup (where is X, who calls Y, one area) | pass `model: "haiku"`, or use `researcher` |
+| `Explore`, broad sweep / tracing a flow across many areas | pass `model: "sonnet"` |
+| Deep reasoning / design | not Explore: use `Plan` or the main session (Opus) |
+
 Subagents cannot talk to each other and **remember nothing between calls**. Every time you delegate, pass the full context they need: spec path, contract decisions, the other agent's latest message, and what you want back.
 
 ### How the user calls agents
