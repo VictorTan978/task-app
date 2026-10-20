@@ -88,7 +88,7 @@ interface TaskList {
 }
 const TASK_KEYS = [
   'addedBy', 'createdAt', 'description', 'done', 'dueDate', 'dueTime', 'id', 'listId', 'myReminder',
-  'myReminderPassed', 'priority', 'status', 'tags', 'title', 'updatedAt',
+  'myReminderPassed', 'priority', 'repeat', 'status', 'tags', 'title', 'updatedAt',
 ];
 const USER_KEYS = ['connections', 'displayName', 'email', 'emailVerified', 'hasPassword', 'id', 'reminderEmails', 'role', 'timeZone'];
 const NOTIF_KEYS = ['createdAt', 'dueDate', 'dueTime', 'id', 'late', 'listId', 'read', 'taskId', 'title', 'type'];
@@ -573,7 +573,7 @@ test.describe('due time', () => {
     const u = await kit.newUser({ browserTz: 'Asia/Tokyo' });
     const t = await mkTask(u, { title: 'Dateonly', dueDate: '2031-01-02' });
     expect(t).toMatchObject({ dueDate: '2031-01-02', dueTime: null, myReminder: null, myReminderPassed: false });
-    expect(Object.keys(t).sort()).toEqual(TASK_KEYS);
+    expect(Object.keys(t).filter((k) => k !== 'nextTask').sort()).toEqual(TASK_KEYS); // PUT answers a TaskResult (0.15.0): Task + nextTask
     await gotoTasks(u.page);
     await expect(rowOf(u.page, 'Dateonly').locator('.task-row__due')).toHaveText('Due 2031-01-02');
     await expect(rowOf(u.page, 'Dateonly').getByTestId('task-reminder')).toHaveCount(0);

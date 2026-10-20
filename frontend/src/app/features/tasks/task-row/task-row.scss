@@ -85,7 +85,8 @@
     background: var(--color-info-bg);
   }
 
-  &__reminder {
+  &__reminder,
+  &__repeat {
     font-size: 0.75rem;
   }
 

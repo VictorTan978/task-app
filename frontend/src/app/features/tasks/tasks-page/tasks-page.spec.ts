@@ -27,6 +27,7 @@ function task(overrides: Partial<Task> & { id: number }): Task {
     dueTime: null,
     myReminder: null,
     myReminderPassed: false,
+    repeat: null,
     createdAt: `2026-10-0${overrides.id}T09:00:00Z`,
     updatedAt: `2026-10-0${overrides.id}T09:00:00Z`,
     ...overrides,
@@ -575,6 +576,7 @@ describe('TasksPage', () => {
         ['Due date', 'task-edit-due'],
         ['Due time', 'task-edit-due-time'],
         ['Reminder', 'task-edit-reminder'],
+        ['Repeat', 'task-edit-repeat'],
         ['Tags', 'task-edit-tags'],
         ['List', 'task-edit-list'],
       ]);

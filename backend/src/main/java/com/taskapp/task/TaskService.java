@@ -2,6 +2,7 @@ package com.taskapp.task;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
@@ -25,9 +26,11 @@ import com.taskapp.reminder.ReminderOffset;
 import com.taskapp.reminder.ReminderService;
 import com.taskapp.task.validation.ValidReminderValue;
 import com.taskapp.task.dto.CreateTaskRequest;
+import com.taskapp.task.dto.RepeatInput;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
+import com.taskapp.task.dto.TaskResult;
 
 /**
  * All operations take the user id from the session. A task is the user's when they are a member of its list (0.13.0;
@@ -44,6 +47,10 @@ import com.taskapp.task.dto.TaskResponse;
  * {@code tags} or a move, DELETE) lock the list row(s) FOR UPDATE; PATCH and PUT without tags or a move lock it FOR
  * SHARE, so they never wait for each other but a delete of the list or the account waits for them (without that lock
  * the delete's cascade and the task UPDATE deadlocked on the {@code list_id} index: found by the AC13 stress test).
+ * <p>
+ * The task row itself is read FOR UPDATE in that transaction ({@link TaskRepository#findByIdAndListId}), last in the lock
+ * order. Completing a repeating task (contract 0.15.0) decides on that committed status: of two simultaneous
+ * completions the second finds the task done, creates no copy and (rule already moved) writes no rule back.
  */
 @Service
 public class TaskService {
@@ -64,22 +71,26 @@ public class TaskService {
     private final TagService tagService;
     private final ListService listService;
     private final ReminderService reminders;
+    private final RecurrenceService recurrence;
     private final TransactionOperations transaction;
     private final Clock clock;
 
     @Autowired
     public TaskService(TaskRepository taskRepository, TagService tagService, ListService listService,
-            ReminderService reminders, PlatformTransactionManager transactions) {
-        this(taskRepository, tagService, listService, reminders, new TransactionTemplate(transactions),
-                Clock.systemUTC());
+            ReminderService reminders, RecurrenceService recurrence, PlatformTransactionManager transactions,
+            Clock clock) {
+        this(taskRepository, tagService, listService, reminders, recurrence, new TransactionTemplate(transactions),
+                clock);
     }
 
     TaskService(TaskRepository taskRepository, TagService tagService, ListService listService,
-            ReminderService reminders, TransactionOperations transaction, Clock clock) {
+            ReminderService reminders, RecurrenceService recurrence, TransactionOperations transaction,
+            Clock clock) {
         this.taskRepository = taskRepository;
         this.tagService = tagService;
         this.listService = listService;
         this.reminders = reminders;
+        this.recurrence = recurrence;
         this.transaction = transaction;
         this.clock = clock;
     }
@@ -169,17 +180,17 @@ public class TaskService {
      * the list FOR SHARE without tags or listId, FOR UPDATE (both lists on a move) with either; restarted if the
      * task moved meanwhile, and run again if it lost a deadlock ({@link DeadlockRetry}).
      */
-    public TaskResponse replace(long userId, long id, ReplaceTaskRequest request) {
+    public TaskResult replace(long userId, long id, ReplaceTaskRequest request) {
         if (request.tags() == null && request.listId() == null) {
             return writeLocked(userId, id, null, false, (task, lists) -> {
-                applyFields(task, request);
+                Spawn spawn = applyFields(task, request);
                 saveOrNotFound(task);
                 reminders.afterTaskSaved(task, userId, request.reminder());
-                return withTags(userId, task);
+                return result(userId, task, tagService.namesOf(task.getListId(), task.getId()), spawn);
             });
         }
         return writeLocked(userId, id, request.listId(), true, (task, lists) -> {
-            applyFields(task, request);
+            Spawn spawn = applyFields(task, request);
             saveOrNotFound(task);
             reminders.afterTaskSaved(task, userId, request.reminder());
             TaskList source = lists.source();
@@ -187,16 +198,70 @@ public class TaskService {
             if (target == null) {
                 List<String> tags = request.tags() == null ? tagService.namesOf(source.getId(), task.getId())
                         : tagService.replaceTags(source.getOwnerId(), source.getId(), task.getId(), request.tags());
-                return respond(userId, task, tags);
+                return result(userId, task, tags, spawn);
             }
             if (taskRepository.moveToList(task.getId(), source.getId(), target.getId()) == 0) {
                 // Not reachable: the source list's lock keeps the task in it.
                 throw new TaskNotFoundException();
             }
             task.movedTo(target.getId());
-            return respond(userId, task, tagService.moveTags(target.getOwnerId(), source.getId(), target.getId(),
-                    task.getId(), request.tags()));
+            return result(userId, task, tagService.moveTags(target.getOwnerId(), source.getId(), target.getId(),
+                    task.getId(), request.tags()), spawn);
         });
+    }
+
+    /** The rule (and its anchor) a completed task handed over; the next task is created from it. */
+    private record Spawn(RepeatRule rule, LocalDate anchor) {
+    }
+
+    /**
+     * The saved task's response and, when {@code spawn} is set, the next task: created now, after every other change
+     * of this call (tags, move), so it has the post-update values and lives in the task's final list.
+     */
+    private TaskResult result(long userId, Task task, List<String> tags, Spawn spawn) {
+        TaskResponse response = respond(userId, task, tags);
+        if (spawn == null) {
+            return TaskResult.of(response);
+        }
+        Task next = recurrence.createNext(userId, task, spawn.rule(), spawn.anchor(), now());
+        return new TaskResult(response, respond(userId, next, tagService.namesOf(next.getListId(), next.getId())));
+    }
+
+    /**
+     * Completing a repeating task (not done before, done after, rule still set): the rule moves to the next task, so
+     * the completed one is cleared here, before it is saved (one UPDATE). Returns what the next task needs, else null.
+     */
+    private static Spawn spawnIfCompleted(Task task, boolean wasDone) {
+        RepeatRule rule = task.getRepeat();
+        if (wasDone || task.getStatus() != TaskStatus.DONE || rule == null) {
+            return null;
+        }
+        Spawn spawn = new Spawn(rule, task.getRepeatAnchor());
+        task.clearRepeat();
+        return spawn;
+    }
+
+    /**
+     * {@code repeat}: not sent = the rule stays, {@code NEVER} removes it, a rule sets it. The anchor restarts at the
+     * due date whenever the rule or the due date changes (re-sent unchanged values keep it, so a monthly Jan 31
+     * rule does not drift after an unrelated edit). A cleared due date has already cleared the rule.
+     */
+    private static void applyRepeat(Task task, RepeatInput input, LocalDate oldDue, RepeatRule oldRule) {
+        LocalDate due = task.getDueDate();
+        if (due == null) {
+            return;
+        }
+        RepeatRule rule = oldRule;
+        if (input != null) {
+            if (input.isNever()) {
+                task.clearRepeat();
+                return;
+            }
+            rule = input.rule().orElse(oldRule);
+        }
+        if (rule != null && (!rule.equals(oldRule) || !due.equals(oldDue))) {
+            task.setRepeat(rule, due);
+        }
     }
 
     /**
@@ -204,8 +269,11 @@ public class TaskService {
      * drops it. A reminder offset must fit the resulting task (timed or date-only), else 400 {@code reminder} /
      * {@code INVALID_REMINDER} and nothing is saved.
      */
-    private void applyFields(Task task, ReplaceTaskRequest request) {
+    private Spawn applyFields(Task task, ReplaceTaskRequest request) {
         Instant now = now();
+        LocalDate oldDue = task.getDueDate();
+        RepeatRule oldRule = task.getRepeat();
+        boolean wasDone = task.getStatus() == TaskStatus.DONE;
         LocalTime dueTime = request.dueDate() == null ? null
                 : request.dueTime() == null ? task.getDueTime() : request.dueTime().value();
         ReminderOffset.parse(request.reminder()).ifPresent(offset -> {
@@ -216,21 +284,25 @@ public class TaskService {
             }
         });
         task.replace(request.title(), request.description(), request.dueDate(), dueTime, now);
+        applyRepeat(task, request.repeat(), oldDue, oldRule);
         if (request.priority() != null) {
             task.changePriority(request.priority(), now);
         }
         task.changeStatus(TaskStatus.resolve(task.getStatus(), request.status(), request.done()), now);
+        return spawnIfCompleted(task, wasDone);
     }
 
     /**
      * PATCH: {@code status} and/or {@code done} (validated: at least one, and they agree). Takes the list row FOR
      * SHARE like a PUT without tags (see the class comment).
      */
-    public TaskResponse setStatus(long userId, long id, TaskStatus status, Boolean done) {
+    public TaskResult setStatus(long userId, long id, TaskStatus status, Boolean done) {
         return writeLocked(userId, id, null, false, (task, lists) -> {
+            boolean wasDone = task.getStatus() == TaskStatus.DONE;
             task.changeStatus(TaskStatus.resolve(task.getStatus(), status, done), now());
+            Spawn spawn = spawnIfCompleted(task, wasDone);
             saveOrNotFound(task);
-            return withTags(userId, task);
+            return result(userId, task, tagService.namesOf(task.getListId(), task.getId()), spawn);
         });
     }
 

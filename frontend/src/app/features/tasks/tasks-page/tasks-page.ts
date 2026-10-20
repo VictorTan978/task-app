@@ -25,6 +25,7 @@ import {
   isUnauthenticated,
   LOAD_ERROR,
   LOAD_MORE_ERROR,
+  NEXT_SCHEDULED_PREFIX,
   TASK_ADDED_MESSAGE,
   TASK_NOT_FOUND_MESSAGE,
   TOGGLE_ERROR,
@@ -43,8 +44,14 @@ import {
 } from '../task-list';
 import { TaskRow } from '../task-row/task-row';
 import { findTag } from '../task-tags';
-import { normaliseQuery, normaliseSort, reminderJustPassed, SEARCH_MAX } from '../tasks.logic';
-import { Task, TaskFilter, TaskListQuery, TaskSort } from '../tasks.models';
+import {
+  formatDue,
+  normaliseQuery,
+  normaliseSort,
+  reminderJustPassed,
+  SEARCH_MAX,
+} from '../tasks.logic';
+import { Task, TaskFilter, TaskListQuery, TaskResult, TaskSort } from '../tasks.models';
 import { TasksService } from '../tasks.service';
 import {
   ListRef,
@@ -189,6 +196,8 @@ export class TasksPage {
   protected readonly banner = signal<Banner | null>(null);
   /** "Task added" for a created task that isn't shown. */
   protected readonly addedNotice = signal(false);
+  /** "Next one scheduled for <date>" after completing a repeating task. */
+  protected readonly nextNotice = signal<string | null>(null);
   protected readonly busyIds = signal<ReadonlySet<number>>(new Set());
   /** Today and the current time in the account zone (the browser's while it has none). */
   protected readonly today = this.now.today;
@@ -462,6 +471,7 @@ export class TasksPage {
           }
           this.setBusy(task.id, false);
           this.applyOrMoveOut(updated);
+          this.applyNext(updated.nextTask);
         },
         error: (error: unknown) => {
           if (generation !== this.generation) {
@@ -490,7 +500,7 @@ export class TasksPage {
     this.deleting.set(task);
   }
 
-  protected onSaved(task: Task): void {
+  protected onSaved(task: TaskResult): void {
     const before = this.editing();
     // A reminder that just turned out to be in the past: the dialog stays open and says so.
     const keepOpen =
@@ -502,6 +512,7 @@ export class TasksPage {
       return;
     }
     this.applyOrMoveOut(task);
+    this.applyNext(task.nextTask);
   }
 
   protected onDeleted(id: number): void {
@@ -523,6 +534,27 @@ export class TasksPage {
       this.apply(task, 'updated');
     } else {
       this.list.update((state) => moveOut(state, task.id));
+    }
+  }
+
+  /** The copy a completion created (null: nothing to do). Shown in its place, with a status note. */
+  private applyNext(next: Task | null): void {
+    if (!next || !this.belongsHere(next)) {
+      return;
+    }
+    const result = applyChange(this.list(), next, this.listQuery(), 'created');
+    this.list.set(result.state);
+    this.showNext(next);
+  }
+
+  private showNext(next: Task): void {
+    this.clearAdded();
+    if (next.dueDate !== null) {
+      this.nextNotice.set(NEXT_SCHEDULED_PREFIX + formatDue(next.dueDate, next.dueTime));
+      this.addedTimer = setTimeout(() => {
+        this.addedTimer = null;
+        this.nextNotice.set(null);
+      }, ADDED_NOTICE_MS);
     }
   }
 
@@ -549,6 +581,7 @@ export class TasksPage {
       this.addedTimer = null;
     }
     this.addedNotice.set(false);
+    this.nextNotice.set(null);
   }
 
   /** Cancels the first-page and "Load more" requests in flight. */

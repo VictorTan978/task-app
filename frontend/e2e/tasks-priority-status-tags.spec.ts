@@ -35,12 +35,12 @@ interface Task {
 
 // 0.12.0 (T3a): Task gained the required listId.
 // 0.13.0 (T3b): Task gained addedBy.
-const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'dueTime', 'id', 'listId', 'myReminder', 'myReminderPassed', 'priority', 'status', 'tags', 'title', 'updatedAt']; // 0.14.0 (T4a): dueTime, myReminder, myReminderPassed
+const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'dueTime', 'id', 'listId', 'myReminder', 'myReminderPassed', 'priority', 'repeat', 'status', 'tags', 'title', 'updatedAt']; // 0.14.0 (T4a): dueTime, myReminder, myReminderPassed
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/;
 
 /** Checks a Task against contract 0.10.0 (required keys, enums, done mirror, tags shape). */
 function expectTaskShape(t: Task) {
-  expect(Object.keys(t).sort()).toEqual(TASK_KEYS);
+  expect(Object.keys(t).filter((k) => k !== 'nextTask').sort()).toEqual(TASK_KEYS); // PUT/PATCH answer a TaskResult (0.15.0): Task + nextTask
   expect(typeof t.id).toBe('number');
   expect(['NONE', 'LOW', 'MEDIUM', 'HIGH']).toContain(t.priority);
   expect(['TODO', 'IN_PROGRESS', 'DONE']).toContain(t.status);
@@ -1006,7 +1006,7 @@ test.describe('T1 Ownership', () => {
     ] as [string, unknown][]) {
       await expectProblem(await api(page, m, `/api/tasks/${bTask.id}`, body), 404, 'NOT_FOUND');
     }
-    expect(await getTask(B.p, bTask.id)).toEqual(bTask);
+    expect(await getTask(B.p, bTask.id)).toEqual({ ...bTask, nextTask: undefined }); // bTask is a PUT result (has nextTask), GET has none
 
     // UI: suggestions for A never include B's tags
     await gotoTasks(page);

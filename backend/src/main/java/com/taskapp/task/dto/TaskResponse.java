@@ -16,7 +16,7 @@ import com.taskapp.task.TaskStatus;
  * Public view of a task. Never exposes a user id. {@code tags} are sorted by the database collation. {@code addedBy}
  * (0.13.0): the display name of the user who added it, null when that account was deleted. {@code dueTime}
  * (0.14.0): {@code "HH:mm"} or null; {@code myReminder}: the caller's own reminder offset or null;
- * {@code myReminderPassed}: that reminder's fire time is not in the future.
+ * {@code repeat} (0.15.0): the repeat rule or null; {@code myReminderPassed}: that reminder's fire time is not in the future.
  */
 public record TaskResponse(
         long id,
@@ -30,6 +30,7 @@ public record TaskResponse(
         boolean done,
         LocalDate dueDate,
         @JsonFormat(pattern = "HH:mm") LocalTime dueTime,
+        RepeatResponse repeat,
         ReminderOffset myReminder,
         boolean myReminderPassed,
         Instant createdAt,
@@ -37,6 +38,14 @@ public record TaskResponse(
 
     public TaskResponse {
         tags = List.copyOf(tags);
+    }
+
+    /** A task without a repeat rule. */
+    public TaskResponse(long id, long listId, AddedBy addedBy, String title, String description, Priority priority,
+            TaskStatus status, List<String> tags, boolean done, LocalDate dueDate, LocalTime dueTime,
+            ReminderOffset myReminder, boolean myReminderPassed, Instant createdAt, Instant updatedAt) {
+        this(id, listId, addedBy, title, description, priority, status, tags, done, dueDate, dueTime, null,
+                myReminder, myReminderPassed, createdAt, updatedAt);
     }
 
     /** Schema {@code Task.addedBy}. */
@@ -52,7 +61,7 @@ public record TaskResponse(
     public static TaskResponse from(Task task, List<String> tags, String addedByName, ReminderService.Mine mine) {
         return new TaskResponse(task.getId(), task.getListId(), addedByName == null ? null : new AddedBy(addedByName),
                 task.getTitle(), task.getDescription(), task.getPriority(), task.getStatus(), tags, task.isDone(),
-                task.getDueDate(), task.getDueTime(), mine == null ? null : mine.offset(),
+                task.getDueDate(), task.getDueTime(), RepeatResponse.of(task.getRepeat()), mine == null ? null : mine.offset(),
                 mine != null && mine.passed(), task.getCreatedAt(), task.getUpdatedAt());
     }
 }

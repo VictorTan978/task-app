@@ -2,11 +2,14 @@ import { hasTag } from './task-tags';
 import {
   Priority,
   Reminder,
+  RepeatFrequency,
+  RepeatRule,
   Task,
   TaskFilter,
   TaskListQuery,
   TaskSort,
   TaskStatus,
+  Weekday,
 } from './tasks.models';
 
 const FILTERS: readonly TaskFilter[] = ['all', 'active', 'in_progress', 'done'];
@@ -291,3 +294,92 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
 
 export const PRIORITIES: readonly Priority[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH'];
 export const STATUSES: readonly TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE'];
+
+/** Weekdays in the order the picker shows them (Monday first). */
+export const WEEKDAYS: readonly { value: Weekday; label: string }[] = [
+  { value: 'MON', label: 'Mon' },
+  { value: 'TUE', label: 'Tue' },
+  { value: 'WED', label: 'Wed' },
+  { value: 'THU', label: 'Thu' },
+  { value: 'FRI', label: 'Fri' },
+  { value: 'SAT', label: 'Sat' },
+  { value: 'SUN', label: 'Sun' },
+];
+
+export const REPEAT_OPTIONS: readonly { value: RepeatFrequency | 'NEVER'; label: string }[] = [
+  { value: 'NEVER', label: 'Never' },
+  { value: 'DAILY', label: 'Daily' },
+  { value: 'WEEKLY', label: 'Weekly' },
+  { value: 'MONTHLY', label: 'Monthly' },
+  { value: 'YEARLY', label: 'Yearly' },
+];
+
+const FREQUENCY_ADVERB: Record<RepeatFrequency, string> = {
+  DAILY: 'daily',
+  WEEKLY: 'weekly',
+  MONTHLY: 'monthly',
+  YEARLY: 'yearly',
+};
+
+/** Accessible text of the row icon: "Repeats daily" / "Repeats weekly (Mon, Wed)". */
+export function repeatSummary(rule: RepeatRule): string {
+  const base = `Repeats ${FREQUENCY_ADVERB[rule.frequency]}`;
+  if (rule.frequency !== 'WEEKLY' || rule.weekdays.length === 0) {
+    return base;
+  }
+  const days = WEEKDAYS.filter((d) => rule.weekdays.includes(d.value)).map((d) => d.label);
+  return `${base} (${days.join(', ')})`;
+}
+
+/** The weekday of a `YYYY-MM-DD` calendar date, or null if it isn't one. */
+export function weekdayOf(date: string): Weekday | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) {
+    return null;
+  }
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  // getUTCDay: 0 = Sunday.
+  return WEEKDAYS[(d.getUTCDay() + 6) % 7].value;
+}
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+function ordinal(n: number): string {
+  const rem = n % 100;
+  if (rem >= 11 && rem <= 13) {
+    return `${n}th`;
+  }
+  return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`;
+}
+
+/** Hint under the Repeat select for monthly and yearly rules (null for the others). */
+export function repeatHint(frequency: RepeatFrequency | 'NEVER', dueDate: string): string | null {
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(dueDate);
+  if (!m || (frequency !== 'MONTHLY' && frequency !== 'YEARLY')) {
+    return null;
+  }
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  if (frequency === 'MONTHLY') {
+    return day > 28
+      ? `Repeats on the ${ordinal(day)}; shorter months use the last day`
+      : `Repeats on the ${ordinal(day)} of every month`;
+  }
+  if (month === 2 && day === 29) {
+    return 'Repeats every February 29; in other years on February 28';
+  }
+  return `Repeats every ${MONTH_NAMES[month - 1]} ${day}`;
+}

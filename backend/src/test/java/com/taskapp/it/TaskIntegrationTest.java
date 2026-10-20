@@ -175,7 +175,7 @@ class TaskIntegrationTest {
                 Long.class, id));
         // 0.13.0: addedBy, the creator's display name.
         assertThat(task.get("addedBy").get("displayName").asText()).startsWith("Alice ");
-        assertThat(task.size()).isEqualTo(15); // 0.14.0: + dueTime, myReminder, myReminderPassed
+        assertThat(task.size()).isEqualTo(16); // 0.14.0: + dueTime, myReminder, myReminderPassed; 0.15.0: + repeat
         assertThat(task.get("dueTime").isNull()).isTrue();
         assertThat(task.get("myReminder").isNull()).isTrue();
         assertThat(task.get("myReminderPassed").asBoolean()).isFalse();
@@ -254,7 +254,7 @@ class TaskIntegrationTest {
         assertThat(replaced.get("createdAt")).isEqualTo(created.get("createdAt"));
         Instant updatedAfterPut = Instant.parse(replaced.get("updatedAt").asText());
         assertThat(updatedAfterPut).isAfter(createdAt);
-        assertThat(alice.get(path).json()).isEqualTo(replaced);
+        assertThat(alice.get(path).json()).isEqualTo(withoutNextTask(replaced));
 
         Resp put2 = alice.put(path, "{\"title\":\"x\",\"description\":\"  \",\"dueDate\":\"2020-01-01\",\"done\":false}");
         assertThat(put2.json().get("description").isNull()).isTrue();
@@ -414,7 +414,7 @@ class TaskIntegrationTest {
         assertThat(put.get("status").asText()).isEqualTo("IN_PROGRESS");
         assertThat(put.get("done").asBoolean()).isFalse();
         assertThat(texts(put.get("tags"))).containsExactly("Errands", "Home");
-        assertThat(alice.get(path).json()).isEqualTo(put);
+        assertThat(alice.get(path).json()).isEqualTo(withoutNextTask(put));
 
         // An old client's PUT (no new fields) changes nothing of them.
         JsonNode old = alice.put(path, "{\"title\":\"Plan trip!\",\"description\":null,\"dueDate\":null}").json();
@@ -961,5 +961,12 @@ class TaskIntegrationTest {
         // reaches anyone's tasks.
         expectProblem(bob.get(base + cursor), "cursor", "INVALID_CURSOR");
         assertThat(bobs).isNotEmpty();
+    }
+
+    /** PUT / PATCH answer with a Task plus {@code nextTask} (0.15.0); GET answers with the plain Task. */
+    private static JsonNode withoutNextTask(JsonNode result) {
+        tools.jackson.databind.node.ObjectNode copy = ((tools.jackson.databind.node.ObjectNode) result).deepCopy();
+        copy.remove("nextTask");
+        return copy;
     }
 }

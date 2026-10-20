@@ -5,9 +5,12 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 /**
  * Access goes through the task's list: a task is the user's when they are a member of its list (V11; V10: when its
@@ -32,7 +35,12 @@ public interface TaskRepository extends JpaRepository<Task, Long>, TaskSearchRep
     @Query(value = "SELECT id, display_name AS displayName FROM users WHERE id IN (:ids)", nativeQuery = true)
     List<UserName> findDisplayNames(@Param("ids") Collection<Long> ids);
 
-    /** The task, if it is (still) in this list. */
+    /**
+     * The task, if it is (still) in this list, read FOR UPDATE: the row lock serialises writes of one task, so a
+     * completion decides on the committed status (two completions of a repeating task create one copy) and never
+     * writes a stale row back.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Task> findByIdAndListId(long id, long listId);
 
     /**

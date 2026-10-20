@@ -47,6 +47,7 @@ import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
+import com.taskapp.task.dto.TaskResult;
 
 @WebMvcTest(TaskController.class)
 @Import({SecurityConfig.class, UnchangedSessionUserLookup.class})
@@ -90,7 +91,7 @@ class TaskControllerTest {
                         {"items":[{"id":12,"listId":3,"addedBy":{"displayName":"Ana"},
                           "title":"Buy milk","description":null,"priority":"NONE","status":"TODO",
                           "tags":[],"done":false,"dueDate":"2026-10-10",
-                          "dueTime":null,"myReminder":null,"myReminderPassed":false,
+                          "dueTime":null,"repeat":null,"myReminder":null,"myReminderPassed":false,
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
                          "total":120,"nextCursor":"AbC-_9"}""",
                         true));
@@ -310,7 +311,7 @@ class TaskControllerTest {
 
     @Test
     void putPassesFullReplacementWithClearedFields() throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(put("/api/tasks/12"), """
                         {"title":" Buy oat milk ","description":null,"done":true}"""))
@@ -359,7 +360,7 @@ class TaskControllerTest {
 
     @Test
     void patchSetsDone() throws Exception {
-        when(taskService.setStatus(OWNER, 12L, null, true)).thenReturn(MILK);
+        when(taskService.setStatus(OWNER, 12L, null, true)).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":true,\"title\":\"ignored\",\"tags\":[\"x\"]}"))
                 .andExpect(status().isOk());
@@ -449,7 +450,7 @@ class TaskControllerTest {
     @Test
     void ownerAlwaysComesFromSession() throws Exception {
         when(taskService.create(anyLong(), any())).thenReturn(MILK);
-        when(taskService.setStatus(anyLong(), anyLong(), any(), any())).thenReturn(MILK);
+        when(taskService.setStatus(anyLong(), anyLong(), any(), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(post("/api/tasks"), "{\"title\":\"x\",\"ownerId\":999}")).andExpect(status().isCreated());
         mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":true,\"ownerId\":999}")).andExpect(status().isOk());
@@ -484,7 +485,7 @@ class TaskControllerTest {
                         {"items":[{"id":12,"listId":3,"addedBy":{"displayName":"Ana"},
                           "title":"Buy milk","description":null,"priority":"HIGH",
                           "status":"IN_PROGRESS","tags":["Errands","Home"],"done":false,"dueDate":null,
-                          "dueTime":null,"myReminder":null,"myReminderPassed":false,
+                          "dueTime":null,"repeat":null,"myReminder":null,"myReminderPassed":false,
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
                          "total":1,"nextCursor":null}""",
                         true));
@@ -524,7 +525,7 @@ class TaskControllerTest {
 
     @Test
     void putPassesNewFieldsWithRawTags() throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(put("/api/tasks/12"), """
                         {"title":"x","priority":"HIGH","status":"IN_PROGRESS","tags":[" Home ","Errands","errands"]}"""))
@@ -536,7 +537,7 @@ class TaskControllerTest {
 
     @Test
     void putWithoutNewFieldsPassesNullsAndEmptyTagsStaysEmpty() throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\"}")).andExpect(status().isOk());
         verify(taskService).replace(OWNER, 12L, new ReplaceTaskRequest("x", null, null, null, null, null, null, null));
@@ -594,7 +595,7 @@ class TaskControllerTest {
     @ParameterizedTest
     @ValueSource(strings = {"\"DONE\",\"done\":true", "\"TODO\",\"done\":false", "\"IN_PROGRESS\",\"done\":false"})
     void putWithAgreeingStatusAndDoneIsAccepted(String statusAndDone) throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\",\"status\":" + statusAndDone + "}"))
                 .andExpect(status().isOk());
@@ -639,7 +640,7 @@ class TaskControllerTest {
 
     @Test
     void tagLengthCountsAfterNormalising() throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(MILK));
         // 30 units after stripping; 15 emoji = 30 UTF-16 units; inner runs of (Unicode) spaces collapse to one.
         String collapsed = "a" + " \\u00a0\\u2003 ".repeat(10) + "b".repeat(28);
 
@@ -660,7 +661,7 @@ class TaskControllerTest {
 
     @Test
     void duplicatesIgnoringCaseAccentsAndSpacesCountOnce() throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(MILK));
         String[] tags = new String[14];
         for (int i = 0; i < 10; i++) {
             tags[i] = "tag" + i;
@@ -724,7 +725,7 @@ class TaskControllerTest {
 
     @Test
     void patchPassesStatusAndOrDone() throws Exception {
-        when(taskService.setStatus(anyLong(), anyLong(), any(), any())).thenReturn(MILK);
+        when(taskService.setStatus(anyLong(), anyLong(), any(), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(patch("/api/tasks/12"), "{\"status\":\"IN_PROGRESS\"}")).andExpect(status().isOk());
         verify(taskService).setStatus(OWNER, 12L, TaskStatus.IN_PROGRESS, null);
@@ -787,7 +788,7 @@ class TaskControllerTest {
     @Test
     void createAndPutPassListId() throws Exception {
         when(taskService.create(eq(OWNER), any())).thenReturn(MILK);
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(MILK);
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(post("/api/tasks"), "{\"title\":\"x\",\"listId\":8}")).andExpect(status().isCreated());
         verify(taskService).create(OWNER, new CreateTaskRequest("x", null, null, 8L));

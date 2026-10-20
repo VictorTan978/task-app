@@ -82,6 +82,8 @@ public final class ErrorCode {
     public static final String REQUIRES_DUE_DATE = "REQUIRES_DUE_DATE";
     /** {@code reminder}: unknown, or does not fit a timed / date-only task (0.14.0). */
     public static final String INVALID_REMINDER = "INVALID_REMINDER";
+    /** {@code repeat}: unknown frequency or weekday, a string other than NEVER, weekdays on a non-weekly rule (0.15.0). */
+    public static final String INVALID_REPEAT = "INVALID_REPEAT";
     /** {@code timeZone}: not an IANA region id (0.14.0). */
     public static final String INVALID_TIME_ZONE = "INVALID_TIME_ZONE";
 

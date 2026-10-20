@@ -27,6 +27,7 @@ const TASK: Task = {
   dueTime: null,
   myReminder: null,
   myReminderPassed: false,
+  repeat: null,
   createdAt: '2026-10-08T09:00:00Z',
   updatedAt: '2026-10-08T09:00:00Z',
 };

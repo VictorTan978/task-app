@@ -128,6 +128,36 @@ public class ReminderService {
         }
     }
 
+    /**
+     * Copies every reminder of {@code source} to {@code copy} (the next task of a completed repeating task, already
+     * saved in its list) for the users who are members of the copy's list, with the same offset and the fire time
+     * recomputed for the copy's date in the owner's zone. One whose fire time is not in the future is saved as
+     * SKIPPED (it never fires), as in {@link #afterTaskSaved}. The membership rows are read FOR SHARE, so a member
+     * cannot leave (and their account cannot go) before the reminder row exists.
+     */
+    public void copyReminders(Task source, Task copy) {
+        record Mine(long userId, ReminderOffset offset, String zone) {
+        }
+        List<Mine> rows = jdbc.query("SELECT r.user_id, r.reminder_offset, u.time_zone FROM reminders r"
+                + " JOIN list_members m ON m.list_id = ? AND m.user_id = r.user_id"
+                + " JOIN users u ON u.id = r.user_id WHERE r.task_id = ? ORDER BY r.user_id FOR SHARE OF m",
+                (rs, i) -> new Mine(rs.getLong(1), ReminderOffset.valueOf(rs.getString(2)), rs.getString(3)),
+                copy.getListId(), source.getId());
+        Instant now = clock.instant();
+        boolean hasTime = copy.getDueTime() != null;
+        for (Mine row : rows) {
+            if (!row.offset().fits(hasTime)) {
+                continue;
+            }
+            Instant fireAt = FireTimes.fireAt(copy.getDueDate(), copy.getDueTime(), row.offset(),
+                    FireTimes.zoneOrUtc(row.zone()));
+            jdbc.update("INSERT INTO reminders (task_id, user_id, reminder_offset, fire_at, status, attempts,"
+                    + " next_attempt_at) VALUES (?, ?, ?, ?, ?, 0, ?)", copy.getId(), row.userId(),
+                    row.offset().name(), ReminderTimes.toDb(fireAt), fireAt.isAfter(now) ? "PENDING" : "SKIPPED",
+                    ReminderTimes.toDb(fireAt));
+        }
+    }
+
     /** The user's zone changed: recompute the fire time of all their reminders. Call inside a transaction. */
     public void zoneChanged(long userId) {
         Instant now = clock.instant();

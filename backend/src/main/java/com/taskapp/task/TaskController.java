@@ -23,6 +23,7 @@ import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.SetTaskDoneRequest;
 import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
+import com.taskapp.task.dto.TaskResult;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -64,13 +65,13 @@ public class TaskController {
     }
 
     @PutMapping("/{id}")
-    public TaskResponse replace(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable("id") long id,
+    public TaskResult replace(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable("id") long id,
             @Valid @RequestBody ReplaceTaskRequest body) {
         return taskService.replace(user.id(), id, body);
     }
 
     @PatchMapping("/{id}")
-    public TaskResponse setDone(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable("id") long id,
+    public TaskResult setDone(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable("id") long id,
             @Valid @RequestBody SetTaskDoneRequest body) {
         return taskService.setStatus(user.id(), id, body.status(), body.done());
     }

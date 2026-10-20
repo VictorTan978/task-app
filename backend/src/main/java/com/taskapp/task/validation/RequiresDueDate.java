@@ -25,6 +25,7 @@ public @interface RequiresDueDate {
 
     String TIME_MESSAGE = "A due time needs a due date";
     String REMINDER_MESSAGE = "A reminder needs a due date";
+    String REPEAT_MESSAGE = "A repeat rule needs a due date";
 
     String message() default TIME_MESSAGE;
 
@@ -41,7 +42,9 @@ public @interface RequiresDueDate {
             boolean time = request.setsDueTime();
             // An unknown reminder value is reported by ValidReminderValue; here only a real offset counts.
             boolean reminder = ReminderOffset.parse(request.reminder()).isPresent();
-            if (!time && !reminder) {
+            // Only a well-formed rule counts, so a malformed one is reported as INVALID_REPEAT / REQUIRED alone.
+            boolean repeat = request.setsRepeat();
+            if (!time && !reminder && !repeat) {
                 return true;
             }
             context.disableDefaultConstraintViolation();
@@ -51,6 +54,10 @@ public @interface RequiresDueDate {
             }
             if (reminder) {
                 context.buildConstraintViolationWithTemplate(REMINDER_MESSAGE).addPropertyNode("reminder")
+                        .addConstraintViolation();
+            }
+            if (repeat) {
+                context.buildConstraintViolationWithTemplate(REPEAT_MESSAGE).addPropertyNode("repeat")
                         .addConstraintViolation();
             }
             return false;

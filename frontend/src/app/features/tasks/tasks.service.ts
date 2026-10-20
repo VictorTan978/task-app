@@ -8,6 +8,7 @@ import {
   SetTaskDoneRequest,
   Tag,
   Task,
+  TaskResult,
   TaskListQuery,
   TaskPage,
   TaskStatus,
@@ -55,14 +56,14 @@ export class TasksService {
     return this.http.post<Task>(TASKS_API.list, request);
   }
 
-  replace(id: number, request: ReplaceTaskRequest): Observable<Task> {
-    return this.http.put<Task>(TASKS_API.one(id), request);
+  replace(id: number, request: ReplaceTaskRequest): Observable<TaskResult> {
+    return this.http.put<TaskResult>(TASKS_API.one(id), request);
   }
 
   /** `PATCH {status}` (the checkbox sends `DONE` / `TODO`). */
-  setStatus(id: number, status: TaskStatus): Observable<Task> {
+  setStatus(id: number, status: TaskStatus): Observable<TaskResult> {
     const body: SetTaskDoneRequest = { status };
-    return this.http.patch<Task>(TASKS_API.one(id), body);
+    return this.http.patch<TaskResult>(TASKS_API.one(id), body);
   }
 
   delete(id: number): Observable<void> {

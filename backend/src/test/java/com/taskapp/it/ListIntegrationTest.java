@@ -306,7 +306,8 @@ class ListIntegrationTest {
         assertThat(body.get("tags").toString()).isEqualTo("[\"Only here\",\"Shared\",\"wörk\"]");
         assertThat(body.get("createdAt")).isEqualTo(task.get("createdAt"));
         assertThat(body.get("id").asLong()).isEqualTo(id);
-        assertThat(alice.get("/api/tasks/" + id).json()).isEqualTo(body);
+        assertThat(alice.get("/api/tasks/" + id).json())
+                .isEqualTo(withoutNextTask(body));
 
         assertThat(titles(alice.get("/api/tasks").json())).containsExactly("stays");
         assertThat(names(alice.get("/api/tags").json())).containsExactly("Shared");
@@ -592,5 +593,12 @@ class ListIntegrationTest {
         JsonNode json() throws IOException {
             return JSON.readTree(body);
         }
+    }
+
+    /** PUT / PATCH answer with a Task plus {@code nextTask} (0.15.0); GET answers with the plain Task. */
+    private static JsonNode withoutNextTask(JsonNode result) {
+        tools.jackson.databind.node.ObjectNode copy = ((tools.jackson.databind.node.ObjectNode) result).deepCopy();
+        copy.remove("nextTask");
+        return copy;
     }
 }

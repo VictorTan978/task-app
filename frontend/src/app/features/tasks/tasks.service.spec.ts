@@ -19,6 +19,7 @@ const TASK: Task = {
   dueTime: null,
   myReminder: null,
   myReminderPassed: false,
+  repeat: null,
   createdAt: '2026-10-08T09:15:02.123456Z',
   updatedAt: '2026-10-08T09:15:02.123456Z',
 };
@@ -135,6 +136,18 @@ describe('TasksService', () => {
     expect(req.request.body).toEqual({ status });
     req.flush({ ...TASK, status, done: status === 'DONE' });
     expect((await result).status).toBe(status);
+  });
+
+  it('replace and setStatus return the TaskResult with nextTask', async () => {
+    const next = { ...TASK, id: 13 };
+    const put = firstValueFrom(
+      service.replace(12, { title: 'x', description: null, dueDate: null }),
+    );
+    http.expectOne('/api/tasks/12').flush({ ...TASK, nextTask: next });
+    expect((await put).nextTask).toEqual(next);
+    const patch = firstValueFrom(service.setStatus(12, 'DONE'));
+    http.expectOne('/api/tasks/12').flush({ ...TASK, nextTask: null });
+    expect((await patch).nextTask).toBeNull();
   });
 
   it('listTags sends GET /api/tags and returns the objects', async () => {

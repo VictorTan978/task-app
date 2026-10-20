@@ -21,6 +21,7 @@ import {
   todayLocal,
 } from './tasks.logic';
 import { Task } from './tasks.models';
+import { repeatHint, repeatSummary, weekdayOf } from './tasks.logic';
 
 /** `done: true` alone means status DONE; `status` wins and `done` always mirrors it. */
 function task(overrides: Partial<Task> & { id: number }): Task {
@@ -36,6 +37,7 @@ function task(overrides: Partial<Task> & { id: number }): Task {
     dueTime: null,
     myReminder: null,
     myReminderPassed: false,
+    repeat: null,
     createdAt: '2026-10-08T09:00:00Z',
     updatedAt: '2026-10-08T09:00:00Z',
     ...overrides,
@@ -426,5 +428,28 @@ describe('due time (T4a)', () => {
     expect(reminderJustPassed(passed, { ...passed, myReminder: 'ONE_HOUR' })).toBe(true);
     expect(reminderJustPassed(base, { ...passed, myReminderPassed: false })).toBe(false);
     expect(reminderJustPassed(base, base)).toBe(false);
+  });
+});
+
+describe('repeat helpers', () => {
+  it('summarises rules', () => {
+    expect(repeatSummary({ frequency: 'DAILY', weekdays: [] })).toBe('Repeats daily');
+    expect(repeatSummary({ frequency: 'WEEKLY', weekdays: ['SUN', 'MON'] })).toBe(
+      'Repeats weekly (Mon, Sun)',
+    );
+  });
+
+  it('finds the weekday of a date', () => {
+    expect(weekdayOf('2026-11-02')).toBe('MON');
+    expect(weekdayOf('2026-11-01')).toBe('SUN');
+    expect(weekdayOf('')).toBeNull();
+  });
+
+  it('hints for monthly and yearly only', () => {
+    expect(repeatHint('DAILY', '2026-01-31')).toBeNull();
+    expect(repeatHint('MONTHLY', '2026-01-31')).toContain('31st; shorter months');
+    expect(repeatHint('MONTHLY', '2026-01-02')).toBe('Repeats on the 2nd of every month');
+    expect(repeatHint('YEARLY', '2028-02-29')).toContain('February 28');
+    expect(repeatHint('YEARLY', '2026-03-05')).toBe('Repeats every March 5');
   });
 });
