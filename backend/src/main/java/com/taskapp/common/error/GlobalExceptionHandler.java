@@ -412,6 +412,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case "InvalidCursor" -> ErrorCode.INVALID_CURSOR;
             case "RequiresDueDate" -> ErrorCode.REQUIRES_DUE_DATE;
             case "ValidReminderValue", "InvalidReminder" -> ErrorCode.INVALID_REMINDER;
+            case "ValidRepeat" -> ErrorCode.INVALID_REPEAT;
+            case "RepeatRequired" -> ErrorCode.REQUIRED;
             case "ValidTimeZone", "InvalidTimeZone" -> ErrorCode.INVALID_TIME_ZONE;
             case "Email" -> ErrorCode.INVALID_EMAIL;
             case "PasswordLength" -> ErrorCode.PASSWORD_LENGTH;

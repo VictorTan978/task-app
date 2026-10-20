@@ -51,6 +51,7 @@ class TaskServiceTest {
     private final TagService tagService = mock(TagService.class);
     private final ListService listService = mock(ListService.class);
     private final com.taskapp.reminder.ReminderService reminders = mock(com.taskapp.reminder.ReminderService.class);
+    private final RecurrenceService recurrence = mock(RecurrenceService.class);
     private TaskService service;
 
     /** The owner's "My tasks" (3) and another list of theirs (8). */
@@ -81,9 +82,17 @@ class TaskServiceTest {
         return list;
     }
 
+    private TaskResponse replace(long userId, long id, ReplaceTaskRequest request) {
+        return service.replace(userId, id, request).task();
+    }
+
+    private TaskResponse setStatus(long userId, long id, TaskStatus status, Boolean done) {
+        return service.setStatus(userId, id, status, done).task();
+    }
+
     @BeforeEach
     void setUp() {
-        service = new TaskService(repository, tagService, listService, reminders,
+        service = new TaskService(repository, tagService, listService, reminders, recurrence,
                 TransactionOperations.withoutTransaction(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(listService.resolve(OWNER, null)).thenReturn(MY_TASKS);
@@ -371,7 +380,7 @@ class TaskServiceTest {
     void replaceOverwritesTextFieldsAndClearsNulls() {
         stored(12L, TaskStatus.TODO, Priority.NONE);
 
-        TaskResponse updated = service.replace(OWNER, 12L,
+        TaskResponse updated = replace(OWNER, 12L,
                 new ReplaceTaskRequest("Buy oat milk", null, null, null, null, true, null, null));
 
         assertThat(updated).isEqualTo(new TaskResponse(12L, MY_TASKS, OWNER_NAME, "Buy oat milk", null, Priority.NONE,
@@ -394,7 +403,7 @@ class TaskServiceTest {
     void replaceSetsTheDueTimeAndHandsTheReminderRequestToTheReminderService() {
         Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
 
-        service.replace(OWNER, 12L, due("2026-10-21", at(9, 30), "ONE_HOUR"));
+        replace(OWNER, 12L, due("2026-10-21", at(9, 30), "ONE_HOUR"));
 
         assertThat(task.getDueTime()).isEqualTo(java.time.LocalTime.of(9, 30));
         verify(reminders).afterTaskSaved(task, OWNER, "ONE_HOUR");
@@ -403,13 +412,13 @@ class TaskServiceTest {
     @Test
     void aDueTimeThatIsNotSentStaysAndANullClearsIt() {
         Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
-        service.replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
+        replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
 
-        service.replace(OWNER, 12L, due("2026-10-22", null, null));
+        replace(OWNER, 12L, due("2026-10-22", null, null));
         assertThat(task.getDueDate()).isEqualTo(LocalDate.parse("2026-10-22"));
         assertThat(task.getDueTime()).isEqualTo(java.time.LocalTime.of(9, 30));
 
-        service.replace(OWNER, 12L, due("2026-10-22", com.taskapp.task.dto.DueTimeUpdate.CLEAR, null));
+        replace(OWNER, 12L, due("2026-10-22", com.taskapp.task.dto.DueTimeUpdate.CLEAR, null));
         assertThat(task.getDueTime()).isNull();
         assertThat(task.getDueDate()).isEqualTo(LocalDate.parse("2026-10-22"));
     }
@@ -417,9 +426,9 @@ class TaskServiceTest {
     @Test
     void clearingTheDateDropsTheStoredTime() {
         Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
-        service.replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
+        replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
 
-        service.replace(OWNER, 12L, due(null, null, null));
+        replace(OWNER, 12L, due(null, null, null));
 
         assertThat(task.getDueDate()).isNull();
         assertThat(task.getDueTime()).isNull();
@@ -442,9 +451,9 @@ class TaskServiceTest {
     @Test
     void aStoredTimeMakesATimedOffsetFitWhenTheRequestDoesNotSendOne() {
         Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
-        service.replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
+        replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
 
-        service.replace(OWNER, 12L, due("2026-10-22", null, "AT_DUE"));
+        replace(OWNER, 12L, due("2026-10-22", null, "AT_DUE"));
 
         verify(reminders).afterTaskSaved(task, OWNER, "AT_DUE");
         assertInvalidReminder(due("2026-10-22", null, "ON_THE_DAY"));
@@ -453,8 +462,8 @@ class TaskServiceTest {
     @Test
     void noneAndAMissingReminderNeverFailTheFitCheck() {
         Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
-        service.replace(OWNER, 12L, due("2026-10-21", null, "NONE"));
-        service.replace(OWNER, 12L, due(null, null, "NONE"));
+        replace(OWNER, 12L, due("2026-10-21", null, "NONE"));
+        replace(OWNER, 12L, due(null, null, "NONE"));
         verify(reminders, org.mockito.Mockito.times(2)).afterTaskSaved(task, OWNER, "NONE");
     }
 
@@ -471,7 +480,7 @@ class TaskServiceTest {
     }
 
     private void assertInvalidReminder(ReplaceTaskRequest request) {
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.replace(OWNER, 12L, request))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> replace(OWNER, 12L, request))
                 .isInstanceOfSatisfying(com.taskapp.auth.InvalidFieldsException.class, e -> {
                     assertThat(e.bindingResult().getFieldErrors()).hasSize(1);
                     assertThat(e.bindingResult().getFieldError().getField()).isEqualTo("reminder");
@@ -484,7 +493,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.IN_PROGRESS, Priority.HIGH);
         when(tagService.namesOf(MY_TASKS, 12L)).thenReturn(List.of("Home"));
 
-        TaskResponse updated = service.replace(OWNER, 12L, put(null, null, null, null));
+        TaskResponse updated = replace(OWNER, 12L, put(null, null, null, null));
 
         assertThat(updated.priority()).isEqualTo(Priority.HIGH);
         assertThat(updated.status()).isEqualTo(TaskStatus.IN_PROGRESS);
@@ -504,9 +513,9 @@ class TaskServiceTest {
     void replaceSetsPriority() {
         Task task = stored(12L, TaskStatus.TODO, Priority.HIGH);
 
-        assertThat(service.replace(OWNER, 12L, put(Priority.NONE, null, null, null)).priority()).isEqualTo(Priority.NONE);
+        assertThat(replace(OWNER, 12L, put(Priority.NONE, null, null, null)).priority()).isEqualTo(Priority.NONE);
         assertThat(task.getPriority()).isEqualTo(Priority.NONE);
-        assertThat(service.replace(OWNER, 12L, put(Priority.MEDIUM, null, null, null)).priority())
+        assertThat(replace(OWNER, 12L, put(Priority.MEDIUM, null, null, null)).priority())
                 .isEqualTo(Priority.MEDIUM);
     }
 
@@ -534,13 +543,13 @@ class TaskServiceTest {
                 new Row(TaskStatus.IN_PROGRESS, TaskStatus.TODO, false, TaskStatus.TODO));
         for (Row row : rows) {
             Task task = stored(12L, row.from(), Priority.NONE);
-            TaskResponse put = service.replace(OWNER, 12L, put(null, row.status(), row.done(), null));
+            TaskResponse put = replace(OWNER, 12L, put(null, row.status(), row.done(), null));
             assertThat(put.status()).as("PUT %s", row).isEqualTo(row.expected());
             assertThat(put.done()).as("PUT %s", row).isEqualTo(row.expected() == TaskStatus.DONE);
             assertThat(task.isDone()).isEqualTo(task.getStatus() == TaskStatus.DONE);
 
             stored(12L, row.from(), Priority.NONE);
-            TaskResponse patch = service.setStatus(OWNER, 12L, row.status(), row.done());
+            TaskResponse patch = setStatus(OWNER, 12L, row.status(), row.done());
             if (row.status() != null || row.done() != null) {
                 assertThat(patch.status()).as("PATCH %s", row).isEqualTo(row.expected());
                 assertThat(patch.done()).as("PATCH %s", row).isEqualTo(row.expected() == TaskStatus.DONE);
@@ -555,7 +564,7 @@ class TaskServiceTest {
         when(tagService.replaceTags(OWNER, MY_TASKS, 12L, List.of(" Home ", "work")))
                 .thenReturn(List.of("Home", "Work"));
 
-        TaskResponse updated = service.replace(OWNER, 12L, put(null, null, null, List.of(" Home ", "work")));
+        TaskResponse updated = replace(OWNER, 12L, put(null, null, null, List.of(" Home ", "work")));
 
         assertThat(updated.tags()).containsExactly("Home", "Work");
         InOrder order = inOrder(listService, tagService, repository);
@@ -572,7 +581,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(tagService.replaceTags(OWNER, MY_TASKS, 12L, List.of())).thenReturn(List.of());
 
-        assertThat(service.replace(OWNER, 12L, put(null, null, null, List.of())).tags()).isEmpty();
+        assertThat(replace(OWNER, 12L, put(null, null, null, List.of())).tags()).isEmpty();
         verify(tagService).replaceTags(OWNER, MY_TASKS, 12L, List.of());
     }
 
@@ -581,7 +590,7 @@ class TaskServiceTest {
         Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
         when(repository.findByIdAndListId(12L, MY_TASKS)).thenReturn(Optional.empty(), Optional.of(task));
 
-        assertThat(service.setStatus(OWNER, 12L, TaskStatus.DONE, null).status()).isEqualTo(TaskStatus.DONE);
+        assertThat(setStatus(OWNER, 12L, TaskStatus.DONE, null).status()).isEqualTo(TaskStatus.DONE);
 
         verify(listService, times(2)).shareList(MY_TASKS);
         verify(listService, never()).lockList(anyLong());
@@ -592,7 +601,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.HIGH);
         when(tagService.namesOf(MY_TASKS, 12L)).thenReturn(List.of("Work"));
 
-        TaskResponse patched = service.setStatus(OWNER, 12L, TaskStatus.IN_PROGRESS, null);
+        TaskResponse patched = setStatus(OWNER, 12L, TaskStatus.IN_PROGRESS, null);
 
         assertThat(patched.priority()).isEqualTo(Priority.HIGH);
         assertThat(patched.tags()).containsExactly("Work");
@@ -623,12 +632,12 @@ class TaskServiceTest {
         when(repository.findAccessible(42L, OWNER)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.get(OWNER, 42L)).isInstanceOf(TaskNotFoundException.class);
-        assertThatThrownBy(() -> service.replace(OWNER, 42L, put(Priority.HIGH, null, false, List.of("x"))))
+        assertThatThrownBy(() -> replace(OWNER, 42L, put(Priority.HIGH, null, false, List.of("x"))))
                 .isInstanceOf(TaskNotFoundException.class);
-        assertThatThrownBy(() -> service.setStatus(OWNER, 42L, null, true)).isInstanceOf(TaskNotFoundException.class);
+        assertThatThrownBy(() -> setStatus(OWNER, 42L, null, true)).isInstanceOf(TaskNotFoundException.class);
         assertThatThrownBy(() -> service.delete(OWNER, 42L)).isInstanceOf(TaskNotFoundException.class);
 
-        assertThatThrownBy(() -> service.replace(OWNER, 42L, move(HOME, null))).isInstanceOf(TaskNotFoundException.class);
+        assertThatThrownBy(() -> replace(OWNER, 42L, move(HOME, null))).isInstanceOf(TaskNotFoundException.class);
 
         verify(repository, never()).saveAndFlush(any());
         verify(repository, never()).delete(any());
@@ -646,7 +655,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(repository.saveAndFlush(any(Task.class))).thenThrow(new ObjectOptimisticLockingFailureException(Task.class, 12L));
 
-        assertThatThrownBy(() -> service.setStatus(OWNER, 12L, TaskStatus.DONE, null))
+        assertThatThrownBy(() -> setStatus(OWNER, 12L, TaskStatus.DONE, null))
                 .isInstanceOf(TaskNotFoundException.class);
         verifyNoInteractions(tagService);
     }
@@ -656,7 +665,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(repository.saveAndFlush(any(Task.class))).thenThrow(new ObjectOptimisticLockingFailureException(Task.class, 12L));
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, put(null, null, null, null)))
+        assertThatThrownBy(() -> replace(OWNER, 12L, put(null, null, null, null)))
                 .isInstanceOf(TaskNotFoundException.class);
         verifyNoInteractions(tagService);
     }
@@ -666,7 +675,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(repository.saveAndFlush(any(Task.class))).thenThrow(new ObjectOptimisticLockingFailureException(Task.class, 12L));
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, put(null, null, null, List.of("Work"))))
+        assertThatThrownBy(() -> replace(OWNER, 12L, put(null, null, null, List.of("Work"))))
                 .isInstanceOf(TaskNotFoundException.class);
         verify(listService).lockList(MY_TASKS);
         verify(tagService, never()).replaceTags(anyLong(), anyLong(), anyLong(), any());
@@ -683,7 +692,7 @@ class TaskServiceTest {
                 .thenReturn(Optional.of(task));
         when(tagService.replaceTags(OWNER, MY_TASKS, 12L, List.of("Work"))).thenReturn(List.of("Work"));
 
-        assertThat(service.replace(OWNER, 12L, put(null, null, null, List.of("Work"))).tags()).containsExactly("Work");
+        assertThat(replace(OWNER, 12L, put(null, null, null, List.of("Work"))).tags()).containsExactly("Work");
 
         verify(listService, times(2)).lockList(MY_TASKS);
         verify(tagService, times(1)).replaceTags(OWNER, MY_TASKS, 12L, List.of("Work"));
@@ -704,7 +713,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(repository.findByIdAndListId(12L, MY_TASKS)).thenThrow(lockFailure("HY000", 1205));
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, put(null, null, null, List.of("Work"))))
+        assertThatThrownBy(() -> replace(OWNER, 12L, put(null, null, null, List.of("Work"))))
                 .isInstanceOf(CannotAcquireLockException.class);
         assertThatThrownBy(() -> service.delete(OWNER, 12L)).isInstanceOf(CannotAcquireLockException.class);
 
@@ -719,7 +728,7 @@ class TaskServiceTest {
         when(repository.moveToList(12L, MY_TASKS, HOME)).thenReturn(1);
         when(tagService.moveTags(OWNER, MY_TASKS, HOME, 12L, null)).thenReturn(List.of("Work"));
 
-        TaskResponse moved = service.replace(OWNER, 12L, move(HOME, null));
+        TaskResponse moved = replace(OWNER, 12L, move(HOME, null));
 
         assertThat(moved.listId()).isEqualTo(HOME);
         assertThat(moved.tags()).containsExactly("Work");
@@ -747,7 +756,7 @@ class TaskServiceTest {
         when(repository.moveToList(12L, HOME, MY_TASKS)).thenReturn(1);
         when(tagService.moveTags(OWNER, HOME, MY_TASKS, 12L, List.of("A"))).thenReturn(List.of("A"));
 
-        assertThat(service.replace(OWNER, 12L, move(MY_TASKS, List.of("A"))).listId()).isEqualTo(MY_TASKS);
+        assertThat(replace(OWNER, 12L, move(MY_TASKS, List.of("A"))).listId()).isEqualTo(MY_TASKS);
 
         InOrder order = inOrder(listService);
         order.verify(listService).lockList(MY_TASKS);
@@ -759,8 +768,8 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(tagService.replaceTags(OWNER, MY_TASKS, 12L, List.of("A"))).thenReturn(List.of("A"));
 
-        assertThat(service.replace(OWNER, 12L, move(MY_TASKS, null)).listId()).isEqualTo(MY_TASKS);
-        assertThat(service.replace(OWNER, 12L, move(MY_TASKS, List.of("A"))).tags()).containsExactly("A");
+        assertThat(replace(OWNER, 12L, move(MY_TASKS, null)).listId()).isEqualTo(MY_TASKS);
+        assertThat(replace(OWNER, 12L, move(MY_TASKS, List.of("A"))).tags()).containsExactly("A");
 
         verify(repository, never()).moveToList(anyLong(), anyLong(), anyLong());
         verify(tagService, never()).moveTags(anyLong(), anyLong(), anyLong(), anyLong(), any());
@@ -771,7 +780,7 @@ class TaskServiceTest {
     void moveToAListThatIsNotMineIs404ListNotFoundAndChangesNothing() {
         Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, move(99L, null)))
+        assertThatThrownBy(() -> replace(OWNER, 12L, move(99L, null)))
                 .isInstanceOf(ListNotFoundException.class);
 
         assertThat(task.getUpdatedAt()).isEqualTo(CREATED);
@@ -784,7 +793,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(listService.lockList(HOME)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, move(HOME, null)))
+        assertThatThrownBy(() -> replace(OWNER, 12L, move(HOME, null)))
                 .isInstanceOf(ListNotFoundException.class);
         verify(repository, never()).saveAndFlush(any());
         verify(repository, never()).moveToList(anyLong(), anyLong(), anyLong());
@@ -795,7 +804,7 @@ class TaskServiceTest {
     void taskGoneIsNotFoundBeforeTheTargetIsChecked() {
         when(repository.findAccessible(12L, OWNER)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, move(99L, null)))
+        assertThatThrownBy(() -> replace(OWNER, 12L, move(99L, null)))
                 .isInstanceOf(TaskNotFoundException.class);
         verify(listService, never()).requireMember(anyLong(), anyLong());
     }
@@ -805,7 +814,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(listService.findMember(OWNER, MY_TASKS)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, put(null, null, null, List.of("A"))))
+        assertThatThrownBy(() -> replace(OWNER, 12L, put(null, null, null, List.of("A"))))
                 .isInstanceOf(TaskNotFoundException.class);
     }
 
@@ -820,7 +829,7 @@ class TaskServiceTest {
         when(repository.findByIdAndListId(12L, HOME)).thenReturn(Optional.of(inHome));
         when(tagService.replaceTags(OWNER, HOME, 12L, List.of("A"))).thenReturn(List.of("A"));
 
-        TaskResponse saved = service.replace(OWNER, 12L, put(null, null, null, List.of("A")));
+        TaskResponse saved = replace(OWNER, 12L, put(null, null, null, List.of("A")));
 
         assertThat(saved.listId()).isEqualTo(HOME);
         verify(tagService).replaceTags(OWNER, HOME, 12L, List.of("A"));
@@ -854,7 +863,7 @@ class TaskServiceTest {
         when(repository.moveToList(12L, MY_TASKS, HOME)).thenReturn(1);
         when(tagService.moveTags(OWNER, MY_TASKS, HOME, 12L, null)).thenThrow(new TagLimitExceededException());
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, move(HOME, null)))
+        assertThatThrownBy(() -> replace(OWNER, 12L, move(HOME, null)))
                 .isInstanceOf(TagLimitExceededException.class);
     }
 
@@ -865,7 +874,7 @@ class TaskServiceTest {
         when(listService.findMember(OWNER, MY_TASKS)).thenReturn(Optional.of(othersList));
         stored(12L, TaskStatus.TODO, Priority.NONE);
 
-        service.replace(OWNER, 12L, put(null, null, null, List.of("A")));
+        replace(OWNER, 12L, put(null, null, null, List.of("A")));
 
         verify(tagService).replaceTags(42L, MY_TASKS, 12L, List.of("A"));
     }
@@ -878,7 +887,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(listService.shareMember(MY_TASKS, OWNER)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.setStatus(OWNER, 12L, TaskStatus.DONE, null))
+        assertThatThrownBy(() -> setStatus(OWNER, 12L, TaskStatus.DONE, null))
                 .isInstanceOf(TaskNotFoundException.class);
         verify(listService, times(TaskService.MAX_LOCATE_ATTEMPTS)).shareMember(MY_TASKS, OWNER);
         verify(repository, never()).findByIdAndListId(anyLong(), anyLong());
@@ -890,7 +899,7 @@ class TaskServiceTest {
         stored(12L, TaskStatus.TODO, Priority.NONE);
         when(listService.shareMember(HOME, OWNER)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.replace(OWNER, 12L, move(HOME, null)))
+        assertThatThrownBy(() -> replace(OWNER, 12L, move(HOME, null)))
                 .isInstanceOf(ListNotFoundException.class);
         verify(repository, never()).moveToList(anyLong(), anyLong(), anyLong());
     }
@@ -903,7 +912,7 @@ class TaskServiceTest {
         when(listService.findMember(OWNER, MY_TASKS)).thenReturn(Optional.of(shared));
         stored(12L, TaskStatus.TODO, Priority.NONE);
 
-        service.replace(OWNER, 12L, put(null, null, null, List.of("A")));
+        replace(OWNER, 12L, put(null, null, null, List.of("A")));
 
         InOrder order = inOrder(listService, tagService);
         order.verify(listService).shareUsers(OWNER, List.of(42L));

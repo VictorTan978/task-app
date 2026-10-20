@@ -184,8 +184,8 @@ class ReminderIntegrationTest {
         assertThat(r.status()).as(r.body()).isEqualTo(200);
         JsonNode task = r.json();
         assertThat(fieldNames(task)).containsExactly("id", "listId", "addedBy", "title", "description", "priority",
-                "status", "tags", "done", "dueDate", "dueTime", "myReminder", "myReminderPassed", "createdAt",
-                "updatedAt");
+                "status", "tags", "done", "dueDate", "dueTime", "repeat", "myReminder", "myReminderPassed", "createdAt",
+                "updatedAt", "nextTask");
         assertThat(task.get("dueDate").asText()).isEqualTo("2026-10-21");
         assertThat(task.get("dueTime").asText()).isEqualTo("09:30");
         assertThat(task.get("myReminder").asText()).isEqualTo("ONE_HOUR");
@@ -193,7 +193,8 @@ class ReminderIntegrationTest {
         // 09:30 in Bucharest (+3) is 06:30Z; one hour before is 05:30Z.
         assertThat(fireAt(id, ana.id)).isEqualTo(Instant.parse("2026-10-21T05:30:00Z"));
 
-        assertThat(ana.get("/api/tasks/" + id).json()).isEqualTo(task);
+        assertThat(ana.get("/api/tasks/" + id).json())
+                .isEqualTo(((tools.jackson.databind.node.ObjectNode) task.deepCopy()).without("nextTask"));
         JsonNode listed = ana.get("/api/tasks").json().get("items").get(0);
         assertThat(listed.get("dueTime").asText()).isEqualTo("09:30");
         assertThat(listed.get("myReminder").asText()).isEqualTo("ONE_HOUR");

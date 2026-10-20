@@ -39,6 +39,7 @@ import com.taskapp.security.SecurityConfig;
 import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.TaskResponse;
+import com.taskapp.task.dto.TaskResult;
 
 /** Contract 0.14.0 at the HTTP layer: {@code dueTime} and {@code reminder} of PUT, and the new Task fields. */
 @WebMvcTest(TaskController.class)
@@ -70,7 +71,7 @@ class TaskDueTimeControllerTest {
     }
 
     private ReplaceTaskRequest sent(String body) throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(timed(null, null, false));
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(timed(null, null, false)));
         mockMvc.perform(json(put("/api/tasks/12"), body)).andExpect(status().isOk());
         ArgumentCaptor<ReplaceTaskRequest> captor = ArgumentCaptor.forClass(ReplaceTaskRequest.class);
         verify(taskService).replace(eq(OWNER), eq(12L), captor.capture());
@@ -79,8 +80,8 @@ class TaskDueTimeControllerTest {
 
     @Test
     void theResponseCarriesTheTimeAndMyReminderInContractOrder() throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(timed(LocalTime.of(9, 5),
-                ReminderOffset.ONE_HOUR, true));
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(timed(LocalTime.of(9, 5),
+                ReminderOffset.ONE_HOUR, true)));
 
         mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"Dentist\",\"dueDate\":\"2026-10-21\"}"))
                 .andExpect(status().isOk())
@@ -88,13 +89,13 @@ class TaskDueTimeControllerTest {
                 .andExpect(jsonPath("$.myReminder").value("ONE_HOUR"))
                 .andExpect(jsonPath("$.myReminderPassed").value(true))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString(
-                        "\"dueDate\":\"2026-10-21\",\"dueTime\":\"09:05\",\"myReminder\":\"ONE_HOUR\","
+                        "\"dueDate\":\"2026-10-21\",\"dueTime\":\"09:05\",\"repeat\":null,\"myReminder\":\"ONE_HOUR\","
                                 + "\"myReminderPassed\":true,\"createdAt\"")));
     }
 
     @Test
     void aTaskWithoutTimeOrReminderShowsNulls() throws Exception {
-        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(timed(null, null, false));
+        when(taskService.replace(eq(OWNER), eq(12L), any())).thenReturn(TaskResult.of(timed(null, null, false)));
         mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"Dentist\"}"))
                 .andExpect(jsonPath("$.dueTime").value((Object) null))
                 .andExpect(jsonPath("$.myReminder").value((Object) null))
@@ -196,6 +197,6 @@ class TaskDueTimeControllerTest {
         var request = sent("{\"title\":\"T\",\"dueDate\":\"2026-10-21\"}");
         assertThat(request.dueTime()).isNull();
         assertThat(request.reminder()).isNull();
-        when(taskService.replace(anyLong(), anyLong(), any())).thenReturn(timed(null, null, false));
+        when(taskService.replace(anyLong(), anyLong(), any())).thenReturn(TaskResult.of(timed(null, null, false)));
     }
 }

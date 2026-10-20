@@ -122,6 +122,17 @@ public class TagService {
         return namesOf(targetListId, taskId);
     }
 
+    /**
+     * Gives {@code toTaskId} the tags {@code fromTaskId} has now (the next task of a completed repeating task, same
+     * list). Only existing tags are linked, so the list's S lock (not X) is enough: deleting an unused tag needs X.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void copyTags(long fromTaskId, long toTaskId) {
+        for (Long tagId : tagRepository.findTagIdsByTask(fromTaskId)) {
+            tagRepository.link(toTaskId, tagId);
+        }
+    }
+
     /** The task's tag ids (read before deleting the task, to clean up its tags afterwards). Plain read. */
     @Transactional(propagation = Propagation.MANDATORY)
     public List<Long> tagIdsOf(long taskId) {

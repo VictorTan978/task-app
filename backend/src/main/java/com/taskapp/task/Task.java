@@ -70,6 +70,21 @@ public class Task {
     @Column(name = "due_time")
     private LocalTime dueTime;
 
+    /** The repeat rule (V13); all three columns are null together. Only on a task with a due date. */
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "repeat_frequency", length = 8)
+    private RepeatFrequency repeatFrequency;
+
+    /** Bitmask MON = 1 ... SUN = 64, only for WEEKLY. */
+    @JdbcTypeCode(SqlTypes.TINYINT)
+    @Column(name = "repeat_weekdays")
+    private Integer repeatWeekdays;
+
+    /** The due date the rule was last set from; monthly / yearly occurrences are counted from it. */
+    @Column(name = "repeat_anchor")
+    private LocalDate repeatAnchor;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -107,7 +122,46 @@ public class Task {
         this.description = description;
         this.dueDate = dueDate;
         this.dueTime = dueDate == null ? null : dueTime;
+        if (dueDate == null) {
+            // A rule needs a due date (V13 CHECK): cleared in the same statement.
+            clearRepeat();
+        }
         this.updatedAt = now;
+    }
+
+    /** The repeat rule, or null. */
+    public RepeatRule getRepeat() {
+        return repeatFrequency == null ? null
+                : new RepeatRule(repeatFrequency, repeatWeekdays == null ? 0 : repeatWeekdays);
+    }
+
+    public LocalDate getRepeatAnchor() {
+        return repeatAnchor;
+    }
+
+    /** Sets the rule and the date its monthly / yearly counting starts from (the task's due date). */
+    public void setRepeat(RepeatRule rule, LocalDate anchor) {
+        this.repeatFrequency = rule.frequency();
+        this.repeatWeekdays = rule.frequency() == RepeatFrequency.WEEKLY ? rule.weekdayMask() : null;
+        this.repeatAnchor = anchor;
+    }
+
+    public void clearRepeat() {
+        this.repeatFrequency = null;
+        this.repeatWeekdays = null;
+        this.repeatAnchor = null;
+    }
+
+    /**
+     * The next task of a completed repeating task: same list, title, description, priority and due time; TODO; added
+     * by {@code addedBy}; carries {@code rule} and {@code anchor}. Tags and reminders are copied separately.
+     */
+    Task nextOccurrence(long addedBy, LocalDate dueDate, RepeatRule rule, LocalDate anchor, Instant now) {
+        Task next = new Task(addedBy, listId, title, description, dueDate, now);
+        next.priority = priority;
+        next.dueTime = dueTime;
+        next.setRepeat(rule, anchor);
+        return next;
     }
 
     public void changePriority(Priority priority, Instant now) {
