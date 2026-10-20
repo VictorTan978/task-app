@@ -41,7 +41,7 @@ interface TaskPage {
 
 // 0.12.0 (T3a): Task gained the required listId.
 // 0.13.0 (T3b): Task gained addedBy.
-const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'dueTime', 'id', 'listId', 'myReminder', 'myReminderPassed', 'priority', 'status', 'tags', 'title', 'updatedAt']; // 0.14.0 (T4a): dueTime, myReminder, myReminderPassed
+const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'dueTime', 'id', 'listId', 'myReminder', 'myReminderPassed', 'priority', 'repeat', 'status', 'tags', 'title', 'updatedAt']; // 0.14.0 (T4a): dueTime, myReminder, myReminderPassed; 0.15.0 (T4b): repeat
 
 interface Watch {
   consoleErrors: string[];
