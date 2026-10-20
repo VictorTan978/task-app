@@ -129,4 +129,17 @@ class RepeatRuleTest {
         assertThatThrownBy(() -> new RepeatRule(RepeatFrequency.WEEKLY, 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new RepeatRule(RepeatFrequency.DAILY, 1)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void datesAreZoneFreeSoDaylightSavingChangesCannotShiftThem() {
+        // Europe/Bucharest ends DST on Sunday 2026-10-25 and starts it on 2026-03-29: plain calendar days either way.
+        assertThat(rule(RepeatFrequency.DAILY).next(d("2026-10-24"), d("2026-10-24"), d("2026-10-24")))
+                .isEqualTo(d("2026-10-25"));
+        assertThat(rule(RepeatFrequency.DAILY).next(d("2026-10-25"), d("2026-10-25"), d("2026-10-25")))
+                .isEqualTo(d("2026-10-26"));
+        assertThat(rule(RepeatFrequency.WEEKLY, DayOfWeek.SATURDAY).next(d("2026-03-28"), d("2026-03-28"),
+                d("2026-03-28"))).isEqualTo(d("2026-04-04"));
+        assertThat(rule(RepeatFrequency.MONTHLY).next(d("2026-02-28"), d("2026-02-28"), d("2026-02-28")))
+                .isEqualTo(d("2026-03-28"));
+    }
 }

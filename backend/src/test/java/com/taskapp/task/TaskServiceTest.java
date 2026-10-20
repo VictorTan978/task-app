@@ -931,4 +931,86 @@ class TaskServiceTest {
         when(repository.findAccessible(13L, OWNER)).thenReturn(Optional.of(orphan));
         assertThat(service.get(OWNER, 13L).addedBy()).isNull();
     }
+
+    // ---- T4b: recurring tasks ----
+
+    private static final LocalDate DUE = LocalDate.parse("2026-10-10");
+
+    private Task repeating(RepeatRule rule, LocalDate anchor) {
+        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+        task.setRepeat(rule, anchor);
+        Task next = existing(99L);
+        when(recurrence.createNext(eq(OWNER), eq(task), any(), any(), any())).thenReturn(next);
+        return task;
+    }
+
+    private static ReplaceTaskRequest repeatPut(TaskStatus status, com.taskapp.task.dto.RepeatInput repeat) {
+        return new ReplaceTaskRequest("Buy milk", "2%", DUE, null, null, status, null, null, null, null, repeat);
+    }
+
+    private static com.taskapp.task.dto.RepeatInput rule(String frequency) {
+        return com.taskapp.task.dto.RepeatInput.ofObject(frequency, null);
+    }
+
+    @Test
+    void completingARepeatingTaskCreatesTheNextOneAndTheRuleIsAlreadyOnTheCopyWhenTheOriginalIsSaved() {
+        RepeatRule daily = new RepeatRule(RepeatFrequency.DAILY, 0);
+        Task task = repeating(daily, DUE);
+        List<RepeatRule> ruleWhenSaved = new ArrayList<>();
+        when(repository.saveAndFlush(any(Task.class))).thenAnswer(inv -> {
+            Task saved = inv.getArgument(0);
+            ruleWhenSaved.add(saved.getRepeat());
+            return saved;
+        });
+
+        var result = service.setStatus(OWNER, 12L, null, true);
+
+        assertThat(result.task().repeat()).isNull();
+        assertThat(result.nextTask().id()).isEqualTo(99L);
+        verify(recurrence, times(1)).createNext(eq(OWNER), eq(task), eq(daily), eq(DUE), any());
+        assertThat(ruleWhenSaved).containsExactly((RepeatRule) null);
+    }
+
+    @Test
+    void doneToDoneAndNeverCreateNoCopy() {
+        Task task = repeating(new RepeatRule(RepeatFrequency.DAILY, 0), DUE);
+        task.changeStatus(TaskStatus.DONE, CREATED);
+        assertThat(service.setStatus(OWNER, 12L, null, true).nextTask()).isNull();
+        assertThat(service.replace(OWNER, 12L, repeatPut(TaskStatus.DONE, null)).nextTask()).isNull();
+
+        Task other = repeating(new RepeatRule(RepeatFrequency.DAILY, 0), DUE);
+        var never = service.replace(OWNER, 12L, repeatPut(TaskStatus.DONE, com.taskapp.task.dto.RepeatInput.ofText("NEVER")));
+        assertThat(never.nextTask()).isNull();
+        assertThat(never.task().repeat()).isNull();
+        verify(recurrence, never()).createNext(anyLong(), any(), any(), any(), any());
+        assertThat(other.getRepeat()).isNull();
+    }
+
+    @Test
+    void theAnchorRestartsOnlyWhenTheRuleOrTheDueDateChanges() {
+        LocalDate anchor = LocalDate.parse("2026-01-31");
+        Task task = repeating(new RepeatRule(RepeatFrequency.MONTHLY, 0), anchor);
+        // Same rule, same date re-sent: the anchor stays.
+        service.replace(OWNER, 12L, repeatPut(null, rule("MONTHLY")));
+        assertThat(task.getRepeatAnchor()).isEqualTo(anchor);
+        // Nothing sent: unchanged.
+        service.replace(OWNER, 12L, repeatPut(null, null));
+        assertThat(task.getRepeatAnchor()).isEqualTo(anchor);
+        // Another rule on the same date: the anchor is the due date.
+        service.replace(OWNER, 12L, repeatPut(null, rule("YEARLY")));
+        assertThat(task.getRepeat().frequency()).isEqualTo(RepeatFrequency.YEARLY);
+        assertThat(task.getRepeatAnchor()).isEqualTo(DUE);
+        // Another due date with the rule unsent: the anchor follows the date.
+        service.replace(OWNER, 12L, new ReplaceTaskRequest("Buy milk", "2%", LocalDate.parse("2026-11-02"), null, null,
+                null, null, null));
+        assertThat(task.getRepeatAnchor()).isEqualTo(LocalDate.parse("2026-11-02"));
+    }
+
+    @Test
+    void clearingTheDueDateClearsTheRule() {
+        Task task = repeating(new RepeatRule(RepeatFrequency.DAILY, 0), DUE);
+        service.replace(OWNER, 12L, new ReplaceTaskRequest("Buy milk", "2%", null, null, null, null, null, null));
+        assertThat(task.getRepeat()).isNull();
+        assertThat(task.getRepeatAnchor()).isNull();
+    }
 }
