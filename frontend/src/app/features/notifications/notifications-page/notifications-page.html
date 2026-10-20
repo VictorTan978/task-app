@@ -1,0 +1,102 @@
+<section class="notifications-page" aria-labelledby="notifications-heading">
+  <div class="notifications-page__head">
+    <h1 id="notifications-heading">Notifications</h1>
+    <button
+      type="button"
+      class="btn btn--secondary"
+      data-testid="mark-all-read"
+      [disabled]="markingAll() || !hasUnread()"
+      [attr.aria-busy]="markingAll()"
+      (click)="markAllRead()"
+    >
+      @if (markingAll()) {
+        <span class="spinner" aria-hidden="true"></span>
+      }
+      Mark all read
+    </button>
+  </div>
+
+  @if (actionError()) {
+    <p class="notice notice--error" role="alert" data-testid="notifications-action-error">
+      {{ actionErrorText }}
+    </p>
+  }
+
+  @if (loading() && !loaded()) {
+    <p class="link-status" role="status">
+      <span class="spinner" aria-hidden="true"></span>
+      Loading notifications…
+    </p>
+  }
+
+  @if (loadFailed()) {
+    <div class="notice notice--error notifications-page__error" role="alert">
+      <span>{{ loadError }}</span>
+      <button type="button" class="btn btn--secondary" [disabled]="loading()" (click)="load()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (isEmpty()) {
+    <p class="notifications-page__empty" data-testid="notifications-empty">{{ emptyText }}</p>
+  } @else if (items().length > 0) {
+    <ul class="notifications-page__list" aria-label="Notifications">
+      @for (n of items(); track n.id) {
+        <li
+          class="notification"
+          [class.notification--unread]="!n.read"
+          data-testid="notification"
+          [attr.data-read]="n.read"
+          [attr.aria-busy]="isBusy(n.id)"
+        >
+          <button
+            type="button"
+            class="notification__main"
+            [disabled]="isBusy(n.id)"
+            (click)="open(n)"
+          >
+            @if (!n.read) {
+              <span class="notification__dot" aria-hidden="true"></span>
+              <span class="visually-hidden">Unread: </span>
+            }
+            <span class="notification__text" data-testid="notification-text">{{ text(n) }}</span>
+            @if (n.late) {
+              <span class="notification__late" data-testid="notification-late">(late)</span>
+            }
+          </button>
+          <p class="field-hint notification__time">
+            Received <time [attr.datetime]="n.createdAt">{{ received(n) }}</time>
+          </p>
+          @if (!available(n)) {
+            <p class="field-hint notification__gone" data-testid="notification-unavailable">
+              {{ unavailableText }}
+            </p>
+          }
+        </li>
+      }
+    </ul>
+
+    @if (moreFailed()) {
+      <div class="notice notice--error notifications-page__error" role="alert">
+        <span>{{ moreError }}</span>
+        <button type="button" class="btn btn--secondary" (click)="loadMore()">Retry</button>
+      </div>
+    }
+    @if (nextCursor() !== null && !moreFailed()) {
+      <button
+        type="button"
+        class="btn btn--secondary notifications-page__more"
+        data-testid="load-more"
+        [disabled]="loadingMore()"
+        [attr.aria-busy]="loadingMore()"
+        (click)="loadMore()"
+      >
+        @if (loadingMore()) {
+          <span class="spinner" aria-hidden="true"></span>
+        }
+        Load more
+      </button>
+    }
+  }
+</section>

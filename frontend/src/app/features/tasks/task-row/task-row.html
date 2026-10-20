@@ -28,10 +28,20 @@
             >In progress</span
           >
         }
-        @if (task().dueDate; as due) {
+        @if (dueText(); as due) {
           <span class="task-row__due"
-            >Due <time [attr.datetime]="due">{{ due }}</time></span
+            >Due <time [attr.datetime]="due.replace(' ', 'T')">{{ due }}</time></span
           >
+          @if (task().myReminder) {
+            <span
+              class="task-row__reminder"
+              title="You have a reminder"
+              aria-label="Reminder set"
+              role="img"
+              data-testid="task-reminder"
+              >&#128276;</span
+            >
+          }
           @if (overdue()) {
             <span class="task-row__overdue">Overdue</span>
           }

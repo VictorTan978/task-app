@@ -5,5 +5,7 @@ export const ACCOUNT_API = {
   delete: '/api/account/delete',
   logoutOtherSessions: '/api/account/logout-other-sessions',
   resendVerification: '/api/account/resend-verification',
+  timeZone: '/api/account/time-zone',
+  reminderEmails: '/api/account/reminder-emails',
   googleConnection: '/api/account/connections/google',
 } as const;

@@ -15,6 +15,9 @@ const BASE: Task = {
   tags: [],
   done: false,
   dueDate: null,
+  dueTime: null,
+  myReminder: null,
+  myReminderPassed: false,
   createdAt: '2026-10-08T09:00:00Z',
   updatedAt: '2026-10-08T09:00:00Z',
 };
@@ -24,6 +27,7 @@ const BASE: Task = {
   template: `<app-task-row
     [task]="task()"
     today="2026-10-08"
+    [time]="time()"
     [busy]="busy()"
     [showAddedBy]="shared()"
     (doneChange)="events.push('done:' + $event)"
@@ -33,6 +37,7 @@ const BASE: Task = {
 })
 class Host {
   readonly task = signal<Task>(BASE);
+  readonly time = signal('');
   readonly busy = signal(false);
   readonly shared = signal(false);
   readonly events: string[] = [];
@@ -206,5 +211,53 @@ describe('TaskRow', () => {
       await setTask({ addedBy: null });
       expect(addedBy()?.textContent?.trim()).toBe('Added by a deleted user');
     });
+  });
+});
+
+describe('TaskRow due time and reminder', () => {
+  let fixture: ComponentFixture<Host>;
+  let host: Host;
+  let el: HTMLElement;
+
+  beforeEach(async () => {
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+    fixture = TestBed.createComponent(Host);
+    host = fixture.componentInstance;
+    el = fixture.nativeElement;
+    await fixture.whenStable();
+  });
+
+  const due = () => el.querySelector('.task-row__due')?.textContent?.replace(/\s+/g, ' ').trim();
+
+  it('shows date and time for a timed task, and the date only otherwise', async () => {
+    host.task.set({ ...BASE, dueDate: '2026-10-21', dueTime: '09:30' });
+    await fixture.whenStable();
+    expect(due()).toBe('Due 2026-10-21 09:30');
+    expect(el.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-21T09:30');
+    host.task.set({ ...BASE, dueDate: '2026-10-21' });
+    await fixture.whenStable();
+    expect(due()).toBe('Due 2026-10-21');
+    expect(el.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-21');
+  });
+
+  it('shows a bell only when I have a reminder', async () => {
+    host.task.set({ ...BASE, dueDate: '2026-10-21', dueTime: '09:30' });
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid=task-reminder]')).toBeNull();
+    host.task.set({ ...BASE, dueDate: '2026-10-21', dueTime: '09:30', myReminder: 'AT_DUE' });
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid=task-reminder]')?.getAttribute('aria-label')).toBe(
+      'Reminder set',
+    );
+  });
+
+  it('marks a timed task overdue once its time has passed today', async () => {
+    host.task.set({ ...BASE, dueDate: '2026-10-08', dueTime: '09:30' });
+    host.time.set('09:00');
+    await fixture.whenStable();
+    expect(el.querySelector('.task-row__overdue')).toBeNull();
+    host.time.set('09:31');
+    await fixture.whenStable();
+    expect(el.querySelector('.task-row__overdue')).not.toBeNull();
   });
 });

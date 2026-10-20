@@ -1,6 +1,6 @@
 import { Component, computed, effect, ElementRef, input, output, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { isDone, isOverdue, PRIORITY_LABELS } from '../tasks.logic';
+import { formatDue, isDone, isOverdue, PRIORITY_LABELS } from '../tasks.logic';
 import { Task } from '../tasks.models';
 
 @Component({
@@ -13,6 +13,8 @@ export class TaskRow {
   readonly task = input.required<Task>();
   /** Today's local date, `YYYY-MM-DD`. */
   readonly today = input.required<string>();
+  /** Current `HH:mm` in the account zone, for timed tasks' Overdue (empty: unknown). */
+  readonly time = input('');
   readonly busy = input(false);
   /** Show "Added by …" (the list has 2 or more members). */
   readonly showAddedBy = input(false);
@@ -24,11 +26,16 @@ export class TaskRow {
 
   protected readonly done = computed(() => isDone(this.task()));
   protected readonly inProgress = computed(() => this.task().status === 'IN_PROGRESS');
-  protected readonly overdue = computed(() => isOverdue(this.task(), this.today()));
+  protected readonly overdue = computed(() => isOverdue(this.task(), this.today(), this.time()));
   /** Badge text, or null for `NONE`. */
   protected readonly priorityLabel = computed(() => {
     const p = this.task().priority;
     return p === 'NONE' ? null : PRIORITY_LABELS[p];
+  });
+  /** `2026-10-21` or, for a timed task, `2026-10-21 09:30`. */
+  protected readonly dueText = computed(() => {
+    const t = this.task();
+    return t.dueDate === null ? null : formatDue(t.dueDate, t.dueTime);
   });
   /** "Added by Ana" / "Added by a deleted user", or null when not shown. */
   protected readonly addedBy = computed(() => {
@@ -44,6 +51,7 @@ export class TaskRow {
       t.priority !== 'NONE' ||
       this.inProgress() ||
       t.dueDate !== null ||
+      t.myReminder !== null ||
       t.tags.length > 0 ||
       this.addedBy() !== null
     );

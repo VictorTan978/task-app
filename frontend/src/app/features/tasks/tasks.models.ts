@@ -1,4 +1,4 @@
-/** Models matching the task schemas in `contracts/openapi.yaml` (v0.13.0) exactly. */
+/** Models matching the task schemas in `contracts/openapi.yaml` (v0.14.0) exactly. */
 import { Problem } from '../../core/auth/auth.models';
 
 /** `Priority`: `NONE` is the default (no badge). */
@@ -11,6 +11,9 @@ export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
 export interface TaskAddedBy {
   displayName: string;
 }
+
+/** `Reminder` (0.14.0): my reminder offset. Timed tasks use the first four, date-only the last two. */
+export type Reminder = 'AT_DUE' | 'TEN_MINUTES' | 'ONE_HOUR' | 'ONE_DAY' | 'ON_THE_DAY';
 
 export interface Task {
   id: number;
@@ -32,6 +35,12 @@ export interface Task {
   done: boolean;
   /** Calendar date `YYYY-MM-DD`, or null. */
   dueDate: string | null;
+  /** Wall-clock `HH:mm` (0.14.0), only with `dueDate`; shown as stored, no conversion. */
+  dueTime: string | null;
+  /** My own reminder on this task (0.14.0), or null. */
+  myReminder: Reminder | null;
+  /** True when my reminder time is already in the past (0.14.0). */
+  myReminderPassed: boolean;
   /** UTC instant with `Z` suffix and 0–6 fractional digits. */
   createdAt: string;
   updatedAt: string;
@@ -57,6 +66,10 @@ export interface ReplaceTaskRequest {
   priority?: Priority | null;
   status?: TaskStatus | null;
   tags?: string[] | null;
+  /** `HH:mm` or null (no time). Always sent; the server clears it with the date. */
+  dueTime?: string | null;
+  /** Missing or null leaves my reminder unchanged; `NONE` clears it. */
+  reminder?: Reminder | 'NONE' | null;
   /**
    * Another of my lists moves the task there (0.12.0). Missing, null or the current list → it
    * stays. The UI sends it only when the user picked another list.
@@ -100,7 +113,8 @@ export interface TaskListQuery {
 }
 
 /** Task-related values of `FieldError.field`. */
-export type TaskFieldName = 'title' | 'description' | 'done' | 'status' | 'tags';
+export type TaskFieldName =
+  'title' | 'description' | 'done' | 'status' | 'tags' | 'dueDate' | 'dueTime' | 'reminder';
 
 /** `FieldError.field` values of a 400 from `GET /api/tasks`. */
 export type TaskListFieldName = 'q' | 'cursor';
@@ -114,7 +128,14 @@ export interface TaskListFieldError {
 
 /** Task-related values of `FieldError.code`. */
 export type TaskFieldErrorCode =
-  'REQUIRED' | 'TOO_LONG' | 'INVALID_CHARACTERS' | 'TOO_MANY' | 'TAG_LIMIT' | 'STATUS_CONFLICT';
+  | 'REQUIRED'
+  | 'TOO_LONG'
+  | 'INVALID_CHARACTERS'
+  | 'TOO_MANY'
+  | 'TAG_LIMIT'
+  | 'STATUS_CONFLICT'
+  | 'INVALID_REMINDER'
+  | 'REQUIRES_DUE_DATE';
 
 export interface TaskFieldError {
   field: TaskFieldName;

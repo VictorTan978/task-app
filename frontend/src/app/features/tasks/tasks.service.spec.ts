@@ -16,6 +16,9 @@ const TASK: Task = {
   tags: [],
   done: false,
   dueDate: '2026-10-10',
+  dueTime: null,
+  myReminder: null,
+  myReminderPassed: false,
   createdAt: '2026-10-08T09:15:02.123456Z',
   updatedAt: '2026-10-08T09:15:02.123456Z',
 };

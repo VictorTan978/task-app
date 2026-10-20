@@ -10,6 +10,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Params, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, filter, map, merge, of, Subscription } from 'rxjs';
+import { NowService } from '../../../core/time/now.service';
 import { ListHeader } from '../../lists/list-header/list-header';
 import { ListPicker } from '../../lists/list-picker/list-picker';
 import { isListNotFound, LIST_NOT_FOUND_MESSAGE } from '../../lists/lists.logic';
@@ -42,7 +43,7 @@ import {
 } from '../task-list';
 import { TaskRow } from '../task-row/task-row';
 import { findTag } from '../task-tags';
-import { normaliseQuery, normaliseSort, SEARCH_MAX, todayLocal } from '../tasks.logic';
+import { normaliseQuery, normaliseSort, reminderJustPassed, SEARCH_MAX } from '../tasks.logic';
 import { Task, TaskFilter, TaskListQuery, TaskSort } from '../tasks.models';
 import { TasksService } from '../tasks.service';
 import {
@@ -111,6 +112,7 @@ const DEFAULT_QUERY: TaskListQuery = { filter: 'all', tag: null, q: null, sort: 
 export class TasksPage {
   private readonly tasksApi = inject(TasksService);
   private readonly lists = inject(ListsStore);
+  private readonly now = inject(NowService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -188,7 +190,9 @@ export class TasksPage {
   /** "Task added" for a created task that isn't shown. */
   protected readonly addedNotice = signal(false);
   protected readonly busyIds = signal<ReadonlySet<number>>(new Set());
-  protected readonly today = signal(todayLocal());
+  /** Today and the current time in the account zone (the browser's while it has none). */
+  protected readonly today = this.now.today;
+  protected readonly nowTime = this.now.time;
 
   protected readonly editing = signal<Task | null>(null);
   protected readonly deleting = signal<Task | null>(null);
@@ -315,7 +319,7 @@ export class TasksPage {
     this.loadSub = this.tasksApi.list(query, null, listParam(ref)).subscribe({
       next: (page) => {
         this.loading.set(false);
-        this.today.set(todayLocal());
+        this.now.refresh();
         this.listQuery.set(query);
         this.list.set(firstPage(page));
         this.loaded.set(true);
@@ -350,7 +354,7 @@ export class TasksPage {
     this.moreSub = this.tasksApi.list(this.listQuery(), cursor, this.listId()).subscribe({
       next: (page) => {
         this.loadingMore.set(false);
-        this.today.set(todayLocal());
+        this.now.refresh();
         this.list.update((state) => appendPage(state, page));
       },
       error: (error: unknown) => {
@@ -488,7 +492,10 @@ export class TasksPage {
 
   protected onSaved(task: Task): void {
     const before = this.editing();
-    this.editing.set(null);
+    // A reminder that just turned out to be in the past: the dialog stays open and says so.
+    const keepOpen =
+      before !== null && before.listId === task.listId && reminderJustPassed(before, task);
+    this.editing.set(keepOpen ? task : null);
     if (before !== null && before.listId !== task.listId) {
       // Moved to another list: it leaves this view.
       this.list.update((state) => moveOut(state, task.id));

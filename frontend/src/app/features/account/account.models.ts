@@ -17,3 +17,13 @@ export interface DeleteAccountRequest {
   password?: string;
   email?: string;
 }
+
+/** `PUT /api/account/time-zone`. `ifUnset: true` only sets it when the account has none. */
+export interface SetTimeZoneRequest {
+  timeZone: string;
+  ifUnset?: boolean;
+}
+
+export interface SetReminderEmailsRequest {
+  enabled: boolean;
+}

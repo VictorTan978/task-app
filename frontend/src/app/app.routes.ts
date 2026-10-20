@@ -52,6 +52,15 @@ export const routes: Routes = [
             (m) => m.InvitationsPage,
           ),
       },
+      // My reminder notifications (T4a).
+      {
+        path: 'notifications',
+        title: 'Notifications · Task App',
+        loadComponent: () =>
+          import('./features/notifications/notifications-page/notifications-page').then(
+            (m) => m.NotificationsPage,
+          ),
+      },
       {
         path: 'account',
         title: 'Account · Task App',

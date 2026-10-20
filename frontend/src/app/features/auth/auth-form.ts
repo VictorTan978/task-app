@@ -58,6 +58,10 @@ export const FIELD_MESSAGES: Record<FieldName, Partial<Record<FieldErrorCode, st
     REQUIRED: 'Enter a new password',
     PASSWORD_LENGTH: `Password must be ${PASSWORD_MIN} to ${PASSWORD_MAX} characters`,
   },
+  timeZone: {
+    REQUIRED: 'Enter a time zone',
+    INVALID_TIME_ZONE: 'Unknown time zone',
+  },
 };
 
 /** Order in which errors are shown when a control has several (mirrors server precedence). */

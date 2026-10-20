@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { distinctUntilChanged, filter, map, skip, switchMap } from 'rxjs';
+import { TimeZoneSync } from '../../core/time/time-zone-sync';
 import { AuthService } from '../../core/auth/auth.service';
 import { AppHeader } from '../app-header/app-header';
 import { VerifyEmailBanner } from '../verify-email-banner/verify-email-banner';
@@ -33,6 +34,8 @@ export class ShellLayout {
   constructor() {
     const router = inject(Router);
     const auth = inject(AuthService);
+    // Saves the browser's time zone when the account has none (best-effort, silent).
+    inject(TimeZoneSync);
     // Re-read the user (GET /me) when moving to another page, so a role changed by a super admin
     // shows or hides the "Admin" link on the next navigation (spec AC13). Skipped for the
     // navigation that created the shell (the user was just loaded) and for /admin pages

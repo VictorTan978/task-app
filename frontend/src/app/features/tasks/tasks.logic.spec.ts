@@ -8,7 +8,10 @@ import {
   searchKey,
   titleOrderUncertain,
   instantMicros,
+  formatDue,
   isOverdue,
+  reminderJustPassed,
+  reminderOptions,
   isDone,
   matchesFilter,
   matchesTag,
@@ -30,6 +33,9 @@ function task(overrides: Partial<Task> & { id: number }): Task {
     priority: 'NONE',
     tags: [],
     dueDate: null,
+    dueTime: null,
+    myReminder: null,
+    myReminderPassed: false,
     createdAt: '2026-10-08T09:00:00Z',
     updatedAt: '2026-10-08T09:00:00Z',
     ...overrides,
@@ -361,5 +367,64 @@ describe('tasks.logic', () => {
       );
       expect(titleOrderUncertain(p, q, 'title')).toBe(collated !== -1);
     });
+  });
+});
+
+describe('due time (T4a)', () => {
+  const timed = (id: number, dueDate: string | null, dueTime: string | null) =>
+    task({ id, dueDate, dueTime });
+
+  it('sorts by due: date, then timed by time, then date-only, then no date', () => {
+    const tasks = [
+      timed(1, null, null),
+      timed(2, '2026-10-21', null),
+      timed(3, '2026-10-21', '14:00'),
+      timed(4, '2026-10-21', '09:30'),
+      timed(5, '2026-10-20', null),
+    ];
+    expect(sortTasks(tasks, 'due').map((t) => t.id)).toEqual([5, 4, 3, 2, 1]);
+  });
+
+  it('a timed task is overdue once its date and time have passed', () => {
+    const t = timed(1, '2026-10-21', '09:30');
+    expect(isOverdue(t, '2026-10-21', '09:29')).toBe(false);
+    expect(isOverdue(t, '2026-10-21', '09:30')).toBe(false);
+    expect(isOverdue(t, '2026-10-21', '09:31')).toBe(true);
+    expect(isOverdue(t, '2026-10-22', '00:00')).toBe(true);
+    expect(isOverdue(t, '2026-10-20', '23:59')).toBe(false);
+  });
+
+  it('a date-only task is overdue only on later days, whatever the time', () => {
+    const t = timed(1, '2026-10-21', null);
+    expect(isOverdue(t, '2026-10-21', '23:59')).toBe(false);
+    expect(isOverdue(t, '2026-10-22', '00:00')).toBe(true);
+    expect(isOverdue(task({ id: 2, dueDate: '2026-10-01', status: 'DONE' }), '2026-10-22')).toBe(
+      false,
+    );
+  });
+
+  it('formats the due text and the reminder choices', () => {
+    expect(formatDue('2026-10-21', null)).toBe('2026-10-21');
+    expect(formatDue('2026-10-21', '09:30')).toBe('2026-10-21 09:30');
+    expect(reminderOptions(true).map((o) => o.value)).toEqual([
+      'AT_DUE',
+      'TEN_MINUTES',
+      'ONE_HOUR',
+      'ONE_DAY',
+    ]);
+    expect(reminderOptions(false)).toEqual([
+      { value: 'ON_THE_DAY', label: 'On the day at 09:00' },
+      { value: 'ONE_DAY', label: '1 day before at 09:00' },
+    ]);
+  });
+
+  it('reminderJustPassed is true only when a passed reminder is new or changed', () => {
+    const base = task({ id: 1, dueDate: '2026-10-21', dueTime: '09:00' });
+    const passed = { ...base, myReminder: 'AT_DUE' as const, myReminderPassed: true };
+    expect(reminderJustPassed(base, passed)).toBe(true);
+    expect(reminderJustPassed(passed, { ...passed, title: 'x' })).toBe(false);
+    expect(reminderJustPassed(passed, { ...passed, myReminder: 'ONE_HOUR' })).toBe(true);
+    expect(reminderJustPassed(base, { ...passed, myReminderPassed: false })).toBe(false);
+    expect(reminderJustPassed(base, base)).toBe(false);
   });
 });

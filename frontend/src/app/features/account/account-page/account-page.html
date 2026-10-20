@@ -26,6 +26,16 @@
     <app-display-name-form />
   </section>
 
+  <section class="account-card" aria-labelledby="account-time-zone-heading">
+    <h2 id="account-time-zone-heading">Time zone</h2>
+    <app-time-zone-form />
+  </section>
+
+  <section class="account-card" aria-labelledby="account-reminders-heading">
+    <h2 id="account-reminders-heading">Reminders</h2>
+    <app-reminder-emails-toggle />
+  </section>
+
   @if (hasPassword()) {
     <section class="account-card" aria-labelledby="account-password-heading">
       <h2 id="account-password-heading">Change password</h2>

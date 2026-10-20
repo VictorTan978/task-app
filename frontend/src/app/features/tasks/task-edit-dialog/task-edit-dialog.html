@@ -71,7 +71,13 @@
     <div class="field">
       <label for="task-edit-due">Due date</label>
       <div class="dialog__inline">
-        <input id="task-edit-due" type="date" formControlName="dueDate" />
+        <input
+          id="task-edit-due"
+          type="date"
+          formControlName="dueDate"
+          [attr.aria-invalid]="fieldError('dueDate') ? true : null"
+          [attr.aria-describedby]="fieldError('dueDate') ? 'task-edit-due-error' : null"
+        />
         @if (form.controls.dueDate.value) {
           <button
             type="button"
@@ -83,7 +89,49 @@
           </button>
         }
       </div>
+      @if (fieldError('dueDate'); as message) {
+        <p class="field-error" id="task-edit-due-error">{{ message }}</p>
+      }
     </div>
+
+    <div class="dialog__row">
+      <div class="field">
+        <label for="task-edit-due-time">Due time</label>
+        <input
+          id="task-edit-due-time"
+          type="time"
+          formControlName="dueTime"
+          [attr.aria-invalid]="fieldError('dueTime') ? true : null"
+          [attr.aria-describedby]="fieldError('dueTime') ? 'task-edit-due-time-error' : null"
+        />
+        @if (fieldError('dueTime'); as message) {
+          <p class="field-error" id="task-edit-due-time-error">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="task-edit-reminder">Reminder</label>
+        <select
+          id="task-edit-reminder"
+          formControlName="reminder"
+          [attr.aria-invalid]="fieldError('reminder') ? true : null"
+          [attr.aria-describedby]="fieldError('reminder') ? 'task-edit-reminder-error' : null"
+        >
+          <option value="NONE">None</option>
+          @for (r of reminderChoices(); track r.value) {
+            <option [value]="r.value">{{ r.label }}</option>
+          }
+        </select>
+        @if (fieldError('reminder'); as message) {
+          <p class="field-error" id="task-edit-reminder-error">{{ message }}</p>
+        }
+      </div>
+    </div>
+    @if (reminderPassed()) {
+      <p class="field-hint" role="status" data-testid="reminder-passed">
+        {{ reminderPassedNote }}
+      </p>
+    }
 
     <div class="field">
       <label for="task-edit-tags">Tags</label>
@@ -119,7 +167,7 @@
 
     <div class="dialog__actions">
       <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
-        Cancel
+        {{ savedPassed() ? 'Close' : 'Cancel' }}
       </button>
       <button
         type="submit"

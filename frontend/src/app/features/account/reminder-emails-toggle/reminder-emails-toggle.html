@@ -1,0 +1,19 @@
+<div class="account-form">
+  @if (error(); as message) {
+    <p class="notice notice--error" role="alert">{{ message }}</p>
+  }
+  <label class="account-toggle" for="account-reminder-emails">
+    <input
+      id="account-reminder-emails"
+      type="checkbox"
+      [checked]="enabled()"
+      [disabled]="pending() || locked()"
+      (change)="toggle($event)"
+    />
+    Reminder emails
+  </label>
+  <p class="field-hint">
+    Get an email when a reminder fires. Reminders always show under Notifications.
+  </p>
+  <p class="account-form__status" role="status">{{ status() }}</p>
+</div>

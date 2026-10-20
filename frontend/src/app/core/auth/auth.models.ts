@@ -12,6 +12,10 @@ export interface User {
   connections: Connection[];
   /** The account's role (new in 0.9.0). */
   role: Role;
+  /** IANA region zone (e.g. `Europe/Bucharest`), or null until set (0.14.0). */
+  timeZone: string | null;
+  /** Whether reminder emails are sent (0.14.0). */
+  reminderEmails: boolean;
 }
 
 /** Account role. `SUPER_ADMIN` can only be set outside the app (startup setting or SQL). */
@@ -73,7 +77,8 @@ export interface ResetPasswordRequest {
   newPassword: string;
 }
 
-export type FieldName = 'displayName' | 'email' | 'password' | 'currentPassword' | 'newPassword';
+export type FieldName =
+  'displayName' | 'email' | 'password' | 'currentPassword' | 'newPassword' | 'timeZone';
 
 export type FieldErrorCode =
   | 'REQUIRED'
@@ -83,7 +88,8 @@ export type FieldErrorCode =
   | 'EMAIL_TAKEN'
   | 'DISPLAY_NAME_TAKEN'
   | 'WRONG_PASSWORD'
-  | 'EMAIL_MISMATCH';
+  | 'EMAIL_MISMATCH'
+  | 'INVALID_TIME_ZONE';
 
 export interface FieldError {
   field: FieldName;

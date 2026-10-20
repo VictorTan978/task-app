@@ -20,6 +20,8 @@ import { ChangePasswordForm } from '../change-password-form/change-password-form
 import { DeleteAccountDialog } from '../delete-account-dialog/delete-account-dialog';
 import { DisconnectGoogleDialog } from '../disconnect-google-dialog/disconnect-google-dialog';
 import { DisplayNameForm } from '../display-name-form/display-name-form';
+import { ReminderEmailsToggle } from '../reminder-emails-toggle/reminder-emails-toggle';
+import { TimeZoneForm } from '../time-zone-form/time-zone-form';
 import { LogoutOthersDialog } from '../logout-others-dialog/logout-others-dialog';
 
 interface OAuthNotice {
@@ -40,6 +42,8 @@ type ConnectOutcome = 'started' | 'signed-out' | 'failed';
   selector: 'app-account-page',
   imports: [
     DisplayNameForm,
+    TimeZoneForm,
+    ReminderEmailsToggle,
     ChangePasswordForm,
     DeleteAccountDialog,
     LogoutOthersDialog,

@@ -141,6 +141,7 @@
                   <app-task-row
                     [task]="task"
                     [today]="today()"
+                    [time]="nowTime()"
                     [busy]="isBusy(task.id)"
                     [showAddedBy]="shared()"
                     (doneChange)="toggle(task, $event)"
