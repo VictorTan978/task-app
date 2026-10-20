@@ -1,6 +1,6 @@
 # Feature: Sharing — team lists (T3)
 
-**Status:** APPROVED 2026-10-17 — T3a DONE (merged 2026-10-19, `11aae94`), T3b in progress on `feature/list-sharing`. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md` (all DONE), the write-race fix (`a0aac6e`, on `main`). **Supersedes:** the `specs/auth.md` decision "personal task lists only, no sharing in v1" (2026-10-08).
+**Status:** DONE 2026-10-19 (approved 2026-10-17). T3a merged `11aae94`, T3b merged `bad15f8`, both on `main`. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md` (all DONE), the write-race fix (`a0aac6e`, on `main`). **Supersedes:** the `specs/auth.md` decision "personal task lists only, no sharing in v1" (2026-10-08).
 
 **Built in two parts (Q20).** Each part has its own branch, contract version, migration, tests and merge:
 
@@ -152,3 +152,4 @@ _Filled in by the PM during the build._
 | 2026-10-19 | T3b backend built (V11 = approved SQL; `./mvnw clean test` 1179/1179). Deviations accepted: task create reads the list before locking (plain read); self-delete starts with users FOR UPDATE, so the BCrypt check runs under that lock; decline also takes the list lock; `InvitationService` uses the Clock bean | Same lock order; makes every invitation write ordered against accept/cancel and lets tests move time | PM |
 | 2026-10-19 | Tester round 1: AC34 FAIL — phone header overflowed (the new Invitations link pushed Log out off-screen; 5 e2e). Fix round 1 (`9c6fdf3`, `app-header.scss` only): header wraps at ≤640 px, greeting truncates with an ellipsis. e2e drift fixes test-only (`264ee04`); `lists.spec.ts` AC9 `owner_id` check narrowed to personal lists (it now means "added by") | Layout only; no behaviour change | PM |
 | 2026-10-19 | Full green rerun on `9c6fdf3`: backend 1179/1179, lint PASS, unit 882/882, build PASS (bundle warning 549.06 kB / 500 kB), e2e 304 = 286 passed + 0 failed + 18 skipped, stress 150 rounds (sharing 5/5, lists 6/6) no 5xx, perf worst 34.1 ms. AC18–AC34 PASS. V11 ran on the dev DB (pre-V11 dump in the session scratchpad) | Definition of Done met; waiting for "merge" | PM |
+| 2026-10-20 | T3b on `main` (`bad15f8`, fast-forward, pushed). Spec DONE: AC1–AC34 PASS | Definition of Done met on `9c6fdf3`; `bad15f8` adds only the AC34 e2e and the log | PM |
