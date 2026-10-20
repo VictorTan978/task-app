@@ -307,7 +307,7 @@ test.describe('roles and admin users', () => {
     // AC2: /me, login, display-name responses carry role
     expect((await me(u.ctx)).body!['role']).toBe('USER');
     const keys = Object.keys((await me(u.ctx)).body!).sort();
-    expect(keys).toEqual(['connections', 'displayName', 'email', 'emailVerified', 'hasPassword', 'id', 'role']);
+    expect(keys).toEqual(['connections', 'displayName', 'email', 'emailVerified', 'hasPassword', 'id', 'reminderEmails', 'role', 'timeZone']); // reminderEmails + timeZone in 0.14.0
     const second = await signIn(browser, u.email);
     const login = await call(second.ctx, 'POST', '/api/auth/login', { email: u.email, password: PASSWORD });
     expect(((await login.json()) as Record<string, unknown>)['role']).toBe('USER');

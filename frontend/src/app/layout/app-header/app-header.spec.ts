@@ -4,9 +4,17 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { NotificationsStore } from '../../features/notifications/notifications.store';
 import { AuthService } from '../../core/auth/auth.service';
 import { InvitationsStore } from '../../features/sharing/invitations.store';
 import { AppHeader } from './app-header';
+
+/** The bell is tested in notifications.store.spec; here it must not call the API. */
+const NOTIFICATIONS_STUB = {
+  count: signal(0),
+  refresh: () => undefined,
+  startPolling: () => undefined,
+};
 
 describe('AppHeader', () => {
   let fixture: ComponentFixture<AppHeader>;
@@ -18,7 +26,12 @@ describe('AppHeader', () => {
   beforeEach(async () => {
     TestBed.configureTestingModule({
       imports: [AppHeader],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: NotificationsStore, useValue: NOTIFICATIONS_STUB },
+      ],
     });
     http = TestBed.inject(HttpTestingController);
     auth = TestBed.inject(AuthService);
@@ -31,6 +44,8 @@ describe('AppHeader', () => {
       emailVerified: true,
       hasPassword: true,
       role: 'USER',
+      timeZone: 'Europe/Bucharest',
+      reminderEmails: true,
       connections: [],
     });
     fixture = TestBed.createComponent(AppHeader);
@@ -64,6 +79,8 @@ describe('AppHeader', () => {
       emailVerified: true,
       hasPassword: true,
       role: 'USER',
+      timeZone: 'Europe/Bucharest',
+      reminderEmails: true,
       connections: [],
     });
     await fixture.whenStable();
@@ -161,6 +178,7 @@ describe('AppHeader invitation count refresh', () => {
         ]),
         provideHttpClient(),
         provideHttpClientTesting(),
+        { provide: NotificationsStore, useValue: NOTIFICATIONS_STUB },
         {
           provide: AuthService,
           useValue: { currentUser: signal({ id: 1 }), isAdmin: signal(false) },

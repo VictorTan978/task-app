@@ -30,6 +30,8 @@ const CLIENT_MESSAGES: Record<TaskFieldName, Record<string, string>> = {
   done: {},
   status: {},
   tags: {},
+  dueTime: {},
+  reminder: {},
 };
 
 interface ServerError {

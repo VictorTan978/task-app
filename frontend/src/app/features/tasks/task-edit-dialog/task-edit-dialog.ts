@@ -27,9 +27,17 @@ import {
   titleValidators,
 } from '../task-form';
 import { TaskTagInput } from '../task-tag-input/task-tag-input';
-import { PRIORITIES, PRIORITY_LABELS, STATUS_LABELS, STATUSES } from '../tasks.logic';
+import {
+  PRIORITIES,
+  PRIORITY_LABELS,
+  reminderJustPassed,
+  reminderOptions,
+  STATUS_LABELS,
+  STATUSES,
+} from '../tasks.logic';
 import {
   Priority,
+  Reminder,
   ReplaceTaskRequest,
   Task,
   TaskFieldName,
@@ -38,7 +46,12 @@ import {
 } from '../tasks.models';
 import { TasksService } from '../tasks.service';
 
-type ShownField = Extract<TaskFieldName, 'title' | 'description' | 'status' | 'tags'>;
+type ShownField = Extract<
+  TaskFieldName,
+  'title' | 'description' | 'status' | 'tags' | 'dueTime' | 'reminder'
+>;
+
+export const REMINDER_PASSED_NOTE = 'This reminder time has passed';
 
 export const MOVE_LIST_GONE = 'This list no longer exists. Choose another list.';
 export const LISTS_UNAVAILABLE = "Couldn't load your lists, so the task can't be moved right now.";
@@ -80,6 +93,8 @@ export class TaskEditDialog implements OnInit {
     priority: ['NONE' as Priority],
     status: ['TODO' as TaskStatus],
     dueDate: [''],
+    dueTime: [''],
+    reminder: ['NONE' as Reminder | 'NONE'],
     tags: [[] as string[]],
   });
 
@@ -89,6 +104,17 @@ export class TaskEditDialog implements OnInit {
   /** The user's tags for suggestions; stays empty if loading them fails. */
   protected readonly knownTags = signal<readonly string[]>([]);
   private lastRequest: ReplaceTaskRequest | null = null;
+
+  /** Mirrors of the date and time controls, so the reminder choices follow them. */
+  private readonly hasDate = signal(false);
+  private readonly hasTime = signal(false);
+  /** Reminder choices: they depend on whether the task has a due time. */
+  protected readonly reminderChoices = computed(() => reminderOptions(this.hasTime()));
+  /** True when my reminder time is in the past (on open, or right after a save). */
+  protected readonly reminderPassed = signal(false);
+  /** A save went through and the dialog was kept open to show the passed-reminder note. */
+  protected readonly reminderPassedNote = REMINDER_PASSED_NOTE;
+  protected readonly savedPassed = signal(false);
 
   /** "List" select: my lists; the task moves when another one is picked. */
   protected readonly listOptions = this.lists.lists;
@@ -119,8 +145,15 @@ export class TaskEditDialog implements OnInit {
       priority: t.priority,
       status: t.status,
       dueDate: t.dueDate ?? '',
+      dueTime: t.dueTime ?? '',
+      reminder: t.myReminder ?? 'NONE',
       tags: [...t.tags],
     });
+    this.hasDate.set(!!t.dueDate);
+    this.hasTime.set(!!t.dueTime);
+    this.reminderPassed.set(t.myReminder !== null && t.myReminderPassed);
+    this.syncDateDependent();
+    this.watchDateTime();
     this.targetListId.set(t.listId);
     this.lists.load();
     // Fresh on every open; a failure only means no suggestions.
@@ -148,6 +181,52 @@ export class TaskEditDialog implements OnInit {
     this.form.controls.dueDate.setValue('');
   }
 
+  /** Time and reminder follow the date: no date, no time and no reminder. */
+  private watchDateTime(): void {
+    const { dueDate, dueTime, reminder } = this.form.controls;
+    const sub = dueDate.valueChanges.subscribe((value) => {
+      this.hasDate.set(!!value);
+      if (!value) {
+        dueTime.setValue('', { emitEvent: false });
+        this.hasTime.set(false);
+        reminder.setValue('NONE', { emitEvent: false });
+      }
+      this.onScheduleChanged();
+    });
+    const timeSub = dueTime.valueChanges.subscribe((value) => {
+      this.hasTime.set(!!value);
+      this.onScheduleChanged();
+    });
+    const reminderSub = reminder.valueChanges.subscribe(() => this.reminderPassed.set(false));
+    this.destroyRef.onDestroy(() => {
+      sub.unsubscribe();
+      timeSub.unsubscribe();
+      reminderSub.unsubscribe();
+    });
+  }
+
+  /** A reminder that no longer fits the date or time is reset to None; the note goes away. */
+  private onScheduleChanged(): void {
+    const current = this.form.controls.reminder.value;
+    if (current !== 'NONE' && !this.reminderChoices().some((o) => o.value === current)) {
+      this.form.controls.reminder.setValue('NONE', { emitEvent: false });
+    }
+    this.reminderPassed.set(false);
+    this.syncDateDependent();
+  }
+
+  /** Time and reminder are disabled without a due date (not while a save runs: all are). */
+  private syncDateDependent(): void {
+    const { dueTime, reminder } = this.form.controls;
+    if (this.hasDate() && !this.pending()) {
+      dueTime.enable({ emitEvent: false });
+      reminder.enable({ emitEvent: false });
+    } else {
+      dueTime.disable({ emitEvent: false });
+      reminder.disable({ emitEvent: false });
+    }
+  }
+
   /** Escape key: close unless a save is running. */
   protected onCancel(event: Event): void {
     event.preventDefault();
@@ -171,15 +250,22 @@ export class TaskEditDialog implements OnInit {
       this.form.markAllAsTouched();
       return;
     }
-    const { title, description, priority, status, dueDate, tags } = this.form.getRawValue();
+    const { title, description, priority, status, dueDate, dueTime, reminder, tags } =
+      this.form.getRawValue();
     const request: ReplaceTaskRequest = {
       title: title.trim(),
       description: normaliseDescription(description),
       dueDate: dueDate || null,
+      dueTime: dueDate && dueTime ? dueTime : null,
       priority,
       status,
       tags: tags.filter((t) => t.trim() !== ''),
     };
+    // Without a date the server clears the reminder itself.
+    // Missing leaves my reminder as it is, so it is sent only when I changed it.
+    if (dueDate && reminder !== (this.task().myReminder ?? 'NONE')) {
+      request.reminder = reminder;
+    }
     // listId only when another list was picked (a move).
     const target = this.targetListId();
     if (target !== this.task().listId) {
@@ -205,6 +291,10 @@ export class TaskEditDialog implements OnInit {
     this.sub = this.tasks.replace(this.task().id, request).subscribe({
       next: (task) => {
         this.setPending(false);
+        // The page keeps the dialog open exactly when this is true (same rule).
+        const passed = reminderJustPassed(this.task(), task) && task.listId === this.task().listId;
+        this.savedPassed.set(passed);
+        this.reminderPassed.set(passed);
         this.saved.emit(task);
       },
       error: (error: unknown) => {
@@ -256,6 +346,7 @@ export class TaskEditDialog implements OnInit {
       this.form.disable({ emitEvent: false });
     } else {
       this.form.enable({ emitEvent: false });
+      this.syncDateDependent();
     }
   }
 }

@@ -1,11 +1,19 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { NotificationsStore } from '../../features/notifications/notifications.store';
 import { AuthService } from '../../core/auth/auth.service';
 import { ShellLayout } from './shell-layout';
+
+/** The bell is tested in notifications.store.spec; here it must not call the API. */
+const NOTIFICATIONS_STUB = {
+  count: signal(0),
+  refresh: () => undefined,
+  startPolling: () => undefined,
+};
 
 @Component({ template: 'page' })
 class Page {}
@@ -17,6 +25,8 @@ const BOB = {
   emailVerified: true,
   hasPassword: true,
   role: 'USER' as const,
+  timeZone: 'Europe/Bucharest',
+  reminderEmails: true,
   connections: [],
 };
 
@@ -28,7 +38,12 @@ describe('ShellLayout', () => {
   it('shows the verify-email banner right under the header for an unconfirmed user', async () => {
     TestBed.configureTestingModule({
       imports: [ShellLayout],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: NotificationsStore, useValue: NOTIFICATIONS_STUB },
+      ],
     });
     const http = TestBed.inject(HttpTestingController);
     TestBed.inject(AuthService).loadMe().subscribe();
@@ -39,6 +54,8 @@ describe('ShellLayout', () => {
       emailVerified: false,
       hasPassword: true,
       role: 'USER',
+      timeZone: 'Europe/Bucharest',
+      reminderEmails: true,
       connections: [],
     });
 
@@ -73,6 +90,7 @@ describe('ShellLayout', () => {
           ]),
           provideHttpClient(),
           provideHttpClientTesting(),
+          { provide: NotificationsStore, useValue: NOTIFICATIONS_STUB },
         ],
       });
       http = TestBed.inject(HttpTestingController);

@@ -345,4 +345,66 @@ class TaskSearchRepositoryTest {
             assertThat((long) paged.size()).isEqualTo(repository.countMatching(criteria));
         }
     }
+
+    // ---- 0.14.0: the due time ----
+
+    private Task timed(String title, LocalDate due, java.time.LocalTime time, int createdAt) {
+        Task task = new Task(ownerOf(alice), alice, title, null, due, at(createdAt));
+        task.replace(title, null, due, time, at(createdAt));
+        return em.persistAndFlush(task);
+    }
+
+    @Test
+    void insideADateTimedTasksComeFirstByTimeThenDateOnlyTasksTiesNewestFirst() {
+        timed("date-only old", D0, null, 0);
+        timed("10:00", D0, java.time.LocalTime.of(10, 0), 1);
+        timed("09:00 old", D0, java.time.LocalTime.of(9, 0), 2);
+        timed("09:00 new", D0, java.time.LocalTime.of(9, 0), 3);
+        timed("date-only new", D0, null, 4);
+        timed("previous day 23:59", D0.minusDays(1), java.time.LocalTime.of(23, 59), 5);
+        timed("next day date-only", D0.plusDays(1), null, 6);
+        timed("next day 00:00", D0.plusDays(1), java.time.LocalTime.MIDNIGHT, 7);
+        timed("no date", null, null, 8);
+
+        assertThat(titles(TaskFilter.ALL, TaskSort.DUE)).containsExactly("previous day 23:59", "09:00 new",
+                "09:00 old", "10:00", "date-only new", "date-only old", "next day 00:00", "next day date-only",
+                "no date");
+    }
+
+    @Test
+    void theWallClockTimeIsStoredAndReadBackUnchanged() {
+        Task saved = timed("t", D0, java.time.LocalTime.of(9, 30), 0);
+        em.clear();
+        assertThat(repository.findById(saved.getId()).orElseThrow().getDueTime()).isEqualTo(java.time.LocalTime.of(9, 30));
+        // The column itself holds 09:30, whatever the JVM's zone is (Hibernate's own TIME mapping shifted it).
+        assertThat(jdbc.queryForObject("select cast(due_time as char) from tasks where id = ?", String.class,
+                saved.getId())).isEqualTo("09:30:00");
+    }
+
+    @Test
+    void thereIsNoGapOrRepeatWhenACursorSitsOnAnyTaskOfTheDueOrder() {
+        // Every kind of position: a timed task, a date-only task and a no-date task in the same group, with ties.
+        timed("a 09:00", D0, java.time.LocalTime.of(9, 0), 0);
+        timed("b 09:00", D0, java.time.LocalTime.of(9, 0), 1);
+        timed("c 12:00", D0, java.time.LocalTime.of(12, 0), 2);
+        timed("d date-only", D0, null, 3);
+        timed("e date-only", D0, null, 4);
+        timed("f next day", D0.plusDays(1), java.time.LocalTime.of(8, 0), 5);
+        timed("g next day date-only", D0.plusDays(1), null, 6);
+        timed("h no date", null, null, 7);
+        timed("i no date", null, null, 8);
+        timed("j done", D0, java.time.LocalTime.of(7, 0), 9);
+        jdbc.update("update tasks set status = 'DONE', done = true where title = 'j done'");
+        em.clear();
+
+        TaskSearchCriteria criteria = new TaskSearchCriteria(alice, TaskFilter.ALL, TaskSort.DUE, null, null);
+        List<Task> all = repository.findPage(criteria, null, 1000);
+        assertThat(all).hasSize(10);
+        for (int i = 0; i < all.size(); i++) {
+            List<Long> rest = repository.findPage(criteria, TaskCursor.after(all.get(i), TaskSort.DUE), 1000).stream()
+                    .map(Task::getId).toList();
+            assertThat(rest).as("after %s", all.get(i).getTitle())
+                    .isEqualTo(all.subList(i + 1, all.size()).stream().map(Task::getId).toList());
+        }
+    }
 }

@@ -156,6 +156,10 @@ app:
   #   RATE_LIMIT_INVITES_PER_USER_PER_HOUR            invitations per inviter (default 30, 429)
   #   RATE_LIMIT_INVITE_EMAILS_PER_ACCOUNT_PER_HOUR   invitation emails per recipient account (default 5; silent: the
   #                                                   invitation is still created, only the email is skipped)
+  # Reminders (specs/due-times-reminders.md AC14), per 1 hour:
+  #   RATE_LIMIT_REMINDER_EMAILS_PER_ACCOUNT_PER_HOUR  reminder emails per recipient account (default 20, per app
+  #                                                    instance; silent: the in-app notification is still created,
+  #                                                    only the email is skipped)
   # The e2e suite registers many users from 127.0.0.1, so raise the per-IP limits for e2e runs (and the admin limit
   # too if many e2e tests act as the same admin, and the invite limits if many tests invite as one user or the same
   # recipient).
@@ -178,6 +182,21 @@ app:
     admin-actions-per-user-per-minute: ${RATE_LIMIT_ADMIN_ACTIONS_PER_USER_PER_MINUTE:60}
     invites-per-user-per-hour: ${RATE_LIMIT_INVITES_PER_USER_PER_HOUR:30}
     invite-emails-per-account-per-hour: ${RATE_LIMIT_INVITE_EMAILS_PER_ACCOUNT_PER_HOUR:5}
+    reminder-emails-per-account-per-hour: ${RATE_LIMIT_REMINDER_EMAILS_PER_ACCOUNT_PER_HOUR:20}
+  # Due-time reminders (specs/due-times-reminders.md). A background job (Spring's built-in scheduler, no extra
+  # dependency) fires due reminders: it creates the in-app notification and, if the account is active, its email is
+  # verified, "Reminder emails" is on and the hourly cap allows it, sends an email. Several app instances can share
+  # one database: each reminder is claimed with a row lock, so it fires once. A reminder 1 hour or more late (e.g. the
+  # server was down) is dropped. Notifications older than 90 days are deleted hourly.
+  #   REMINDERS_ENABLED         false = no reminder fires and nothing is cleaned up; everything else works (default true)
+  #   REMINDERS_POLL_INTERVAL   pause between two scans for due reminders, e.g. 2s in tests, 1m (default 60s)
+  #   REMINDERS_LATE_AFTER      a reminder fired this long after its time is flagged "late" (default 5m)
+  #   REMINDERS_BATCH_SIZE      reminders handled per scan; a longer backlog is worked off over the next scans (default 100)
+  reminders:
+    enabled: ${REMINDERS_ENABLED:true}
+    poll-interval: ${REMINDERS_POLL_INTERVAL:60s}
+    late-after: ${REMINDERS_LATE_AFTER:5m}
+    batch-size: ${REMINDERS_BATCH_SIZE:100}
   # Roles and admin users (specs/roles-admin.md). ADMIN_BOOTSTRAP_EMAIL: at startup, if NO super admin exists yet and
   # an account with this email exists (matched like login: ignoring letter case and accents) and is not disabled, it
   # becomes SUPER_ADMIN (audit event ADMIN_BOOTSTRAPPED). Empty (default) = nothing happens. Once a super admin exists

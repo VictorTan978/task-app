@@ -15,6 +15,20 @@
         }}</span>
       }
     </a>
+    <a
+      class="app-header__link app-header__invitations"
+      routerLink="/notifications"
+      routerLinkActive="app-header__link--active"
+      data-testid="notifications-link"
+      [attr.aria-label]="notificationsLabel()"
+    >
+      Notifications
+      @if (notificationCount() > 0) {
+        <span class="app-header__badge" aria-hidden="true" data-testid="notifications-badge">{{
+          notificationCount()
+        }}</span>
+      }
+    </a>
     @if (isAdmin()) {
       <a class="app-header__link" routerLink="/admin/users" data-testid="admin-link">Admin</a>
     }

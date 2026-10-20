@@ -13,6 +13,8 @@ const BOB: User = {
   emailVerified: true,
   hasPassword: true,
   role: 'USER',
+  timeZone: 'Europe/Bucharest',
+  reminderEmails: true,
   connections: [],
 };
 
@@ -222,5 +224,79 @@ describe('AccountService', () => {
     req.flush(null, { status: 204, statusText: 'No Content' });
     await result;
     expect(auth.isSignedIn()).toBe(false);
+  });
+});
+
+describe('AccountService time zone and reminder emails', () => {
+  let service: AccountService;
+  let http: HttpTestingController;
+  let auth: AuthService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    service = TestBed.inject(AccountService);
+    http = TestBed.inject(HttpTestingController);
+    auth = TestBed.inject(AuthService);
+    auth.loadMe().subscribe();
+    http.expectOne('/api/auth/me').flush(BOB);
+  });
+
+  afterEach(() => http.verify());
+
+  it('PUTs the time zone and replaces the signed-in user', () => {
+    service.setTimeZone({ timeZone: 'Asia/Tokyo' }).subscribe();
+    const req = http.expectOne('/api/account/time-zone');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ timeZone: 'Asia/Tokyo' });
+    req.flush({ ...BOB, timeZone: 'Asia/Tokyo' });
+    expect(auth.currentUser()?.timeZone).toBe('Asia/Tokyo');
+  });
+
+  it('PUTs reminder emails and replaces the signed-in user', () => {
+    service.setReminderEmails({ enabled: false }).subscribe();
+    const req = http.expectOne('/api/account/reminder-emails');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ enabled: false });
+    req.flush({ ...BOB, reminderEmails: false });
+    expect(auth.currentUser()?.reminderEmails).toBe(false);
+  });
+});
+
+describe('AccountService time zone and reminder emails', () => {
+  let service: AccountService;
+  let http: HttpTestingController;
+  let auth: AuthService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    service = TestBed.inject(AccountService);
+    http = TestBed.inject(HttpTestingController);
+    auth = TestBed.inject(AuthService);
+    auth.loadMe().subscribe();
+    http.expectOne('/api/auth/me').flush(BOB);
+  });
+
+  afterEach(() => http.verify());
+
+  it('PUTs the time zone and replaces the signed-in user', () => {
+    service.setTimeZone({ timeZone: 'Asia/Tokyo' }).subscribe();
+    const req = http.expectOne('/api/account/time-zone');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ timeZone: 'Asia/Tokyo' });
+    req.flush({ ...BOB, timeZone: 'Asia/Tokyo' });
+    expect(auth.currentUser()?.timeZone).toBe('Asia/Tokyo');
+  });
+
+  it('PUTs reminder emails and replaces the signed-in user', () => {
+    service.setReminderEmails({ enabled: false }).subscribe();
+    const req = http.expectOne('/api/account/reminder-emails');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ enabled: false });
+    req.flush({ ...BOB, reminderEmails: false });
+    expect(auth.currentUser()?.reminderEmails).toBe(false);
   });
 });

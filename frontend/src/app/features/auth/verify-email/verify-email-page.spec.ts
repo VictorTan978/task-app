@@ -13,6 +13,8 @@ const BOB: User = {
   emailVerified: false,
   hasPassword: true,
   role: 'USER',
+  timeZone: 'Europe/Bucharest',
+  reminderEmails: true,
   connections: [],
 };
 const URL = '/api/auth/verify-email';

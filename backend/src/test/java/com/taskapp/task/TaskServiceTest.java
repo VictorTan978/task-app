@@ -50,6 +50,7 @@ class TaskServiceTest {
     private final TaskRepository repository = mock(TaskRepository.class);
     private final TagService tagService = mock(TagService.class);
     private final ListService listService = mock(ListService.class);
+    private final com.taskapp.reminder.ReminderService reminders = mock(com.taskapp.reminder.ReminderService.class);
     private TaskService service;
 
     /** The owner's "My tasks" (3) and another list of theirs (8). */
@@ -82,7 +83,8 @@ class TaskServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new TaskService(repository, tagService, listService, TransactionOperations.withoutTransaction(),
+        service = new TaskService(repository, tagService, listService, reminders,
+                TransactionOperations.withoutTransaction(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
         when(listService.resolve(OWNER, null)).thenReturn(MY_TASKS);
         when(listService.personal(OWNER)).thenReturn(MY_TASKS_LIST);
@@ -139,7 +141,8 @@ class TaskServiceTest {
                 new CreateTaskRequest("Buy milk", null, LocalDate.parse("2026-10-10"), null));
 
         assertThat(created).isEqualTo(new TaskResponse(12L, MY_TASKS, OWNER_NAME, "Buy milk", null, Priority.NONE,
-                TaskStatus.TODO, List.of(), false, LocalDate.parse("2026-10-10"), NOW_MICROS, NOW_MICROS));
+                TaskStatus.TODO, List.of(), false, LocalDate.parse("2026-10-10"), null, null, false, NOW_MICROS,
+                NOW_MICROS));
         verify(repository).saveAndFlush(any(Task.class));
         verifyNoInteractions(tagService);
     }
@@ -373,7 +376,107 @@ class TaskServiceTest {
 
         assertThat(updated).isEqualTo(new TaskResponse(12L, MY_TASKS, OWNER_NAME, "Buy oat milk", null, Priority.NONE,
                 TaskStatus.DONE,
-                List.of(), true, null, CREATED, NOW_MICROS));
+                List.of(), true, null, null, null, false, CREATED, NOW_MICROS));
+    }
+
+    // ---- 0.14.0: due time and reminder ----
+
+    private static ReplaceTaskRequest due(String date, com.taskapp.task.dto.DueTimeUpdate time, String reminder) {
+        return new ReplaceTaskRequest("Buy milk", "2%", date == null ? null : LocalDate.parse(date), time, null, null,
+                null, null, null, reminder);
+    }
+
+    private static com.taskapp.task.dto.DueTimeUpdate at(int hour, int minute) {
+        return new com.taskapp.task.dto.DueTimeUpdate(java.time.LocalTime.of(hour, minute));
+    }
+
+    @Test
+    void replaceSetsTheDueTimeAndHandsTheReminderRequestToTheReminderService() {
+        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+
+        service.replace(OWNER, 12L, due("2026-10-21", at(9, 30), "ONE_HOUR"));
+
+        assertThat(task.getDueTime()).isEqualTo(java.time.LocalTime.of(9, 30));
+        verify(reminders).afterTaskSaved(task, OWNER, "ONE_HOUR");
+    }
+
+    @Test
+    void aDueTimeThatIsNotSentStaysAndANullClearsIt() {
+        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+        service.replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
+
+        service.replace(OWNER, 12L, due("2026-10-22", null, null));
+        assertThat(task.getDueDate()).isEqualTo(LocalDate.parse("2026-10-22"));
+        assertThat(task.getDueTime()).isEqualTo(java.time.LocalTime.of(9, 30));
+
+        service.replace(OWNER, 12L, due("2026-10-22", com.taskapp.task.dto.DueTimeUpdate.CLEAR, null));
+        assertThat(task.getDueTime()).isNull();
+        assertThat(task.getDueDate()).isEqualTo(LocalDate.parse("2026-10-22"));
+    }
+
+    @Test
+    void clearingTheDateDropsTheStoredTime() {
+        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+        service.replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
+
+        service.replace(OWNER, 12L, due(null, null, null));
+
+        assertThat(task.getDueDate()).isNull();
+        assertThat(task.getDueTime()).isNull();
+        verify(reminders, org.mockito.Mockito.times(2)).afterTaskSaved(task, OWNER, null);
+    }
+
+    @Test
+    void anOffsetThatDoesNotFitTheTaskIsInvalidReminderAndNothingIsSavedOrScheduled() {
+        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+
+        // Timed with a date-only offset, date-only with a timed offset.
+        assertInvalidReminder(due("2026-10-21", at(9, 30), "ON_THE_DAY"));
+        assertInvalidReminder(due("2026-10-21", null, "AT_DUE"));
+        assertInvalidReminder(due("2026-10-21", com.taskapp.task.dto.DueTimeUpdate.CLEAR, "TEN_MINUTES"));
+
+        verify(reminders, never()).afterTaskSaved(any(), anyLong(), any());
+        assertThat(task.getDueTime()).isNull();
+    }
+
+    @Test
+    void aStoredTimeMakesATimedOffsetFitWhenTheRequestDoesNotSendOne() {
+        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+        service.replace(OWNER, 12L, due("2026-10-21", at(9, 30), null));
+
+        service.replace(OWNER, 12L, due("2026-10-22", null, "AT_DUE"));
+
+        verify(reminders).afterTaskSaved(task, OWNER, "AT_DUE");
+        assertInvalidReminder(due("2026-10-22", null, "ON_THE_DAY"));
+    }
+
+    @Test
+    void noneAndAMissingReminderNeverFailTheFitCheck() {
+        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
+        service.replace(OWNER, 12L, due("2026-10-21", null, "NONE"));
+        service.replace(OWNER, 12L, due(null, null, "NONE"));
+        verify(reminders, org.mockito.Mockito.times(2)).afterTaskSaved(task, OWNER, "NONE");
+    }
+
+    @Test
+    void theResponseCarriesMyReminder() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(reminders.mine(OWNER, List.of(12L))).thenReturn(java.util.Map.of(12L,
+                new com.taskapp.reminder.ReminderService.Mine(com.taskapp.reminder.ReminderOffset.ONE_HOUR, true)));
+
+        TaskResponse response = service.get(OWNER, 12L);
+
+        assertThat(response.myReminder()).isEqualTo(com.taskapp.reminder.ReminderOffset.ONE_HOUR);
+        assertThat(response.myReminderPassed()).isTrue();
+    }
+
+    private void assertInvalidReminder(ReplaceTaskRequest request) {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.replace(OWNER, 12L, request))
+                .isInstanceOfSatisfying(com.taskapp.auth.InvalidFieldsException.class, e -> {
+                    assertThat(e.bindingResult().getFieldErrors()).hasSize(1);
+                    assertThat(e.bindingResult().getFieldError().getField()).isEqualTo("reminder");
+                    assertThat(e.bindingResult().getFieldError().getCode()).isEqualTo("InvalidReminder");
+                });
     }
 
     @Test

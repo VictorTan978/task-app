@@ -85,6 +85,10 @@
     background: var(--color-info-bg);
   }
 
+  &__reminder {
+    font-size: 0.75rem;
+  }
+
   &__overdue {
     color: #fff;
     background: var(--color-error);

@@ -13,6 +13,8 @@ const CONNECTED: User = {
   emailVerified: true,
   hasPassword: true,
   role: 'USER',
+  timeZone: 'Europe/Bucharest',
+  reminderEmails: true,
   connections: [{ provider: 'google', email: 'bob@gmail.com' }],
 };
 const DISCONNECTED: User = { ...CONNECTED, connections: [] };

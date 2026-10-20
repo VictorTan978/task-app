@@ -27,7 +27,7 @@ function uniqueEmail(tag: string): string {
   return `qa-t3b-${tag}-${uid()}@example.com`;
 }
 
-const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
+const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'dueTime', 'id', 'listId', 'myReminder', 'myReminderPassed', 'priority', 'status', 'tags', 'title', 'updatedAt']; // 0.14.0 (T4a): dueTime, myReminder, myReminderPassed
 const LIST_KEYS = ['id', 'memberCount', 'name', 'personal', 'role'];
 const MEMBER_KEYS = ['displayName', 'email', 'joinedAt', 'role', 'userId'];
 const LIST_INV_KEYS = ['email', 'expiresAt', 'id', 'invitedAt'];

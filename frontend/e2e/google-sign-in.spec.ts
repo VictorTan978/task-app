@@ -158,7 +158,7 @@ async function me(page: Page): Promise<{ status: number; body: User | null }> {
 }
 
 function expectUserShape(u: User) {
-  expect(Object.keys(u).sort()).toEqual(['connections', 'displayName', 'email', 'emailVerified', 'hasPassword', 'id', 'role']); // role in 0.9.0
+  expect(Object.keys(u).sort()).toEqual(['connections', 'displayName', 'email', 'emailVerified', 'hasPassword', 'id', 'reminderEmails', 'role', 'timeZone']); // role in 0.9.0; reminderEmails + timeZone in 0.14.0
   expect(typeof u.hasPassword).toBe('boolean');
   expect(Array.isArray(u.connections)).toBe(true);
   for (const c of u.connections) expect(Object.keys(c).sort()).toEqual(['email', 'provider']);

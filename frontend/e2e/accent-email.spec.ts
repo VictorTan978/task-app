@@ -133,7 +133,7 @@ test.describe.serial('accent- and case-insensitive email', () => {
     for (const email of [joseAccent, `  JOSÉ${N}@EXAMPLE.COM `]) {
       const ok = await api(context, req, '/api/auth/login', { email, password: JOSE_PW });
       expect(ok.status(), email).toBe(200);
-      expect(await ok.json()).toEqual({ id: joseId, email: jose, displayName: joseName, emailVerified: false, hasPassword: true, connections: [], role: 'USER' }); // emailVerified added in 0.7.0; hasPassword + connections in 0.8.0; role in 0.9.0
+      expect({ ...(await ok.json()), timeZone: null }).toEqual({ id: joseId, email: jose, displayName: joseName, emailVerified: false, hasPassword: true, connections: [], role: 'USER', reminderEmails: true, timeZone: null }); // 0.14.0: reminderEmails; timeZone is whatever the browser saved, masked here // emailVerified added in 0.7.0; hasPassword + connections in 0.8.0; role in 0.9.0
     }
     // the browser page shares the session: header shows jose
     await page.goto('/tasks');

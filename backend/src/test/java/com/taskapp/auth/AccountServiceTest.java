@@ -59,6 +59,7 @@ class AccountServiceTest {
     private final RememberMeTokenRepository rememberMeTokens = mock(RememberMeTokenRepository.class);
     private final UserConnectionRepository connections = mock(UserConnectionRepository.class);
     private final ListService listService = mock(ListService.class);
+    private final com.taskapp.reminder.ReminderService reminders = mock(com.taskapp.reminder.ReminderService.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private AccountService accountService;
     private User bob;
@@ -69,7 +70,7 @@ class AccountServiceTest {
         AuthRateLimiter rateLimiter = new AuthRateLimiter(new RateLimitProperties(
                 5, Duration.ofMinutes(15), 20, 5, 100_000, 5, Duration.ofMinutes(15)), Clock.systemUTC());
         accountService = new AccountService(userRepository, passwordEncoder, rateLimiter, rememberMeTokens,
-                connections, listService, TransactionOperations.withoutTransaction());
+                connections, listService, reminders, TransactionOperations.withoutTransaction());
         // Delete account loads (and locks) the user with findByIdForUpdate: same answers as findById.
         when(userRepository.findByIdForUpdate(anyLong()))
                 .thenAnswer(inv -> userRepository.findById(inv.<Long>getArgument(0)));
@@ -84,6 +85,59 @@ class AccountServiceTest {
         User user = new User(email, passwordEncoder.encode(PASSWORD), name);
         ReflectionTestUtils.setField(user, "id", id);
         return user;
+    }
+
+    // --- time zone and reminder emails (0.14.0) ---
+
+    @Test
+    void setTimeZoneStoresItAndRecomputesTheUsersReminders() {
+        UserResponse updated = accountService.setTimeZone(1L, "Europe/Bucharest", false);
+
+        assertThat(updated.timeZone()).isEqualTo("Europe/Bucharest");
+        assertThat(bob.getTimeZone()).isEqualTo("Europe/Bucharest");
+        verify(userRepository).saveAndFlush(bob);
+        verify(reminders).zoneChanged(1L);
+    }
+
+    @Test
+    void theSameZoneChangesNothingAndRecomputesNothing() {
+        bob.changeTimeZone("Europe/Bucharest");
+
+        accountService.setTimeZone(1L, "Europe/Bucharest", false);
+
+        verify(userRepository, never()).saveAndFlush(any());
+        verify(reminders, never()).zoneChanged(anyLong());
+    }
+
+    @Test
+    void ifUnsetUsesTheAtomicUpdateAndRecomputesOnlyWhenItSetTheZone() {
+        when(userRepository.setTimeZoneIfUnset(1L, "Asia/Tokyo")).thenReturn(1);
+        when(userRepository.setTimeZoneIfUnset(2L, "Asia/Tokyo")).thenReturn(0);
+
+        accountService.setTimeZone(1L, "Asia/Tokyo", true);
+        accountService.setTimeZone(2L, "Asia/Tokyo", true);
+
+        verify(reminders).zoneChanged(1L);
+        verify(reminders, never()).zoneChanged(2L);
+        verify(userRepository, never()).findByIdForUpdate(anyLong());
+    }
+
+    @Test
+    void setTimeZoneForAMissingUserIsUnauthenticated() {
+        assertThatThrownBy(() -> accountService.setTimeZone(99L, "UTC", false))
+                .isInstanceOf(UnauthenticatedException.class);
+    }
+
+    @Test
+    void setReminderEmailsSavesOnlyAChange() {
+        assertThat(accountService.setReminderEmails(1L, false).reminderEmails()).isFalse();
+        assertThat(bob.isReminderEmails()).isFalse();
+        verify(userRepository, times(1)).saveAndFlush(bob);
+
+        accountService.setReminderEmails(1L, false);
+        verify(userRepository, times(1)).saveAndFlush(bob);
+
+        assertThat(accountService.setReminderEmails(1L, true).reminderEmails()).isTrue();
     }
 
     // --- display name ---

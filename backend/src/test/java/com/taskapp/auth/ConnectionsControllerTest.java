@@ -90,7 +90,7 @@ class ConnectionsControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"id":1,"email":"bob@example.com","displayName":"Bob","emailVerified":true,
-                         "hasPassword":true,"connections":[],"role":"USER"}""", true))
+                         "hasPassword":true,"connections":[],"role":"USER","timeZone":null,"reminderEmails":true}""", true))
                 .andExpect(header().doesNotExist("Set-Cookie"));
 
         assertThat(capture.lines()).containsExactly(

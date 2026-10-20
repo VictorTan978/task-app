@@ -175,7 +175,10 @@ class TaskIntegrationTest {
                 Long.class, id));
         // 0.13.0: addedBy, the creator's display name.
         assertThat(task.get("addedBy").get("displayName").asText()).startsWith("Alice ");
-        assertThat(task.size()).isEqualTo(12);
+        assertThat(task.size()).isEqualTo(15); // 0.14.0: + dueTime, myReminder, myReminderPassed
+        assertThat(task.get("dueTime").isNull()).isTrue();
+        assertThat(task.get("myReminder").isNull()).isTrue();
+        assertThat(task.get("myReminderPassed").asBoolean()).isFalse();
 
         Resp fetched = alice.get("/api/tasks/" + id);
         assertThat(fetched.status()).isEqualTo(200);

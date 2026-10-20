@@ -17,6 +17,8 @@ const BOB = {
   emailVerified: true,
   hasPassword: true,
   role: 'USER' as const,
+  timeZone: 'Europe/Bucharest',
+  reminderEmails: true,
   connections: [],
 };
 
@@ -69,6 +71,8 @@ describe('AccountPage', () => {
     expect(headings()).toEqual([
       'Email',
       'Display name',
+      'Time zone',
+      'Reminders',
       'Change password',
       'Sessions',
       'Delete account',
@@ -325,6 +329,8 @@ describe('AccountPage Google', () => {
       expect(headings()).toEqual([
         'Email',
         'Display name',
+        'Time zone',
+        'Reminders',
         'Password',
         'Sessions',
         'Connected accounts',
@@ -345,6 +351,8 @@ describe('AccountPage Google', () => {
       expect(headings()).toEqual([
         'Email',
         'Display name',
+        'Time zone',
+        'Reminders',
         'Change password',
         'Sessions',
         'Connected accounts',

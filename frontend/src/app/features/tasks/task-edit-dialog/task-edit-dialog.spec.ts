@@ -16,6 +16,9 @@ const TASK: Task = {
   tags: ['Home', 'Travel'],
   done: false,
   dueDate: '2026-11-01',
+  dueTime: null,
+  myReminder: null,
+  myReminderPassed: false,
   createdAt: '2026-10-08T09:00:00Z',
   updatedAt: '2026-10-08T09:00:00Z',
 };
@@ -107,6 +110,7 @@ describe('TaskEditDialog', () => {
       title: 'Plan trip',
       description: 'Book hotel',
       dueDate: '2026-11-01',
+      dueTime: null,
       priority: 'MEDIUM',
       status: 'IN_PROGRESS',
       tags: ['Home', 'Travel'],
@@ -234,5 +238,171 @@ describe('TaskEditDialog', () => {
     expect(esc.defaultPrevented).toBe(true);
     expect(reachedDialog).toBe(false);
     expect(host.events).toEqual([]);
+  });
+});
+
+describe('TaskEditDialog due time and reminder', () => {
+  let fixture: ComponentFixture<Host>;
+  let host: Host;
+  let el: HTMLElement;
+  let http: HttpTestingController;
+
+  beforeAll(() => {
+    HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+  });
+
+  async function open(task: Task) {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(Host);
+    host = fixture.componentInstance;
+    host.task.set(task);
+    el = fixture.nativeElement;
+    await fixture.whenStable();
+    http.expectOne('/api/tags').flush([]);
+    await fixture.whenStable();
+  }
+
+  afterEach(() => http.verify());
+
+  const q = <T extends Element = HTMLInputElement>(sel: string) => el.querySelector<T>(sel)!;
+  const time = () => q('#task-edit-due-time');
+  const reminder = () => q<HTMLSelectElement>('#task-edit-reminder');
+  const choices = () => Array.from(reminder().options).map((o) => [o.value, o.text.trim()]);
+  const submit = () => q<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+  async function set(sel: string, value: string, event = 'input') {
+    q(sel).value = value;
+    q(sel).dispatchEvent(new Event(event));
+    await fixture.whenStable();
+  }
+
+  const NO_DATE: Task = { ...TASK, dueDate: null };
+  const TIMED: Task = {
+    ...TASK,
+    dueTime: '09:30',
+    myReminder: 'ONE_HOUR',
+    myReminderPassed: false,
+  };
+
+  it('disables time and reminder without a due date', async () => {
+    await open(NO_DATE);
+    expect(time().disabled).toBe(true);
+    expect(reminder().disabled).toBe(true);
+    await set('#task-edit-due', '2026-11-02');
+    expect(time().disabled).toBe(false);
+    expect(reminder().disabled).toBe(false);
+  });
+
+  it('prefills time and reminder and offers the timed choices', async () => {
+    await open(TIMED);
+    expect(time().value).toBe('09:30');
+    expect(reminder().value).toBe('ONE_HOUR');
+    expect(choices()).toEqual([
+      ['NONE', 'None'],
+      ['AT_DUE', 'At due time'],
+      ['TEN_MINUTES', '10 minutes before'],
+      ['ONE_HOUR', '1 hour before'],
+      ['ONE_DAY', '1 day before'],
+    ]);
+  });
+
+  it('offers the date-only choices without a time', async () => {
+    await open(TASK);
+    expect(choices()).toEqual([
+      ['NONE', 'None'],
+      ['ON_THE_DAY', 'On the day at 09:00'],
+      ['ONE_DAY', '1 day before at 09:00'],
+    ]);
+  });
+
+  it('resets a reminder that no longer fits when the time is removed', async () => {
+    await open(TIMED);
+    await set('#task-edit-due-time', '');
+    expect(reminder().value).toBe('NONE');
+    submit();
+    const req = http.expectOne({ method: 'PUT', url: '/api/tasks/7' });
+    expect(req.request.body.dueTime).toBeNull();
+    expect(req.request.body.reminder).toBe('NONE');
+    req.flush({ ...TASK, myReminder: null });
+  });
+
+  it('clearing the date clears time and reminder and sends no reminder', async () => {
+    await open(TIMED);
+    el.querySelector<HTMLButtonElement>('.dialog__inline button')!.click();
+    await fixture.whenStable();
+    expect(time().value).toBe('');
+    expect(time().disabled).toBe(true);
+    expect(reminder().disabled).toBe(true);
+    submit();
+    const req = http.expectOne({ method: 'PUT', url: '/api/tasks/7' });
+    expect(req.request.body.dueDate).toBeNull();
+    expect(req.request.body.dueTime).toBeNull();
+    expect('reminder' in req.request.body).toBe(false);
+    req.flush({ ...NO_DATE });
+  });
+
+  it('sends dueTime and a changed reminder; leaves an unchanged reminder out', async () => {
+    await open(TASK);
+    await set('#task-edit-due-time', '14:15');
+    await set('#task-edit-reminder', 'TEN_MINUTES', 'change');
+    submit();
+    const req = http.expectOne({ method: 'PUT', url: '/api/tasks/7' });
+    expect(req.request.body.dueTime).toBe('14:15');
+    expect(req.request.body.reminder).toBe('TEN_MINUTES');
+    req.flush({ ...TASK, dueTime: '14:15', myReminder: 'TEN_MINUTES' });
+  });
+
+  it('leaves an unchanged reminder out of the request', async () => {
+    await open(TIMED);
+    await set('#task-edit-title', 'Other');
+    submit();
+    const req = http.expectOne({ method: 'PUT', url: '/api/tasks/7' });
+    expect('reminder' in req.request.body).toBe(false);
+    expect(req.request.body.dueTime).toBe('09:30');
+    req.flush(TIMED);
+  });
+
+  it('shows "This reminder time has passed" on open', async () => {
+    await open({ ...TIMED, myReminderPassed: true });
+    expect(q('[data-testid=reminder-passed]').textContent).toContain(
+      'This reminder time has passed',
+    );
+  });
+
+  it('shows the note after a save that made the reminder past, and keeps controls enabled', async () => {
+    await open(TASK);
+    await set('#task-edit-due-time', '08:00');
+    await set('#task-edit-reminder', 'AT_DUE', 'change');
+    submit();
+    http
+      .expectOne({ method: 'PUT', url: '/api/tasks/7' })
+      .flush({ ...TASK, dueTime: '08:00', myReminder: 'AT_DUE', myReminderPassed: true });
+    await fixture.whenStable();
+    expect(host.events).toEqual(['saved:7']);
+    expect(q('[data-testid=reminder-passed]').textContent).toContain('has passed');
+    expect(time().disabled).toBe(false);
+    expect(
+      Array.from(el.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Close'),
+    ).toBe(true);
+  });
+
+  it('shows server field errors for the reminder', async () => {
+    await open(TASK);
+    await set('#task-edit-reminder', 'ON_THE_DAY', 'change');
+    submit();
+    http
+      .expectOne({ method: 'PUT', url: '/api/tasks/7' })
+      .flush(
+        problem(400, 'VALIDATION_FAILED', [
+          { field: 'reminder', code: 'INVALID_REMINDER', message: 'Not valid for this task' },
+        ]),
+        { status: 400, statusText: 'Bad Request' },
+      );
+    await fixture.whenStable();
+    expect(q('#task-edit-reminder-error').textContent).toContain('Not valid for this task');
   });
 });

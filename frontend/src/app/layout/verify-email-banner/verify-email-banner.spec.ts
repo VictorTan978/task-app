@@ -13,6 +13,8 @@ const BOB: User = {
   emailVerified: false,
   hasPassword: true,
   role: 'USER',
+  timeZone: 'Europe/Bucharest',
+  reminderEmails: true,
   connections: [],
 };
 

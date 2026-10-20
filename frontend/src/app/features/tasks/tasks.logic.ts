@@ -1,5 +1,13 @@
 import { hasTag } from './task-tags';
-import { Priority, Task, TaskFilter, TaskListQuery, TaskSort, TaskStatus } from './tasks.models';
+import {
+  Priority,
+  Reminder,
+  Task,
+  TaskFilter,
+  TaskListQuery,
+  TaskSort,
+  TaskStatus,
+} from './tasks.models';
 
 const FILTERS: readonly TaskFilter[] = ['all', 'active', 'in_progress', 'done'];
 const SORTS: readonly TaskSort[] = ['newest', 'oldest', 'due', 'priority', 'title'];
@@ -116,10 +124,19 @@ const PRIORITY_RANK: Record<Priority, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, NO
 /** Ignores case and accents like the server's `utf8mb4_0900_ai_ci` (close, not identical). */
 const TITLE_COLLATOR = new Intl.Collator('en', { sensitivity: 'base' });
 
-/** Due date ascending (`YYYY-MM-DD` compares as text); no date last. */
+/**
+ * Due date ascending (`YYYY-MM-DD` compares as text); within a date timed tasks by time first,
+ * then date-only; no date last.
+ */
 function compareDue(a: Task, b: Task): number {
   if (a.dueDate === b.dueDate) {
-    return 0;
+    if (a.dueTime === b.dueTime) {
+      return 0;
+    }
+    if (a.dueTime === null || b.dueTime === null) {
+      return a.dueTime === null ? 1 : -1;
+    }
+    return a.dueTime < b.dueTime ? -1 : 1;
   }
   if (a.dueDate === null || b.dueDate === null) {
     return a.dueDate === null ? 1 : -1;
@@ -196,9 +213,67 @@ export function todayLocal(now: Date = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** Not done and due strictly before today. Compares `YYYY-MM-DD` strings (no Date parsing). */
-export function isOverdue(task: Task, today: string): boolean {
-  return !isDone(task) && task.dueDate !== null && task.dueDate < today;
+/**
+ * Not done and past due: a date-only task when its date is before `today`, a timed task when its
+ * date + time is before `today` + `time` (`HH:mm`, both in the account zone). Compares strings
+ * (no Date parsing). Without `time` a timed task is overdue from the next day.
+ */
+export function isOverdue(task: Task, today: string, time = ''): boolean {
+  if (isDone(task) || task.dueDate === null) {
+    return false;
+  }
+  if (task.dueDate !== today) {
+    return task.dueDate < today;
+  }
+  return task.dueTime !== null && time !== '' && task.dueTime < time;
+}
+
+export const REMINDER_LABELS: Record<Reminder, string> = {
+  AT_DUE: 'At due time',
+  TEN_MINUTES: '10 minutes before',
+  ONE_HOUR: '1 hour before',
+  ONE_DAY: '1 day before',
+  ON_THE_DAY: 'On the day at 09:00',
+};
+
+/** Date-only label of `ONE_DAY` differs: it fires at 09:00 the day before. */
+export const DATE_ONLY_ONE_DAY_LABEL = '1 day before at 09:00';
+
+export const TIMED_REMINDERS: readonly Reminder[] = [
+  'AT_DUE',
+  'TEN_MINUTES',
+  'ONE_HOUR',
+  'ONE_DAY',
+];
+export const DATE_ONLY_REMINDERS: readonly Reminder[] = ['ON_THE_DAY', 'ONE_DAY'];
+
+/** Reminder choices (without "None") for a task with or without a due time. */
+export function reminderOptions(timed: boolean): { value: Reminder; label: string }[] {
+  return (timed ? TIMED_REMINDERS : DATE_ONLY_REMINDERS).map((value) => ({
+    value,
+    label: !timed && value === 'ONE_DAY' ? DATE_ONLY_ONE_DAY_LABEL : REMINDER_LABELS[value],
+  }));
+}
+
+/** The task's date, with the time when it has one (`2026-10-21 09:30`). */
+export function formatDue(dueDate: string, dueTime: string | null): string {
+  return dueTime ? `${dueDate} ${dueTime}` : dueDate;
+}
+
+/**
+ * My reminder is set and in the past after a save that changed it (or the date or time), or it
+ * just became past: the dialog stays open to say so.
+ */
+export function reminderJustPassed(before: Task, after: Task): boolean {
+  if (after.myReminder === null || !after.myReminderPassed) {
+    return false;
+  }
+  return (
+    !before.myReminderPassed ||
+    before.myReminder !== after.myReminder ||
+    before.dueDate !== after.dueDate ||
+    before.dueTime !== after.dueTime
+  );
 }
 
 export const PRIORITY_LABELS: Record<Priority, string> = {

@@ -8,6 +8,8 @@ import {
   ChangeDisplayNameRequest,
   ChangePasswordRequest,
   DeleteAccountRequest,
+  SetReminderEmailsRequest,
+  SetTimeZoneRequest,
 } from './account.models';
 
 /**
@@ -83,6 +85,20 @@ export class AccountService {
   disconnectGoogle(): Observable<User> {
     return this.http
       .delete<User>(ACCOUNT_API.googleConnection)
+      .pipe(tap((user) => this.auth.updateCurrentUser(user)));
+  }
+
+  /** PUT /api/account/time-zone. On 200 the signed-in user is replaced with the response. */
+  setTimeZone(request: SetTimeZoneRequest): Observable<User> {
+    return this.http
+      .put<User>(ACCOUNT_API.timeZone, request)
+      .pipe(tap((user) => this.auth.updateCurrentUser(user)));
+  }
+
+  /** PUT /api/account/reminder-emails. On 200 the signed-in user is replaced with the response. */
+  setReminderEmails(request: SetReminderEmailsRequest): Observable<User> {
+    return this.http
+      .put<User>(ACCOUNT_API.reminderEmails, request)
       .pipe(tap((user) => this.auth.updateCurrentUser(user)));
   }
 

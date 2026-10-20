@@ -41,6 +41,7 @@ import com.taskapp.auth.PasswordRequiredException;
 import com.taskapp.auth.RegistrationConflictException;
 import com.taskapp.auth.UnauthenticatedException;
 import com.taskapp.auth.WrongPasswordException;
+import com.taskapp.notification.NotificationNotFoundException;
 import com.taskapp.security.audit.SecurityEvent;
 import com.taskapp.security.audit.SecurityEventLogger;
 import com.taskapp.security.ratelimit.RateLimitedException;
@@ -248,6 +249,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                         TagLimitExceededException.MESSAGE))));
     }
 
+    @ExceptionHandler(NotificationNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleNotificationNotFound(NotificationNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Problems.of(HttpStatus.NOT_FOUND,
+                ErrorCode.NOTIFICATION_NOT_FOUND, NotificationNotFoundException.MESSAGE));
+    }
+
     @ExceptionHandler(ListNotFoundException.class)
     ResponseEntity<ProblemDetail> handleListNotFound(ListNotFoundException ex) {
         return listNotFound();
@@ -403,6 +410,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case "TagsMaxCount" -> ErrorCode.TOO_MANY;
             case "StatusMatchesDone" -> ErrorCode.STATUS_CONFLICT;
             case "InvalidCursor" -> ErrorCode.INVALID_CURSOR;
+            case "RequiresDueDate" -> ErrorCode.REQUIRES_DUE_DATE;
+            case "ValidReminderValue", "InvalidReminder" -> ErrorCode.INVALID_REMINDER;
+            case "ValidTimeZone", "InvalidTimeZone" -> ErrorCode.INVALID_TIME_ZONE;
             case "Email" -> ErrorCode.INVALID_EMAIL;
             case "PasswordLength" -> ErrorCode.PASSWORD_LENGTH;
             case "Size" -> ErrorCode.TOO_LONG;

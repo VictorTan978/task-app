@@ -1,0 +1,59 @@
+<form class="account-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  @if (banner(); as message) {
+    <p class="notice notice--error" role="alert">{{ message }}</p>
+  }
+
+  <div class="field">
+    <label for="account-time-zone">Time zone</label>
+    <input
+      id="account-time-zone"
+      type="text"
+      formControlName="timeZone"
+      list="account-time-zone-options"
+      autocomplete="off"
+      spellcheck="false"
+      [attr.aria-invalid]="error() ? true : null"
+      [attr.aria-describedby]="error() ? 'account-time-zone-error' : 'account-time-zone-hint'"
+    />
+    <datalist id="account-time-zone-options">
+      @for (zone of options(); track zone) {
+        <option [value]="zone"></option>
+      }
+    </datalist>
+    @if (error(); as message) {
+      <p class="field-error" id="account-time-zone-error">{{ message }}</p>
+    }
+    <p class="field-hint" id="account-time-zone-hint">
+      Decides when your due times count as overdue and when your reminders fire.
+    </p>
+    @if (hint(); as zone) {
+      <p class="field-hint" data-testid="time-zone-hint">
+        Your browser is in {{ zone }}.
+        <button
+          type="button"
+          class="btn btn--secondary btn--small"
+          data-testid="use-browser-zone"
+          [disabled]="pending() || locked()"
+          (click)="useBrowserZone()"
+        >
+          Use {{ zone }}
+        </button>
+      </p>
+    }
+  </div>
+
+  <div class="account-form__actions">
+    <button
+      type="submit"
+      class="btn btn--primary"
+      [disabled]="pending() || locked()"
+      [attr.aria-busy]="pending()"
+    >
+      @if (pending()) {
+        <span class="spinner" aria-hidden="true" data-testid="spinner"></span>
+      }
+      Save
+    </button>
+    <p class="account-form__status" role="status">{{ status() }}</p>
+  </div>
+</form>

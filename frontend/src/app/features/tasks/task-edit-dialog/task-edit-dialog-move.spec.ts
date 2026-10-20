@@ -24,6 +24,9 @@ const TASK: Task = {
   tags: ['Travel'],
   done: false,
   dueDate: null,
+  dueTime: null,
+  myReminder: null,
+  myReminderPassed: false,
   createdAt: '2026-10-08T09:00:00Z',
   updatedAt: '2026-10-08T09:00:00Z',
 };

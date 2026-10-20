@@ -56,7 +56,7 @@ class TaskControllerTest {
     private static final Instant CREATED = Instant.parse("2026-10-08T09:15:02.123456Z");
     private static final TaskResponse.AddedBy ADDED_BY = new TaskResponse.AddedBy("Ana");
     private static final TaskResponse MILK = new TaskResponse(12L, 3L, ADDED_BY, "Buy milk", null, Priority.NONE, TaskStatus.TODO,
-            List.of(), false, LocalDate.parse("2026-10-10"), CREATED, CREATED);
+            List.of(), false, LocalDate.parse("2026-10-10"), null, null, false, CREATED, CREATED);
 
     @Autowired
     private MockMvc mockMvc;
@@ -90,6 +90,7 @@ class TaskControllerTest {
                         {"items":[{"id":12,"listId":3,"addedBy":{"displayName":"Ana"},
                           "title":"Buy milk","description":null,"priority":"NONE","status":"TODO",
                           "tags":[],"done":false,"dueDate":"2026-10-10",
+                          "dueTime":null,"myReminder":null,"myReminderPassed":false,
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
                          "total":120,"nextCursor":"AbC-_9"}""",
                         true));
@@ -474,7 +475,7 @@ class TaskControllerTest {
     @Test
     void listReturnsPriorityStatusAndTags() throws Exception {
         TaskResponse tagged = new TaskResponse(12L, 3L, ADDED_BY, "Buy milk", null, Priority.HIGH, TaskStatus.IN_PROGRESS,
-                List.of("Errands", "Home"), false, null, CREATED, CREATED);
+                List.of("Errands", "Home"), false, null, null, null, false, CREATED, CREATED);
         when(taskService.list(OWNER, query(TaskFilter.ALL, null))).thenReturn(new TaskPage(List.of(tagged), 1, null));
 
         mockMvc.perform(get("/api/tasks").with(signedIn()))
@@ -483,6 +484,7 @@ class TaskControllerTest {
                         {"items":[{"id":12,"listId":3,"addedBy":{"displayName":"Ana"},
                           "title":"Buy milk","description":null,"priority":"HIGH",
                           "status":"IN_PROGRESS","tags":["Errands","Home"],"done":false,"dueDate":null,
+                          "dueTime":null,"myReminder":null,"myReminderPassed":false,
                           "createdAt":"2026-10-08T09:15:02.123456Z","updatedAt":"2026-10-08T09:15:02.123456Z"}],
                          "total":1,"nextCursor":null}""",
                         true));
