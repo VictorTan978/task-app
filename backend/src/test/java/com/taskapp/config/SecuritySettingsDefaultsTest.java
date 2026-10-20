@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.web.ServerProperties;
+import org.springframework.boot.tomcat.autoconfigure.TomcatServerProperties;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
@@ -20,7 +20,7 @@ import org.springframework.core.io.ClassPathResource;
 class SecuritySettingsDefaultsTest {
 
     private static final String BOOT_DEFAULT_INTERNAL_PROXIES =
-            new ServerProperties().getTomcat().getRemoteip().getInternalProxies();
+            new TomcatServerProperties().getRemoteip().getInternalProxies();
 
     private static StandardEnvironment environment(Map<String, Object> envVars, String... ymlFiles) throws IOException {
         StandardEnvironment env = new StandardEnvironment();

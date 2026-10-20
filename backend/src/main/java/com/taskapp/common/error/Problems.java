@@ -14,6 +14,8 @@ public final class Problems {
 
     public static ProblemDetail of(HttpStatus status, String code, String detail) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+        // Spring 7 / Jackson 3 no longer writes the default type, but the contract shows "type":"about:blank".
+        problem.setType(URI.create("about:blank"));
         problem.setTitle(status.getReasonPhrase());
         problem.setProperty("code", code);
         return problem;

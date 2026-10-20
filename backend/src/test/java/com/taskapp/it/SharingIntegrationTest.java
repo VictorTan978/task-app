@@ -36,8 +36,8 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.taskapp.auth.EmailJobs;
 import com.taskapp.security.audit.SecurityLogCapture;
 import com.taskapp.security.ratelimit.MutableClock;
@@ -680,7 +680,7 @@ class SharingIntegrationTest {
 
     private static List<String> fieldNames(JsonNode node) {
         List<String> out = new ArrayList<>();
-        for (Iterator<String> it = node.fieldNames(); it.hasNext();) {
+        for (Iterator<String> it = node.propertyNames().iterator(); it.hasNext();) {
             out.add(it.next());
         }
         return out;

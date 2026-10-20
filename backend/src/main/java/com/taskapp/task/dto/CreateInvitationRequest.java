@@ -2,7 +2,7 @@ package com.taskapp.task.dto;
 
 import java.util.Locale;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

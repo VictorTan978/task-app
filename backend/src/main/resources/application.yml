@@ -3,7 +3,12 @@ spring:
     name: backend
   autoconfigure:
     # No in-memory user store; users live in the database (see com.taskapp.auth).
-    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  jackson:
+    mapper:
+      # Jackson 3 sorts properties alphabetically by default; Jackson 2 (Spring Boot 3) used declaration order.
+      # Keep the declaration order so response bodies stay byte-for-byte what they were.
+      sort-properties-alphabetically: false
   datasource:
     # Secure by default: no profile = production settings, so there are NO defaults here.
     # DB_USERNAME / DB_PASSWORD = the restricted app user (SELECT, INSERT, UPDATE, DELETE only).
@@ -67,7 +72,7 @@ server:
       # 169.254/16, 127/8, 100.64/10, 172.16/12, ::1, fe80::/10, fc00::/7).
       # Override with TRUSTED_PROXIES, e.g. TRUSTED_PROXIES='10\.0\.0\.5|10\.0\.0\.6', to trust only the real
       # proxy. Do this whenever other machines on the same private network could reach the app directly.
-      internal-proxies: '${TRUSTED_PROXIES:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|100\.6[4-9]{1}\.\d{1,3}\.\d{1,3}|100\.[7-9]{1}\d{1}\.\d{1,3}\.\d{1,3}|100\.1[0-1]{1}\d{1}\.\d{1,3}\.\d{1,3}|100\.12[0-7]{1}\.\d{1,3}\.\d{1,3}|172\.1[6-9]{1}\.\d{1,3}\.\d{1,3}|172\.2[0-9]{1}\.\d{1,3}\.\d{1,3}|172\.3[0-1]{1}\.\d{1,3}\.\d{1,3}|0:0:0:0:0:0:0:1|::1|fe[89ab]\p{XDigit}:.*|f[cd]\p{XDigit}{2}+:.*}'
+      internal-proxies: '${TRUSTED_PROXIES:192.168.0.0/16, 172.16.0.0/12, 169.254.0.0/16, fc00::/7, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, fe80::/10, ::1/128}'
   servlet:
     session:
       # Idle timeout (specs/sessions.md AC8). Env override: SERVER_SERVLET_SESSION_TIMEOUT (e.g. 2m; Tomcat

@@ -26,8 +26,8 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.taskapp.auth.EmailJobs;
 import com.taskapp.auth.EmailTokenPurpose;
 import com.taskapp.auth.EmailTokenService;
@@ -585,8 +585,8 @@ class AdminIntegrationTest {
 
         Resp invalid = admin.get(USERS + "?page=-1&size=101&q=" + "x".repeat(101));
         expect(invalid, 400, "VALIDATION_FAILED");
-        assertThat(invalid.json().get("errors").findValuesAsText("field")).containsExactly("page", "q", "size");
-        assertThat(invalid.json().get("errors").findValuesAsText("code"))
+        assertThat(invalid.json().get("errors").findValuesAsString("field")).containsExactly("page", "q", "size");
+        assertThat(invalid.json().get("errors").findValuesAsString("code"))
                 .containsExactly("OUT_OF_RANGE", "TOO_LONG", "OUT_OF_RANGE");
         expect(admin.get(USERS + "?size=abc"), 400, "MALFORMED_REQUEST");
     }

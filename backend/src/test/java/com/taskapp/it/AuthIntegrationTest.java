@@ -22,8 +22,8 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * End-to-end over real HTTP (embedded Tomcat) against MySQL 8.4 with the Flyway migrations applied.
@@ -318,9 +318,9 @@ class AuthIntegrationTest {
         assertThat(body.get("code").asText()).isEqualTo("EMAIL_TAKEN");
         assertThat(body.get("detail").asText()).isEqualTo("An account with this email already exists");
         assertThat(body.get("errors")).hasSize(2);
-        assertThat(body.get("errors").findValuesAsText("field")).containsExactly("email", "displayName");
-        assertThat(body.get("errors").findValuesAsText("code")).containsExactly("EMAIL_TAKEN", "DISPLAY_NAME_TAKEN");
-        assertThat(body.get("errors").findValuesAsText("message")).containsExactly(
+        assertThat(body.get("errors").findValuesAsString("field")).containsExactly("email", "displayName");
+        assertThat(body.get("errors").findValuesAsString("code")).containsExactly("EMAIL_TAKEN", "DISPLAY_NAME_TAKEN");
+        assertThat(body.get("errors").findValuesAsString("message")).containsExactly(
                 "An account with this email already exists", "This display name is already taken");
         assertThat(jdbc.queryForObject("select count(*) from users where email = 'hannah@example.com'", Integer.class))
                 .isEqualTo(1);
@@ -347,7 +347,7 @@ class AuthIntegrationTest {
 
         assertThat(r.status()).isEqualTo(400);
         assertThat(r.json().get("code").asText()).isEqualTo("VALIDATION_FAILED");
-        assertThat(r.json().get("errors").findValuesAsText("field")).containsExactly("password");
+        assertThat(r.json().get("errors").findValuesAsString("field")).containsExactly("password");
     }
 
     @Test
@@ -358,8 +358,8 @@ class AuthIntegrationTest {
         JsonNode body = r.json();
         assertThat(body.get("code").asText()).isEqualTo("VALIDATION_FAILED");
         assertThat(body.get("errors")).hasSize(3);
-        assertThat(body.get("errors").findValuesAsText("field")).containsExactly("displayName", "email", "password");
-        assertThat(body.get("errors").findValuesAsText("code")).containsExactly("REQUIRED", "INVALID_EMAIL", "PASSWORD_LENGTH");
+        assertThat(body.get("errors").findValuesAsString("field")).containsExactly("displayName", "email", "password");
+        assertThat(body.get("errors").findValuesAsString("code")).containsExactly("REQUIRED", "INVALID_EMAIL", "PASSWORD_LENGTH");
         assertThat(jdbc.queryForObject("select count(*) from users where email = 'nope'", Integer.class)).isZero();
     }
 

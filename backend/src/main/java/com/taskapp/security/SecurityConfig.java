@@ -32,7 +32,7 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.taskapp.auth.GoogleAccountService;
 import com.taskapp.security.google.GoogleFlowSecurity;
 import com.taskapp.security.google.GoogleSignIn;

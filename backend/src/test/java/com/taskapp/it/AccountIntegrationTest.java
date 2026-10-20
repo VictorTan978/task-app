@@ -24,8 +24,8 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.taskapp.security.audit.SecurityLogCapture;
 
 /**
@@ -399,7 +399,7 @@ class AccountIntegrationTest {
         assertThat(other.get("/api/auth/me").json().get("email").asText()).isEqualTo("jon@example.com");
         JsonNode tasks = other.get("/api/tasks").json().get("items");
         assertThat(tasks).hasSize(2);
-        assertThat(tasks.findValuesAsText("title")).containsExactlyInAnyOrder("Jon task 1", "Jon task 2");
+        assertThat(tasks.findValuesAsString("title")).containsExactlyInAnyOrder("Jon task 1", "Jon task 2");
         assertThat(other.createTask("Jon task 3").status()).isEqualTo(201);
         assertThat(new Browser().start().login("jon@example.com", PASSWORD).status()).isEqualTo(200);
     }
