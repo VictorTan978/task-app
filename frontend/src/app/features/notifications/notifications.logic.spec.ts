@@ -18,7 +18,6 @@ describe('notifications.logic', () => {
   it('builds the text with date and time, or date only, or none', () => {
     expect(notificationText(N)).toBe('Reminder: Pay rent — due 2026-10-21 09:30');
     expect(notificationText({ ...N, dueTime: null })).toBe('Reminder: Pay rent — due 2026-10-21');
-    expect(notificationText({ ...N, dueDate: null, dueTime: null })).toBe('Reminder: Pay rent');
   });
 
   it('is available only with both task and list', () => {

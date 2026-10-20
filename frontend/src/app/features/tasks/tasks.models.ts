@@ -114,7 +114,7 @@ export interface TaskListQuery {
 
 /** Task-related values of `FieldError.field`. */
 export type TaskFieldName =
-  'title' | 'description' | 'done' | 'status' | 'tags' | 'dueDate' | 'dueTime' | 'reminder';
+  'title' | 'description' | 'done' | 'status' | 'tags' | 'dueTime' | 'reminder';
 
 /** `FieldError.field` values of a 400 from `GET /api/tasks`. */
 export type TaskListFieldName = 'q' | 'cursor';

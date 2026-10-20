@@ -7,10 +7,9 @@ export const NOTIFICATIONS_MORE_ERROR = "Couldn't load more notifications. Pleas
 export const NOTIFICATIONS_ACTION_ERROR = "Couldn't update your notifications. Please try again.";
 export const TASK_UNAVAILABLE = 'This task is no longer available';
 
-/** "Reminder: Pay rent — due 2026-10-21 09:30" (the due part is left out without a date). */
+/** "Reminder: Pay rent — due 2026-10-21 09:30" (date only for a date-only task). */
 export function notificationText(n: AppNotification): string {
-  const due = n.dueDate ? ` — due ${formatDue(n.dueDate, n.dueTime)}` : '';
-  return `Reminder: ${n.title}${due}`;
+  return `Reminder: ${n.title} — due ${formatDue(n.dueDate, n.dueTime)}`;
 }
 
 /** The task can still be opened (it exists and I have access). */

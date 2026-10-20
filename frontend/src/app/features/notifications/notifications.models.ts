@@ -3,7 +3,7 @@
 export interface AppNotification {
   id: number;
   /** Kind of notification; today only reminders. */
-  type: string;
+  type: 'REMINDER';
   read: boolean;
   /** UTC instant with `Z` suffix. */
   createdAt: string;
@@ -11,8 +11,8 @@ export interface AppNotification {
   late: boolean;
   /** Task title when the reminder fired (a snapshot). */
   title: string;
-  /** Wall-clock due date `YYYY-MM-DD` when it fired, or null. */
-  dueDate: string | null;
+  /** Wall-clock due date `YYYY-MM-DD` when it fired (snapshot). */
+  dueDate: string;
   /** Wall-clock `HH:mm`, or null. */
   dueTime: string | null;
   /** Null when the task is gone or I lost access. */

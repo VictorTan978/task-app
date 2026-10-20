@@ -30,7 +30,6 @@ const CLIENT_MESSAGES: Record<TaskFieldName, Record<string, string>> = {
   done: {},
   status: {},
   tags: {},
-  dueDate: {},
   dueTime: {},
   reminder: {},
 };

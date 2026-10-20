@@ -71,13 +71,7 @@
     <div class="field">
       <label for="task-edit-due">Due date</label>
       <div class="dialog__inline">
-        <input
-          id="task-edit-due"
-          type="date"
-          formControlName="dueDate"
-          [attr.aria-invalid]="fieldError('dueDate') ? true : null"
-          [attr.aria-describedby]="fieldError('dueDate') ? 'task-edit-due-error' : null"
-        />
+        <input id="task-edit-due" type="date" formControlName="dueDate" />
         @if (form.controls.dueDate.value) {
           <button
             type="button"
@@ -89,9 +83,6 @@
           </button>
         }
       </div>
-      @if (fieldError('dueDate'); as message) {
-        <p class="field-error" id="task-edit-due-error">{{ message }}</p>
-      }
     </div>
 
     <div class="dialog__row">

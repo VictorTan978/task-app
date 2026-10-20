@@ -48,7 +48,7 @@ import { TasksService } from '../tasks.service';
 
 type ShownField = Extract<
   TaskFieldName,
-  'title' | 'description' | 'status' | 'tags' | 'dueDate' | 'dueTime' | 'reminder'
+  'title' | 'description' | 'status' | 'tags' | 'dueTime' | 'reminder'
 >;
 
 export const REMINDER_PASSED_NOTE = 'This reminder time has passed';
