@@ -180,7 +180,7 @@ class GoogleSignInIntegrationTest {
         assertThat(me.get("connections")).hasSize(1);
         assertThat(me.get("connections").get(0).get("provider").asText()).isEqualTo("google");
         assertThat(me.get("connections").get(0).get("email").asText()).isEqualTo("ana.lopez@gmail.com");
-        assertThat(me.size()).isEqualTo(7);
+        assertThat(me.size()).isEqualTo(9); // 0.14.0: + timeZone, reminderEmails
         assertThat(me.get("role").asText()).isEqualTo("USER");
         assertThat(me.toString()).doesNotContain("g-ana");
         assertThat(jdbc.queryForObject("select password_hash from users where email = 'ana.lopez@gmail.com'",

@@ -198,7 +198,7 @@ class AccountIntegrationTest {
         assertThat(r.json().get("hasPassword").asBoolean(false)).isTrue();
         assertThat(r.json().get("connections").isArray()).isTrue();
         assertThat(r.json().get("role").asText()).isEqualTo("USER");
-        assertThat(r.json().size()).isEqualTo(7);
+        assertThat(r.json().size()).isEqualTo(9); // 0.14.0: + timeZone, reminderEmails
         assertThat(r.setCookies()).isEmpty();
         assertThat(b.cookies.get("JSESSIONID")).isEqualTo(sessionBefore);
         assertThat(b.cookies.get("XSRF-TOKEN")).isEqualTo(csrfBefore);

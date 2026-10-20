@@ -79,11 +79,17 @@ public class ReminderService {
         }
         Instant now = clock.instant();
         boolean hasTime = task.getDueTime() != null;
-        List<Row> rows = jdbc.query("SELECT id, user_id, reminder_offset, fire_at, status, notified_at"
-                + " FROM reminders WHERE task_id = ? ORDER BY id FOR UPDATE", (rs, i) -> new Row(rs.getLong("id"),
+        // The task's row is locked (the caller just updated it), so no other save of this task adds or removes its
+        // reminders meanwhile. The rows are locked by primary key (record locks only: a locking read by task_id
+        // would also lock the gaps around other tasks' reminders and could deadlock with their saves).
+        List<Long> ids = jdbc.queryForList("SELECT id FROM reminders WHERE task_id = ? ORDER BY id", Long.class,
+                task.getId());
+        List<Row> rows = ids.isEmpty() ? List.of() : jdbc.query("SELECT id, user_id, reminder_offset, fire_at, status,"
+                + " notified_at FROM reminders WHERE id IN (" + String.join(",", ids.stream().map(i -> "?").toList())
+                + ") ORDER BY id FOR UPDATE", (rs, i) -> new Row(rs.getLong("id"),
                         rs.getLong("user_id"), ReminderOffset.valueOf(rs.getString("reminder_offset")),
                         ReminderTimes.fromDb(rs.getObject("fire_at", LocalDateTime.class)), rs.getString("status"),
-                        rs.getObject("notified_at") != null), task.getId());
+                        rs.getObject("notified_at") != null), ids.toArray());
         List<Long> userIds = new ArrayList<>(rows.stream().map(Row::userId).toList());
         if (!userIds.contains(callerId)) {
             userIds.add(callerId);
