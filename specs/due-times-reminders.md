@@ -1,6 +1,6 @@
 # Feature: Due times, reminders, notifications, recurring tasks (T4)
 
-**Status:** APPROVED 2026-10-20. **T4a DONE** 2026-10-20 (AC1–AC26 PASS, merged to `main`). **T4b in progress** on `feature/t4-recurring`. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/account-settings.md` (all DONE, on `main`).
+**Status:** APPROVED 2026-10-20. **T4a DONE** 2026-10-20 (AC1–AC26 PASS, merged to `main`). **T4b DONE** 2026-10-20 on `feature/t4-recurring` (not merged; AC27–AC33 PASS). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/account-settings.md` (all DONE, on `main`).
 
 **Approving this spec does not approve the gates.** Migration V12 (and V13), the email-sending scheduler, and any new dependency each get their own approval question at build time.
 
@@ -65,13 +65,13 @@ As a signed-in user, I want to give a task a due time and get reminded before it
 
 ## Part B — T4b: Recurring tasks
 
-- [ ] AC27: Given a task with a due date, when I set "Repeat" in the edit dialog, then I can pick: Never / Daily / Weekly (pick one or more weekdays) / Monthly (same day; the 29th–31st fall back to the month's last day) / Yearly (Feb 29 → Feb 28). Without a due date "Repeat" is disabled. The row shows a repeat icon.
-- [ ] AC28: Given a repeating task, when I complete it (checkbox or status Done), then a new task is created in the same list with the next due date, the same due time, title, description, priority and tags, and status To do. Each member's reminder on the old task is copied to the new one if they are still members. The completed task stays Done (Q17).
-- [ ] AC29: Given a repeating task completed late, then the next due date is the first occurrence after the old due date that is today or later, so no backlog of copies is created (Q18).
-- [ ] AC30: Given a completed repeating task, when I reopen it, then it becomes not Done and the copy already created stays (no duplicate is created when I complete it again) (Q19).
-- [ ] AC31: Given the edit dialog, when I choose "Stop repeating" (Repeat = Never), then completing it creates no copy. Deleting a repeating task deletes only that task, and no further copy is created.
-- [ ] AC32: Concurrency: two members (or two tabs) completing the same repeating task at once create exactly one copy; no 500.
-- [ ] AC33: States: the Repeat picker shows validation (at least one weekday for Weekly) and save errors; no console errors.
+- [x] AC27: Given a task with a due date, when I set "Repeat" in the edit dialog, then I can pick: Never / Daily / Weekly (pick one or more weekdays) / Monthly (same day; the 29th–31st fall back to the month's last day) / Yearly (Feb 29 → Feb 28). Without a due date "Repeat" is disabled. The row shows a repeat icon.
+- [x] AC28: Given a repeating task, when I complete it (checkbox or status Done), then a new task is created in the same list with the next due date, the same due time, title, description, priority and tags, and status To do. Each member's reminder on the old task is copied to the new one if they are still members. The completed task stays Done (Q17).
+- [x] AC29: Given a repeating task completed late, then the next due date is the first occurrence after the old due date that is today or later, so no backlog of copies is created (Q18).
+- [x] AC30: Given a completed repeating task, when I reopen it, then it becomes not Done and the copy already created stays (no duplicate is created when I complete it again) (Q19).
+- [x] AC31: Given the edit dialog, when I choose "Stop repeating" (Repeat = Never), then completing it creates no copy. Deleting a repeating task deletes only that task, and no further copy is created.
+- [x] AC32: Concurrency: two members (or two tabs) completing the same repeating task at once create exactly one copy; no 500.
+- [x] AC33: States: the Repeat picker shows validation (at least one weekday for Weekly) and save errors; no console errors.
 
 ---
 
@@ -139,3 +139,4 @@ _Filled in by the PM during the build._
 | 2026-10-20 | T4b contract 0.15.0 agreed in round 1 (frontend ACCEPT). `Task.repeat: RepeatRule|null` (always present); `RepeatRule {frequency: DAILY|WEEKLY|MONTHLY|YEARLY, weekdays: Weekday[]}` (`weekdays` Monday first, `[]` unless WEEKLY; anchor not exposed). `PUT /api/tasks/{id}` `repeat` = RepeatRule or `"NEVER"` (missing/null unchanged). PUT and PATCH return `TaskResult` = Task + `nextTask: Task|null` (the copy; null otherwise and for the AC32 loser). Errors on `repeat`: `REQUIRED` (no frequency / weekly without weekdays), `INVALID_REPEAT`, `REQUIRES_DUE_DATE`; wrong JSON type `MALFORMED_REQUEST`; duplicate weekdays collapsed. Copy on not-Done → Done from PATCH (checkbox) and PUT; post-update values; `repeat: "NEVER"` + complete → no copy; copy `addedBy` = completer; original keeps its (non-firing) reminders. POST takes no `repeat`. A rule may be set on a Done task (no copy until reopened and completed). AC32 via `SELECT … FOR UPDATE` on the source row; no source-link column | Matches frontend needs; additive | PM |
 | 2026-10-20 | Gate approved: V13 (`tasks.repeat_frequency` VARCHAR(8) bin collation, `repeat_weekdays` TINYINT bitmask MON=1..SUN=64, `repeat_anchor` DATE; CHECKs on allowed frequency and rule shape incl. `due_date IS NOT NULL`; no index, no backfill) | Needed by AC27–AC31; additive, reversible | User |
 | 2026-10-20 | T4b backend build calls: V13 WEEKLY branch adds `repeat_weekdays IS NOT NULL` (MySQL NULL logic; enforces the approved "1..127 iff WEEKLY", nothing new). Every task write now reads the row `FOR UPDATE` (not only completion) so the AC32 loser sees DONE and a stale write can't restore the rule; lock order unchanged. `TaskService` uses the injected `Clock`. Validation: wrong nested JSON types → `MALFORMED_REQUEST`; missing/blank frequency → `REQUIRED`; any string but exact `"NEVER"` → `INVALID_REPEAT`; unknown keys in `repeat` ignored; `REQUIRES_DUE_DATE` only for a well-formed rule. Re-sending the same rule + dueDate keeps the anchor. The copy goes to the final list after tags/move are applied. A late copy may be dated today; its reminder may already be past (SKIPPED) | AC32 correctness; consistent with T4a | PM |
+| 2026-10-20 | T4b verified: AC27–AC33 PASS (32 new e2e, 96/96 with repeat-each=3; 24+6 race rounds, one copy, no 5xx). Full e2e 377: 354 pass, 22 env-gated skips, 1 flaky unrelated failure (`email-auth.spec.ts:289` hangs on `ctx.close()`, passed in the first full run). Backend 1393 pass, frontend lint/960 unit/build pass. Existing e2e shape checks updated for `repeat`/`nextTask` (additive) | DoD | PM |
