@@ -163,6 +163,6 @@ class EmailTemplatesTest {
         String subject = mail.subject();
         org.assertj.core.api.Assertions.assertThat(subject).startsWith("Reminder: " + "😀".repeat(79)).endsWith("…");
         org.assertj.core.api.Assertions.assertThat(subject.codePointCount(0, subject.length())).isEqualTo(10 + 80);
-        org.assertj.core.api.Assertions.assertThat(subject.chars().filter(Character::isSurrogate).count() % 2).isZero();
+        org.assertj.core.api.Assertions.assertThat(subject.chars().filter(c -> Character.isSurrogate((char) c)).count() % 2).isZero();
     }
 }

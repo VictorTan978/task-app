@@ -24,6 +24,8 @@ import com.taskapp.reminder.ReminderScheduler;
  * interval, a reminder whose time arrives is fired by the background job within about a second, on the real clock.
  */
 @Testcontainers
+// The timer must stop with this class: a cached context would keep polling a database that is gone.
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(properties = {"app.reminders.enabled=true", "app.reminders.poll-interval=300ms"})
 class ReminderSchedulerIntegrationTest {
 
