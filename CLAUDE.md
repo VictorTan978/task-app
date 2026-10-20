@@ -50,7 +50,7 @@ Subagents cannot talk to each other and **remember nothing between calls**. Ever
 - Deleting or renaming a table, column, endpoint, or public API field
 - Adding a new dependency (npm or Maven)
 
-When asking, always give: **what** will change, **why** it's needed, **affected files**, **risks / side effects**, **is it reversible**, and **an alternative** if one exists. Wait for an explicit "yes".
+When asking, always give: **what** will change, **why** it's needed, **affected files**, **risks / side effects**, and **is it reversible**. Present the decision as **2–4 options** the user can pick from (use `AskUserQuestion`): the recommended option first, marked **(Recommended)**, with **pros and cons** for each option and **why** the recommended one is recommended. The same format applies to spec open questions, contract trade-offs, and stuck fix loops. Wait for the user's explicit choice.
 
 ## Never
 
