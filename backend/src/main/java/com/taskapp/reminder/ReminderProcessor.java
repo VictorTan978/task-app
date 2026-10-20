@@ -95,7 +95,10 @@ public class ReminderProcessor {
             boolean reminderEmails, boolean disabled, boolean verified) {
     }
 
-    /** One scan: handles up to {@code batchSize} due reminders. Returns how many it looked at. Never throws. */
+    /**
+     * One scan: handles up to {@code batchSize} due reminders. Returns how many it looked at. Never throws. A reminder
+     * that fails unexpectedly is logged (type only) and left for the next scan.
+     */
     public int runOnce() {
         Instant now = clock.instant();
         List<Candidate> due;
@@ -110,7 +113,10 @@ public class ReminderProcessor {
         }
         for (Candidate candidate : due) {
             try {
-                Outgoing outgoing = DeadlockRetry.run(() -> transaction.execute(status -> claim(candidate, now)));
+                // The scan's start only picks the candidates; every claim reads the clock itself, so a slow batch
+                // never leaves a later reminder with a lease that has already run out.
+                Outgoing outgoing = DeadlockRetry.run(() -> transaction.execute(status -> claim(candidate,
+                        clock.instant())));
                 if (outgoing != null) {
                     send(outgoing);
                 }

@@ -3359,7 +3359,7 @@ paths:
                 taskId: 12
                 listId: 3
         '400':
-          $ref: '#/components/responses/MalformedSharingId'
+          $ref: '#/components/responses/MalformedNotificationId'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -4456,6 +4456,19 @@ components:
             status: 400
             detail: Failed to convert 'userId' with value 'abc'
             instance: /api/lists/8/members/abc
+            code: MALFORMED_REQUEST
+    MalformedNotificationId:
+      description: New in 0.14.0. The `{id}` path segment is not an integer. Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Bad Request
+            status: 400
+            detail: Failed to convert 'id' with value 'abc'
+            instance: /api/notifications/abc/read
             code: MALFORMED_REQUEST
     ListOrMemberNotFound:
       description: |

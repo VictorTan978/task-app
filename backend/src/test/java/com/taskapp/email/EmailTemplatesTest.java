@@ -153,4 +153,16 @@ class EmailTemplatesTest {
                 "Home", "https://app.example.com/tasks", false);
         org.assertj.core.api.Assertions.assertThat(mail.toString()).contains("text=****", "html=****");
     }
+
+    @org.junit.jupiter.api.Test
+    void theSubjectIsCutOnCodePointsSoAnEmojiIsNeverSplit() {
+        String title = "😀".repeat(100);
+        EmailContent mail = EmailTemplates.reminder("Ana", title, java.time.LocalDate.of(2026, 10, 21), null, "Home",
+                "https://app.example.com/tasks", false);
+
+        String subject = mail.subject();
+        org.assertj.core.api.Assertions.assertThat(subject).startsWith("Reminder: " + "😀".repeat(79)).endsWith("…");
+        org.assertj.core.api.Assertions.assertThat(subject.codePointCount(0, subject.length())).isEqualTo(10 + 80);
+        org.assertj.core.api.Assertions.assertThat(subject.chars().filter(Character::isSurrogate).count() % 2).isZero();
+    }
 }

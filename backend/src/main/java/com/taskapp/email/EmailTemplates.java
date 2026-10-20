@@ -103,8 +103,9 @@ public final class EmailTemplates {
         String recipient = oneLine(recipientDisplayName);
         String task = oneLine(title);
         String list = oneLine(listName);
-        String shortTitle = task.length() > REMINDER_SUBJECT_TITLE_MAX
-                ? task.substring(0, REMINDER_SUBJECT_TITLE_MAX - 1) + "…" : task;
+        // Cut on code points, so an emoji is never split in half.
+        String shortTitle = task.codePointCount(0, task.length()) > REMINDER_SUBJECT_TITLE_MAX
+                ? task.substring(0, task.offsetByCodePoints(0, REMINDER_SUBJECT_TITLE_MAX - 1)) + "…" : task;
         String subject = "Reminder: " + shortTitle;
         String due = REMINDER_DATE.format(dueDate) + (dueTime == null ? "" : " at " + REMINDER_TIME.format(dueTime));
         String lateNote = late ? " This reminder is late." : "";

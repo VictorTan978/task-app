@@ -256,4 +256,17 @@ class UserRepositoryTest {
         assertThat(pastTheEnd.getTotalElements()).isEqualTo(5);
         assertThat(pastTheEnd.getTotalPages()).isEqualTo(3);
     }
+
+    @Test
+    void setTimeZoneIfUnsetSetsItOnceAndNeverOverwrites() {
+        User bob = repository.saveAndFlush(new User("zone@example.com", HASH, "Zone"));
+        long id = bob.getId();
+
+        assertThat(repository.setTimeZoneIfUnset(id, "Europe/Bucharest")).isEqualTo(1);
+        assertThat(repository.setTimeZoneIfUnset(id, "Asia/Tokyo")).isZero();
+
+        entityManager.clear();
+        assertThat(repository.findById(id).orElseThrow().getTimeZone()).isEqualTo("Europe/Bucharest");
+        assertThat(repository.findById(id).orElseThrow().isReminderEmails()).isTrue();
+    }
 }
