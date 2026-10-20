@@ -49,7 +49,7 @@ interface TaskList {
 }
 
 // 0.13.0 (T3b): Task gained addedBy, TaskList gained role and memberCount.
-const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'id', 'listId', 'priority', 'status', 'tags', 'title', 'updatedAt'];
+const TASK_KEYS = ['addedBy', 'createdAt', 'description', 'done', 'dueDate', 'dueTime', 'id', 'listId', 'myReminder', 'myReminderPassed', 'priority', 'status', 'tags', 'title', 'updatedAt']; // 0.14.0 (T4a): dueTime, myReminder, myReminderPassed
 const LIST_KEYS = ['id', 'memberCount', 'name', 'personal', 'role'];
 
 interface Watch {

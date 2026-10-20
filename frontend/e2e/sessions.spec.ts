@@ -680,7 +680,7 @@ test.describe('default limits', () => {
     await expect(page.locator('#account-logout-others')).toBeDisabled();
     await expect(page.locator('#account-delete')).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Change password' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await expect(page.getByRole('region', { name: 'Display name' }).getByRole('button', { name: 'Save' })).toBeDisabled(); // 0.14.0: Time zone has its own Save
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeVisible(); // can't close while in flight
     await page.screenshot({ path: `${SHOTS}/ac16-loading.png`, fullPage: true });

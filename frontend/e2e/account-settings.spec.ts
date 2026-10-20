@@ -169,7 +169,7 @@ test.describe('Change display name', () => {
     await gotoAccount(page);
     await page.evaluate(() => ((window as unknown as { __noReload: boolean }).__noReload = true));
     await page.locator('#account-display-name').fill(`  ${newName}  `);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Display name updated')).toBeVisible();
     await expect(header(page).getByRole('link', { name: `Hi, ${newName}` })).toBeVisible();
     expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true);
@@ -188,7 +188,7 @@ test.describe('Change display name', () => {
     const id = uid().replace(/-/g, '');
     const fifty = (id + 'x'.repeat(50)).slice(0, 50);
     await page.locator('#account-display-name').fill(`   ${fifty}   `);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Display name updated')).toBeVisible();
     await expect(header(page).getByRole('link', { name: `Hi, ${fifty}` })).toBeVisible();
     assertClean(w, 'AC3 50');
@@ -209,7 +209,7 @@ test.describe('Change display name', () => {
     await gotoAccount(page);
     for (const attempt of [`jose ${id}`, `JOSE ${id}`, ` José ${id} `]) {
       await page.locator('#account-display-name').fill(attempt);
-      await page.getByRole('button', { name: 'Save' }).click();
+      await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
       await expect(page.locator('#account-display-name-error')).toHaveText('This display name is already taken');
       await expect(page.getByText('Display name updated')).toHaveCount(0);
       await expect(header(page).getByRole('link', { name: `Hi, ${mine}` })).toBeVisible();
@@ -227,15 +227,15 @@ test.describe('Change display name', () => {
     await register(page, `Bob ${id}`, email('ac5'));
     await gotoAccount(page);
     await page.locator('#account-display-name').fill(`bob ${id}`);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Display name updated')).toBeVisible();
     await expect(header(page).getByRole('link', { name: `Hi, bob ${id}` })).toBeVisible();
     await page.locator('#account-display-name').fill(`Böb ${id}`);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     await expect(header(page).getByRole('link', { name: `Hi, Böb ${id}` })).toBeVisible();
     await expect(page.locator('#account-display-name-error')).toHaveCount(0);
     // saving the exact same name again
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Display name updated')).toBeVisible();
     await page.reload();
     await expect(header(page).getByRole('link', { name: `Hi, Böb ${id}` })).toBeVisible();
@@ -255,7 +255,7 @@ test.describe('Change display name', () => {
     const msgs: string[] = [];
     for (const bad of ['', '    ', 'x'.repeat(51)]) {
       await page.locator('#account-display-name').fill(bad);
-      await page.getByRole('button', { name: 'Save' }).click();
+      await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
       const err = page.locator('#account-display-name-error');
       await expect(err).toBeVisible();
       msgs.push((await err.textContent())?.trim() ?? '');
@@ -282,7 +282,7 @@ test.describe('Change display name', () => {
     });
     const newName = `Dbl2 ${uid()}`;
     await page.locator('#account-display-name').fill(newName);
-    await page.getByRole('button', { name: 'Save' }).dblclick();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).dblclick();
     await expect(page.getByText('Display name updated')).toBeVisible();
     expect(puts).toBe(1);
     assertClean(w, 'AC6 dbl');
@@ -539,7 +539,7 @@ test.describe('Delete account', () => {
     const newName = `Renamed ${uid()}`;
     await gotoAccount(p1);
     await p1.locator('#account-display-name').fill(newName);
-    await p1.getByRole('button', { name: 'Save' }).click();
+    await p1.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     await expect(p1.getByText('Display name updated')).toBeVisible();
     await p2.reload();
     await expect(header(p2).getByRole('link', { name: `Hi, ${newName}` })).toBeVisible();
@@ -559,7 +559,7 @@ test.describe('Security', () => {
     await register(page, `Audit ${uid()}`, mail);
     await gotoAccount(page);
     await page.locator('#account-display-name').fill(`Audit2 ${uid()}`);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Display name updated')).toBeVisible();
     await page.locator('#account-current-password').fill('audit-wrong-pw');
     await page.locator('#account-new-password').fill(NEW_PASSWORD);
@@ -678,7 +678,7 @@ test.describe('States', () => {
     });
 
     await page.locator('#account-display-name').fill(`Busy2 ${uid()}`);
-    const save = page.getByRole('button', { name: 'Save' });
+    const save = page.locator('app-display-name-form').getByRole('button', { name: 'Save' });
     await save.click();
     await expect(save).toBeDisabled();
     await expect(save.getByTestId('spinner')).toBeVisible();
@@ -727,10 +727,10 @@ test.describe('States', () => {
     await page.route('**/api/account/**', (r) => r.abort('connectionrefused'));
 
     await page.locator('#account-display-name').fill(`Down2 ${uid()}`);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     const nameSection = page.locator('section', { has: page.locator('#account-display-name') });
     await expect(nameSection.getByRole('alert')).toHaveText(GENERIC);
-    await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
+    await expect(page.locator('app-display-name-form').getByRole('button', { name: 'Save' })).toBeEnabled();
     await expect(header(page).getByRole('link', { name: `Hi, ${name}` })).toBeVisible();
 
     await page.locator('#account-current-password').fill(PASSWORD);
@@ -765,7 +765,7 @@ test.describe('States', () => {
       }),
     );
     await page.locator('#account-display-name').fill(`Five2 ${uid()}`);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.locator('app-display-name-form').getByRole('button', { name: 'Save' }).click();
     await expect(page.getByRole('alert')).toHaveText(GENERIC);
     expect(w.pageErrors).toEqual([]);
   });
