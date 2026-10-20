@@ -243,11 +243,11 @@ describe('AccountPage sessions and busy lock', () => {
 });
 
 describe('account route', () => {
-  it('is a guarded child of the shell titled "Account · Task App"', () => {
+  it('is a guarded child of the shell titled "Account · Task App"', async () => {
     const shell = routes.find((r) => r.children?.some((c) => c.path === 'account'))!;
     expect(shell.canActivate).toContain(authGuard);
     const account = shell.children!.find((c) => c.path === 'account')!;
-    expect(account.component).toBe(AccountPage);
+    expect(await (account.loadComponent as () => Promise<unknown>)()).toBe(AccountPage);
     expect(account.title).toBe('Account · Task App');
   });
 });
