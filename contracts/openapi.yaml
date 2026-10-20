@@ -1,8 +1,66 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.13.0
+  version: 0.14.0
   description: |
+    ## Changes in 0.14.0 (due times, reminders, notifications, specs/due-times-reminders.md Part A / T4a)
+    Additive. Clients that never send `dueTime` or `reminder` behave as before.
+    - `Task` gains `dueTime` (`"HH:mm"` or `null`), `myReminder` (my reminder offset or `null`)
+      and `myReminderPassed`, always present. `PUT /api/tasks/{id}` gains `dueTime` and
+      `reminder`. See "Due times and reminders".
+    - `User` gains `timeZone` (IANA region id or `null`) and `reminderEmails` (boolean), always
+      present.
+    - New endpoints (tag `account`): `PUT /api/account/time-zone`,
+      `PUT /api/account/reminder-emails`. Both return the updated `User`.
+    - New endpoints (tag `notifications`): `GET /api/notifications`,
+      `GET /api/notifications/count`, `POST /api/notifications/{id}/read`,
+      `POST /api/notifications/read-all`.
+    - `GET /api/tasks?sort=due` now also orders by `dueTime` inside a date. Cursors issued
+      before 0.14.0 give `INVALID_CURSOR` once (cursor version 3).
+    - New error codes: `REQUIRES_DUE_DATE`, `INVALID_REMINDER`, `INVALID_TIME_ZONE` (field
+      errors inside 400 `VALIDATION_FAILED`), `NOTIFICATION_NOT_FOUND` (404). New `FieldError.field`
+      values `dueTime`, `reminder`, `timeZone`, `enabled`, `limit`.
+    - New rate limit: a silent cap on reminder emails per account (see "Rate limiting").
+    - **One-off effects at deploy:** every existing user has `timeZone: null` and
+      `reminderEmails: true`; every existing task has `dueTime: null`, `myReminder: null`.
+
+    ## Due times and reminders (0.14.0)
+    - **Due time** is a wall-clock value (`"09:30"`), like `dueDate`: no zone is stored with it
+      and the server never converts it. Every member of a shared list sees the same date and
+      time, and "09:30" means 09:30 in each member's **own** time zone (for display, for
+      "overdue" and for their own reminder). A time only exists together with a `dueDate`.
+    - **Time zone.** `User.timeZone` is an IANA region id such as `Europe/Bucharest` (or `UTC`);
+      offsets (`+02:00`, `UTC+2`) and abbreviations (`EST`) are not accepted. `null` until the
+      client sets it. The client sets it once with `PUT /api/account/time-zone` +
+      `ifUnset: true` (atomic: only if still empty), and the user can change it in Account.
+      Until a zone is set the server computes that user's reminder times in UTC and recomputes
+      them when the zone is set.
+    - **One reminder per user per task**, other members never see it. `Task.myReminder` is the
+      caller's own. Offsets (`ReminderOffset`): a **timed** task (has `dueTime`) accepts
+      `AT_DUE`, `TEN_MINUTES`, `ONE_HOUR`, `ONE_DAY` (the same time on the previous calendar
+      day); a **date-only** task accepts `ON_THE_DAY` (09:00 that day) and `ONE_DAY` (09:00 the
+      day before). The fire time is computed in the reminder owner's zone. A wall-clock time in
+      a daylight-saving gap (it does not exist) counts as the moment the clocks jump; one in an
+      overlap (it happens twice) counts as the first time.
+    - **Recomputed** whenever the task's `dueDate` or `dueTime` changes (for every member who
+      has a reminder on it, each in their zone), the reminder offset changes, or the owner's
+      zone changes. A reminder that already fired fires again only if its new fire time is in
+      the future. A fire time already in the past when saved (or recomputed) is kept but never
+      fires: `myReminderPassed` is `true`.
+    - **Clearing `dueDate`** removes `dueTime` and **every member's** reminder on the task (they
+      have nothing to fire on). A change from timed to date-only (or back) removes the
+      reminders whose offset no longer fits (the caller's included, unless the same request
+      sets a fitting one).
+    - **When it fires** (checked every minute or so): once, if at that moment the task still
+      exists, is not `DONE`, and the user is still a member of its list; otherwise it is
+      dropped silently. A reminder more than 5 minutes late is flagged `late`; one that is 1
+      hour or more late (e.g. the server was down) is dropped without a notification or email.
+      Firing creates an in-app notification always, and an email only if the account is not
+      disabled, its email is verified, `reminderEmails` is on and the cap below allows it. The
+      email never contains the description.
+    - **Notifications** are kept 90 days, newest first. Admins cannot see anyone's reminders or
+      notifications. Another user's notification id answers 404 like an unknown one.
+
     ## Changes in 0.13.0 (sharing, specs/sharing-team-lists.md Part B / T3b)
     Additive, except that `GET /api/lists` loses `maxItems: 50` (it now also returns lists shared
     with me). See "Sharing".
@@ -597,6 +655,11 @@ info:
       is skipped. (`RATE_LIMIT_INVITE_EMAILS_PER_ACCOUNT_PER_HOUR`)
     No other sharing endpoint is rate limited.
 
+    Reminders (new in 0.14.0): reminder emails, per recipient account: at most 20 per 1 hour
+    (`RATE_LIMIT_REMINDER_EMAILS_PER_ACCOUNT_PER_HOUR`, counted per app instance). **Silent**:
+    over the limit the in-app notification is still created, only the email is skipped. No
+    reminder or notification endpoint is rate limited.
+
     Delete account without a password (0.8.0): the `email` confirmation shares the per-user
     password-check counter above (a wrong `email` counts one failure, the right one resets it).
 
@@ -653,6 +716,8 @@ tags:
       members (see "Sharing").
   - name: invitations
     description: The signed-in user's own pending invitations to other people's lists (0.13.0).
+  - name: notifications
+    description: The signed-in user's own in-app notifications (reminders that fired, 0.14.0).
   - name: admin
     description: Admin users page (0.9.0), `ADMIN` and `SUPER_ADMIN` only.
 paths:
@@ -1526,6 +1591,134 @@ paths:
                     code: DISPLAY_NAME_TAKEN
                     message: This display name is already taken
 
+  /api/account/time-zone:
+    put:
+      summary: Set my time zone
+      description: |
+        New in 0.14.0. Sets the IANA zone my due times and reminders are evaluated in (see "Due
+        times and reminders"). With `ifUnset: true` it only sets it when the zone is still empty,
+        in one atomic update; otherwise it always overwrites. Setting a zone different from the
+        stored one recomputes the fire time of all my reminders. Saving the same zone is allowed
+        and returns 200. The answer is the updated `User` (no new cookies). Session and CSRF
+        like `PUT /api/account/display-name`.
+      operationId: setTimeZone
+      tags: [account]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTimeZoneRequest'
+            example:
+              timeZone: Europe/Bucharest
+              ifUnset: true
+      responses:
+        '200':
+          description: The user, with the zone now stored (unchanged when `ifUnset` found one)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                email: bob@example.com
+                displayName: Bob
+                emailVerified: true
+                hasPassword: true
+                connections: []
+                role: USER
+                timeZone: Europe/Bucharest
+                reminderEmails: true
+        '400':
+          description: |
+            Validation failed (`code: VALIDATION_FAILED`): `timeZone` / `REQUIRED` (missing, null
+            or blank) or `timeZone` / `INVALID_TIME_ZONE` ("Unknown time zone"; offsets,
+            abbreviations and ids longer than 64 characters included). A body that is not valid
+            JSON, or `ifUnset` that is not a boolean, returns 400 `MALFORMED_REQUEST`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/account/time-zone
+                code: VALIDATION_FAILED
+                errors:
+                  - field: timeZone
+                    code: INVALID_TIME_ZONE
+                    message: Unknown time zone
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+
+  /api/account/reminder-emails:
+    put:
+      summary: Turn reminder emails on or off
+      description: |
+        New in 0.14.0. Saves `User.reminderEmails`; respected from the next reminder. The in-app
+        notification is created either way. Returns the updated `User`. Session and CSRF like
+        `PUT /api/account/display-name`.
+      operationId: setReminderEmails
+      tags: [account]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetReminderEmailsRequest'
+            example:
+              enabled: false
+      responses:
+        '200':
+          description: The updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                email: bob@example.com
+                displayName: Bob
+                emailVerified: true
+                hasPassword: true
+                connections: []
+                role: USER
+                timeZone: Europe/Bucharest
+                reminderEmails: false
+        '400':
+          description: |
+            `enabled` / `REQUIRED` (missing or null), in 400 `VALIDATION_FAILED`; or 400
+            `MALFORMED_REQUEST` (not valid JSON, `enabled` not a boolean).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/account/reminder-emails
+                code: VALIDATION_FAILED
+                errors:
+                  - field: enabled
+                    code: REQUIRED
+                    message: Enabled is required
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+
   /api/account/password:
     put:
       summary: Change my password
@@ -1906,11 +2099,14 @@ paths:
         2. Inside a group, by `sort`:
            - `newest` (default): `createdAt` descending, then `id` descending (the 0.10.0 order).
            - `oldest`: `createdAt` ascending, then `id` ascending (the exact reverse of `newest`).
-           - `due`: `dueDate` ascending (soonest first); tasks without a `dueDate` last.
+           - `due`: `dueDate` ascending (soonest first); inside one date, tasks with a
+             `dueTime` first by time ascending, then date-only tasks; tasks without a `dueDate`
+             last (0.14.0: the time was added).
            - `priority`: `HIGH`, `MEDIUM`, `LOW`, `NONE`.
            - `title`: A-Z by `title`, ignoring letter case and accents (MySQL
              `utf8mb4_0900_ai_ci`), so `café` and `Cafe` are equal and tie.
-        3. Ties (`due`, `priority`, `title`): `createdAt` descending, then `id` descending.
+        3. Ties (`due`, `priority`, `title`; for `due`: same date and same time or both
+           date-only): `createdAt` descending, then `id` descending.
         Status other than done never changes the order inside a group.
 
         **Paging (keyset):** the first request has no `cursor`. If more tasks follow, the page has
@@ -2003,7 +2199,9 @@ paths:
             page. A cursor never exposes or reaches another list's or user's tasks: the list is
             always checked against the session's user first.
             0.12.0: the cursor format changed (version 2, it now carries the list), so every
-            cursor issued before 0.12.0 gives `INVALID_CURSOR` once.
+            cursor issued before 0.12.0 gives `INVALID_CURSOR` once. 0.14.0: version 3 (it now
+            carries the due time), so every cursor issued before 0.14.0 gives `INVALID_CURSOR`
+            once.
           schema:
             type: string
             maxLength: 1024
@@ -2215,6 +2413,29 @@ paths:
         have more than 200 tags) needs the database, so it is only reported when everything else
         is valid; nothing is saved in that case.
 
+        **Due time and reminder (new in 0.14.0, see "Due times and reminders"):**
+        - `dueTime` (`"HH:mm"`, 24-hour, exactly 5 characters): **missing** → unchanged;
+          **`null`** → cleared (the date stays); a value → set. Only valid with a due date: a
+          non-null `dueTime` together with `dueDate` missing/`null` → 400 `dueTime` /
+          `REQUIRES_DUE_DATE`. Clearing the `dueDate` (missing/`null`) also drops the stored
+          time and every member's reminder on the task. A value that is not exactly `HH:mm`
+          (`"9:30"`, `"09:30:15"`, `"24:00"`, a number) → 400 `MALFORMED_REQUEST`.
+        - `reminder` (`ReminderOffset` or `NONE`): **missing/`null`** → my reminder is unchanged
+          (but recomputed if the date/time changed, and cleared if its offset no longer fits the
+          task: timed ↔ date-only); `NONE` → removes my reminder; an offset → sets it (one per
+          user per task; other members' reminders are never touched). A non-`NONE` offset with
+          `dueDate` missing/`null` → 400 `reminder` / `REQUIRES_DUE_DATE`; an offset that does not
+          fit the task's resulting type (e.g. `ON_THE_DAY` on a timed task, `AT_DUE` on a
+          date-only one) or is not one of the values (case-sensitive) → 400 `reminder` /
+          `INVALID_REMINDER`. A fire time in the past is saved but never fires
+          (`myReminderPassed: true` in the response).
+        - Any member who can edit the task can set or clear its date and time; everyone sees the
+          same values. `PATCH` (status/done) never changes a time or a reminder.
+        - `REQUIRES_DUE_DATE` and an unknown `reminder` value are reported with the other body
+          errors (before 404). Whether a valid offset fits the task depends on the stored time
+          when `dueTime` is missing, so that `INVALID_REMINDER` is only reported once the task
+          is found (after the 404 checks, like `TAG_LIMIT`); nothing is saved in that case.
+
         **Moving (new in 0.12.0):** `listId` set to another of my lists moves the task there, in
         the same request as the other changes. Missing, `null` or the task's current list → it
         stays where it is. 0.13.0: any member may move any task, from and to lists they are a
@@ -2253,6 +2474,14 @@ paths:
                   priority: HIGH
                   status: IN_PROGRESS
                   tags: [' Home ', Errands, errands]
+              timedWithReminder:
+                summary: Due 21 Oct 09:30, remind me 1 hour before (0.14.0)
+                value:
+                  title: Dentist
+                  description: null
+                  dueDate: '2026-10-21'
+                  dueTime: '09:30'
+                  reminder: ONE_HOUR
               move:
                 summary: Move to list 8, keeping the current tags (0.12.0)
                 value:
@@ -2279,6 +2508,9 @@ paths:
                 tags: [Errands, Home]
                 done: false
                 dueDate: null
+                dueTime: null
+                myReminder: null
+                myReminderPassed: false
                 createdAt: '2026-10-08T09:15:02.123456Z'
                 updatedAt: '2026-10-08T10:02:44.901Z'
         '400':
@@ -2336,6 +2568,9 @@ paths:
                 tags: []
                 done: true
                 dueDate: '2026-10-10'
+                dueTime: null
+                myReminder: null
+                myReminderPassed: false
                 createdAt: '2026-10-08T09:15:02.123456Z'
                 updatedAt: '2026-10-08T10:05:00.000123Z'
         '400':
@@ -2982,6 +3217,156 @@ paths:
         '404':
           $ref: '#/components/responses/InvitationNotFound'
 
+  /api/notifications:
+    get:
+      summary: My notifications (one page, newest first)
+      description: |
+        New in 0.14.0. My in-app notifications, newest first (`createdAt` descending, then `id`
+        descending). Only mine: another user's notifications are never returned. Notifications
+        older than 90 days are deleted. Keyset paging: pass `nextCursor` back as `?cursor=`.
+
+        **Checks, in order:** 400 `limit` / `OUT_OF_RANGE` (not an integer 1-50) and 400 `cursor`
+        / `INVALID_CURSOR` (reported together in `errors`) > 200.
+      operationId: listNotifications
+      tags: [notifications]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Page size, 1-50. Default 20. With a repeated parameter the first value is used.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: |
+            The `nextCursor` of the previous page. Unreadable or altered → 400 `cursor` /
+            `INVALID_CURSOR`; reload from the first page.
+          schema:
+            type: string
+            maxLength: 1024
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPage'
+              example:
+                items:
+                  - id: 41
+                    type: REMINDER
+                    read: false
+                    createdAt: '2026-10-21T06:30:01.120Z'
+                    late: false
+                    title: Buy milk
+                    dueDate: '2026-10-21'
+                    dueTime: '09:30'
+                    taskId: 12
+                    listId: 3
+                nextCursor: null
+        '400':
+          description: Validation failed (`limit` / `OUT_OF_RANGE`, `cursor` / `INVALID_CURSOR`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/notifications
+                code: VALIDATION_FAILED
+                errors:
+                  - field: limit
+                    code: OUT_OF_RANGE
+                    message: Limit must be between 1 and 50
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/notifications/count:
+    get:
+      summary: How many unread notifications I have
+      description: |
+        New in 0.14.0. For the header bell: the number of my unread notifications (0 = no badge).
+      operationId: countMyNotifications
+      tags: [notifications]
+      responses:
+        '200':
+          description: The count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationCount'
+              example:
+                count: 3
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/notifications/read-all:
+    post:
+      summary: Mark all my notifications as read
+      description: New in 0.14.0. No body. Idempotent (also 204 when nothing was unread).
+      operationId: readAllNotifications
+      tags: [notifications]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Done. No body.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+
+  /api/notifications/{id}/read:
+    parameters:
+      - $ref: '#/components/parameters/NotificationId'
+    post:
+      summary: Mark one notification as read
+      description: |
+        New in 0.14.0. No body. Idempotent: reading an already read notification answers 200
+        with the same notification.
+
+        **Checks, in order:** 400 `MALFORMED_REQUEST` > 404 `NOTIFICATION_NOT_FOUND` (unknown id
+        or another user's) > 200.
+      operationId: readNotification
+      tags: [notifications]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: The notification, now read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+              example:
+                id: 41
+                type: REMINDER
+                read: true
+                createdAt: '2026-10-21T06:30:01.120Z'
+                late: false
+                title: Buy milk
+                dueDate: '2026-10-21'
+                dueTime: '09:30'
+                taskId: 12
+                listId: 3
+        '400':
+          $ref: '#/components/responses/MalformedSharingId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/NotificationNotFound'
+
   /api/admin/users:
     get:
       summary: List and search all accounts (admins only)
@@ -3440,6 +3825,19 @@ components:
         format: int64
         example: 31
 
+    NotificationId:
+      name: id
+      in: path
+      required: true
+      description: |
+        New in 0.14.0. Id of one of my notifications. Unknown or another user's → 404
+        `NOTIFICATION_NOT_FOUND` (identical body). A non-integer id returns 400
+        `MALFORMED_REQUEST`.
+      schema:
+        type: integer
+        format: int64
+        example: 41
+
     ListQuery:
       name: list
       in: query
@@ -3793,6 +4191,12 @@ components:
           message used to be "Done is required")
         - `status` / `STATUS_CONFLICT` / "Status and done don't match" (PUT and PATCH; both sent
           and `done != (status == DONE)`)
+        - `dueTime` / `REQUIRES_DUE_DATE` / "A due time needs a due date" (PUT, 0.14.0; a
+          non-null `dueTime` without a `dueDate`)
+        - `reminder` / `REQUIRES_DUE_DATE` / "A reminder needs a due date" (PUT, 0.14.0; an offset
+          other than `NONE` without a `dueDate`)
+        - `reminder` / `INVALID_REMINDER` / "Reminder is not valid for this task" (PUT, 0.14.0;
+          not one of the values, or does not fit a timed / date-only task)
         - `tags` (PUT only; at most one entry, the first rule that fails in this order):
           - `REQUIRED` / "Tags can't be blank" (an element is null, empty or blank after
             normalising)
@@ -4191,6 +4595,20 @@ components:
                 detail: A list can have at most 20 pending invitations
                 instance: /api/lists/8/invitations
                 code: INVITATION_LIMIT
+    NotificationNotFound:
+      description: |
+        New in 0.14.0. The id is unknown or belongs to another user (identical body).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Not Found
+            status: 404
+            detail: Notification not found
+            instance: /api/notifications/41/read
+            code: NOTIFICATION_NOT_FOUND
     InviteRateLimited:
       description: |
         New in 0.13.0. Too many invitations by this user (default 30 per hour, see "Rate
@@ -4282,7 +4700,7 @@ components:
     User:
       type: object
       description: Never contains the password or its hash, nor any Google token or id.
-      required: [id, email, displayName, emailVerified, hasPassword, connections, role]
+      required: [id, email, displayName, emailVerified, hasPassword, connections, role, timeZone, reminderEmails]
       properties:
         id:
           type: integer
@@ -4322,6 +4740,20 @@ components:
             $ref: '#/components/schemas/Connection'
         role:
           $ref: '#/components/schemas/Role'
+        timeZone:
+          type: string
+          nullable: true
+          description: |
+            New in 0.14.0, always present. My IANA time zone (e.g. `Europe/Bucharest`), or
+            `null` until it is set (every account created before 0.14.0 starts with `null`).
+            Drives when my due times count as overdue and when my reminders fire.
+          example: Europe/Bucharest
+        reminderEmails:
+          type: boolean
+          description: |
+            New in 0.14.0, always present, default `true`. Whether a reminder also sends me an
+            email (the in-app notification is always created).
+          example: true
 
     Role:
       type: string
@@ -4858,6 +5290,133 @@ components:
           description: My pending (not expired) invitations; 0 when my email is not verified.
           example: 2
 
+    ReminderOffset:
+      type: string
+      enum: [AT_DUE, TEN_MINUTES, ONE_HOUR, ONE_DAY, ON_THE_DAY]
+      description: |
+        New in 0.14.0. When my reminder fires. `AT_DUE`: at the due time. `TEN_MINUTES` /
+        `ONE_HOUR`: that long before it. `ONE_DAY`: the previous calendar day at the same time
+        (timed task) or at 09:00 (date-only task). `ON_THE_DAY`: 09:00 on the due date
+        (date-only task only). Timed tasks accept `AT_DUE`, `TEN_MINUTES`, `ONE_HOUR`,
+        `ONE_DAY`; date-only tasks accept `ON_THE_DAY`, `ONE_DAY`. (`NONE` exists in requests
+        only, to remove a reminder.)
+
+    Notification:
+      type: object
+      required: [id, type, read, createdAt, late, title, dueDate, dueTime, taskId, listId]
+      description: |
+        New in 0.14.0. One in-app notification of mine. `title`, `dueDate` and `dueTime` are a
+        snapshot taken when it fired: they do not change if the task is edited, and they stay
+        after the task is deleted.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 41
+        type:
+          type: string
+          enum: [REMINDER]
+          example: REMINDER
+        read:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          description: When it fired, same format as `Task.createdAt`.
+          example: '2026-10-21T06:30:01.120Z'
+        late:
+          type: boolean
+          description: Fired more than 5 minutes after its fire time (e.g. the server was down).
+          example: false
+        title:
+          type: string
+          description: The task's title when the reminder fired.
+          example: Buy milk
+        dueDate:
+          type: string
+          format: date
+          example: '2026-10-21'
+        dueTime:
+          type: string
+          nullable: true
+          example: '09:30'
+        taskId:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            The task's id, or `null` when it was deleted or I am no longer a member of its list
+            ("This task is no longer available").
+          example: 12
+        listId:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            The id of the list the task is in now (to open it: the frontend maps "My tasks" to
+            `/tasks`), or `null` together with `taskId`.
+          example: 3
+
+    NotificationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/Notification'
+        nextCursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque. Pass it back as `?cursor=` for the next page; `null` on the last page. It
+            holds the position of the last item, so notifications arriving meanwhile never make
+            a later page repeat or skip one.
+
+    NotificationCount:
+      type: object
+      required: [count]
+      description: New in 0.14.0. Body of `GET /api/notifications/count`.
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: My unread notifications.
+          example: 3
+
+    SetTimeZoneRequest:
+      type: object
+      required: [timeZone]
+      properties:
+        timeZone:
+          type: string
+          maxLength: 64
+          description: |
+            An IANA region id as known to Java (`Europe/Bucharest`, `America/New_York`, `UTC`),
+            case-sensitive. Offsets (`+02:00`, `UTC+2`) and abbreviations (`EST`) → 400
+            `timeZone` / `INVALID_TIME_ZONE`. Missing or blank → `REQUIRED`.
+          example: Europe/Bucharest
+        ifUnset:
+          type: boolean
+          nullable: true
+          description: |
+            Optional, default `false`. `true` → set it only if my zone is still empty (one atomic
+            update, so two tabs or devices signing in at once cannot overwrite each other); if
+            it is already set, nothing changes and the answer is still 200 with the current
+            user. The client calls it with the browser's zone when `User.timeZone` is `null`.
+          example: true
+
+    SetReminderEmailsRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+          description: Missing or `null` → 400 `enabled` / `REQUIRED`. Not a boolean → 400 `MALFORMED_REQUEST`.
+          example: false
+
     TaskListDetails:
       description: |
         New in 0.12.0. `TaskList` plus its task count; only from `GET /api/lists/{id}`.
@@ -4901,7 +5460,7 @@ components:
 
     Task:
       type: object
-      required: [id, listId, addedBy, title, description, priority, status, tags, done, dueDate, createdAt, updatedAt]
+      required: [id, listId, addedBy, title, description, priority, status, tags, done, dueDate, dueTime, myReminder, myReminderPassed, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -4968,6 +5527,31 @@ components:
             Calendar date `YYYY-MM-DD` with no time and no timezone. Returned exactly as stored;
             the server never converts it.
           example: '2026-10-10'
+        dueTime:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: |
+            New in 0.14.0, always present. Wall-clock time `HH:mm` (24-hour) of the due date, or
+            `null` (date-only task, the only kind before 0.14.0). Never non-null when `dueDate`
+            is `null`. Same time for every member; it is that clock time in each member's own
+            time zone. Returned exactly as stored.
+          example: '09:30'
+        myReminder:
+          allOf:
+            - $ref: '#/components/schemas/ReminderOffset'
+          nullable: true
+          description: |
+            New in 0.14.0, always present. MY reminder on this task, or `null`. Other members'
+            reminders are never exposed.
+        myReminderPassed:
+          type: boolean
+          description: |
+            New in 0.14.0, always present. `true` when I have a reminder and its fire time is
+            not in the future (it already fired, was dropped, or was saved in the past and will
+            never fire); `false` otherwise, including when `myReminder` is `null`. The dialog
+            shows "This reminder time has passed".
+          example: false
         createdAt:
           type: string
           format: date-time
@@ -5042,6 +5626,25 @@ components:
           nullable: true
           description: '`YYYY-MM-DD` or `null` (clears it). Past dates are allowed.'
           example: null
+        dueTime:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: |
+            New in 0.14.0. `HH:mm`. Missing → unchanged; `null` → cleared; a value → set. Needs a
+            `dueDate` (400 `dueTime` / `REQUIRES_DUE_DATE`). See `PUT /api/tasks/{id}`.
+          example: '09:30'
+        reminder:
+          type: string
+          nullable: true
+          enum: [AT_DUE, TEN_MINUTES, ONE_HOUR, ONE_DAY, ON_THE_DAY, NONE, null]
+          description: |
+            New in 0.14.0. MY reminder. Missing/`null` → unchanged; `NONE` → removed; otherwise
+            the offset (timed task: `AT_DUE`, `TEN_MINUTES`, `ONE_HOUR`, `ONE_DAY`; date-only
+            task: `ON_THE_DAY`, `ONE_DAY`). Needs a `dueDate` (400 `reminder` /
+            `REQUIRES_DUE_DATE`); wrong for the task type or unknown → 400 `reminder` /
+            `INVALID_REMINDER`.
+          example: ONE_HOUR
         priority:
           allOf:
             - $ref: '#/components/schemas/Priority'
@@ -5107,16 +5710,19 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit]
           description: |
             Name of the request field (exactly as in the request body, or the query parameter).
             `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
             never to an index. `cursor` is new in 0.11.0 (`GET /api/tasks`). `name` is new in
             0.12.0 (`POST /api/lists`, `PATCH /api/lists/{id}`). `email` is also used by
-            `POST /api/lists/{id}/invitations` (0.13.0).
+            `POST /api/lists/{id}/invitations` (0.13.0). `dueTime` and `reminder` (`PUT
+            /api/tasks/{id}`), `timeZone` (`PUT /api/account/time-zone`), `enabled`
+            (`PUT /api/account/reminder-emails`) and `limit` (`GET /api/notifications`) are new in
+            0.14.0.
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR, REQUIRES_DUE_DATE, INVALID_REMINDER, INVALID_TIME_ZONE]
           description: |
             Stable machine-readable reason.
             - REQUIRED: missing, null, empty or blank (for `tags`: an element is; for `done` on
@@ -5130,6 +5736,15 @@ components:
             - INVALID_CURSOR: (new in 0.11.0, field `cursor` of `GET /api/tasks`) the cursor
               cannot be read or was issued for a different list (0.12.0), `filter`, `tag`, `q`
               or `sort`; reload from the first page
+            - REQUIRES_DUE_DATE: (new in 0.14.0, fields `dueTime` and `reminder` of
+              `PUT /api/tasks/{id}`) a time or a reminder was sent without a `dueDate`
+            - INVALID_REMINDER: (new in 0.14.0, field `reminder`) not one of the offsets, or an
+              offset that does not fit the task (timed vs date-only)
+            - INVALID_TIME_ZONE: (new in 0.14.0, field `timeZone`) not an IANA region id
+            - OUT_OF_RANGE also: (0.14.0, `limit` of `GET /api/notifications`) not an integer
+              1-50
+            - INVALID_CURSOR also: (0.14.0, field `cursor` of `GET /api/notifications`) the
+              cursor cannot be read
             - INVALID_CHARACTERS: (new in 0.10.0, field `tags`) a tag contains a comma or a
               control character
             - TOO_MANY: (new in 0.10.0, field `tags`) more than 10 different tags on one task
@@ -5211,6 +5826,7 @@ components:
             - MEMBER_LIMIT
             - INVITATION_LIMIT
             - INVITATION_NOT_FOUND
+            - NOTIFICATION_NOT_FOUND
           description: |
             Stable machine-readable error code. On a register 409 it is `EMAIL_TAKEN` if the email
             is taken (even when the display name is taken too), otherwise `DISPLAY_NAME_TAKEN`.
@@ -5239,6 +5855,8 @@ components:
             (409) from inviting (`MEMBER_LIMIT` also from accepting); `INVITATION_NOT_FOUND`
             (404, detail "This invitation is no longer valid") from accept, decline and cancel.
             `PERSONAL_LIST` (409) also from inviting to "My tasks".
+            New in 0.14.0: `NOTIFICATION_NOT_FOUND` (404, detail "Notification not found") from
+            `POST /api/notifications/{id}/read` for an unknown id or another user's notification.
         errors:
           type: array
           description: |
