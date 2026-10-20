@@ -87,6 +87,59 @@ class AccountServiceTest {
         return user;
     }
 
+    // --- time zone and reminder emails (0.14.0) ---
+
+    @Test
+    void setTimeZoneStoresItAndRecomputesTheUsersReminders() {
+        UserResponse updated = accountService.setTimeZone(1L, "Europe/Bucharest", false);
+
+        assertThat(updated.timeZone()).isEqualTo("Europe/Bucharest");
+        assertThat(bob.getTimeZone()).isEqualTo("Europe/Bucharest");
+        verify(userRepository).saveAndFlush(bob);
+        verify(reminders).zoneChanged(1L);
+    }
+
+    @Test
+    void theSameZoneChangesNothingAndRecomputesNothing() {
+        bob.changeTimeZone("Europe/Bucharest");
+
+        accountService.setTimeZone(1L, "Europe/Bucharest", false);
+
+        verify(userRepository, never()).saveAndFlush(any());
+        verify(reminders, never()).zoneChanged(anyLong());
+    }
+
+    @Test
+    void ifUnsetUsesTheAtomicUpdateAndRecomputesOnlyWhenItSetTheZone() {
+        when(userRepository.setTimeZoneIfUnset(1L, "Asia/Tokyo")).thenReturn(1);
+        when(userRepository.setTimeZoneIfUnset(2L, "Asia/Tokyo")).thenReturn(0);
+
+        accountService.setTimeZone(1L, "Asia/Tokyo", true);
+        accountService.setTimeZone(2L, "Asia/Tokyo", true);
+
+        verify(reminders).zoneChanged(1L);
+        verify(reminders, never()).zoneChanged(2L);
+        verify(userRepository, never()).findByIdForUpdate(anyLong());
+    }
+
+    @Test
+    void setTimeZoneForAMissingUserIsUnauthenticated() {
+        assertThatThrownBy(() -> accountService.setTimeZone(99L, "UTC", false))
+                .isInstanceOf(UnauthenticatedException.class);
+    }
+
+    @Test
+    void setReminderEmailsSavesOnlyAChange() {
+        assertThat(accountService.setReminderEmails(1L, false).reminderEmails()).isFalse();
+        assertThat(bob.isReminderEmails()).isFalse();
+        verify(userRepository, times(1)).saveAndFlush(bob);
+
+        accountService.setReminderEmails(1L, false);
+        verify(userRepository, times(1)).saveAndFlush(bob);
+
+        assertThat(accountService.setReminderEmails(1L, true).reminderEmails()).isTrue();
+    }
+
     // --- display name ---
 
     @Test

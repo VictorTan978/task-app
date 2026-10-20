@@ -98,4 +98,59 @@ class EmailTemplatesTest {
         assertThat(EmailTemplates.describeDays(Duration.ofDays(1))).isEqualTo("1 day");
         assertThat(EmailTemplates.describeDays(Duration.ofHours(36))).isEqualTo("36 hours");
     }
+
+    // ---- reminder email (T4a, AC15) ----
+
+    @org.junit.jupiter.api.Test
+    void reminderEmailHasTheTitleDueTimeListLinkAndHowToTurnItOff() {
+        EmailContent mail = EmailTemplates.reminder("Ana", "Dentist", java.time.LocalDate.of(2026, 10, 21),
+                java.time.LocalTime.of(9, 30), "My tasks", "https://app.example.com/tasks", false);
+
+        org.assertj.core.api.Assertions.assertThat(mail.subject()).isEqualTo("Reminder: Dentist");
+        org.assertj.core.api.Assertions.assertThat(mail.text()).contains("Hi Ana,",
+                "Your task \"Dentist\" is due on Wed, 21 Oct 2026 at 09:30.", "List: My tasks",
+                "https://app.example.com/tasks", "switch off \"Reminder emails\"").doesNotContain("late");
+        org.assertj.core.api.Assertions.assertThat(mail.html()).contains("Dentist", "Wed, 21 Oct 2026 at 09:30",
+                "href=\"https://app.example.com/tasks\"", "Reminder emails");
+    }
+
+    @org.junit.jupiter.api.Test
+    void aDateOnlyReminderShowsNoTimeAndALateOneSaysSo() {
+        EmailContent mail = EmailTemplates.reminder("Ana", "Pay rent", java.time.LocalDate.of(2026, 10, 21), null,
+                "Home", "https://app.example.com/lists/8", true);
+
+        org.assertj.core.api.Assertions.assertThat(mail.text()).contains("is due on Wed, 21 Oct 2026. This reminder is late.")
+                .doesNotContain(" at ");
+        org.assertj.core.api.Assertions.assertThat(mail.html()).contains("This reminder is late.");
+    }
+
+    @org.junit.jupiter.api.Test
+    void userInputIsEscapedInHtmlAndFlattenedInTextAndSubject() {
+        EmailContent mail = EmailTemplates.reminder("<i>Ana</i>", "Buy <b>milk</b>\r\nBcc: evil@example.com & more",
+                java.time.LocalDate.of(2026, 10, 21), null, "Home\n<script>x</script>", "https://app.example.com/tasks",
+                false);
+
+        org.assertj.core.api.Assertions.assertThat(mail.subject()).doesNotContain("\n", "\r")
+                .startsWith("Reminder: Buy <b>milk</b> Bcc: evil@example.com & more");
+        org.assertj.core.api.Assertions.assertThat(mail.html()).doesNotContain("<b>", "<script>", "<i>")
+                .contains("Buy &lt;b&gt;milk&lt;/b&gt; Bcc: evil@example.com &amp; more", "&lt;script&gt;");
+        org.assertj.core.api.Assertions.assertThat(mail.text().lines().filter(l -> l.startsWith("Bcc:"))).isEmpty();
+    }
+
+    @org.junit.jupiter.api.Test
+    void aLongTitleIsShortenedInTheSubjectOnly() {
+        String title = "x".repeat(200);
+        EmailContent mail = EmailTemplates.reminder("Ana", title, java.time.LocalDate.of(2026, 10, 21), null, "Home",
+                "https://app.example.com/tasks", false);
+
+        org.assertj.core.api.Assertions.assertThat(mail.subject()).hasSize("Reminder: ".length() + 80).endsWith("…");
+        org.assertj.core.api.Assertions.assertThat(mail.text()).contains(title);
+    }
+
+    @org.junit.jupiter.api.Test
+    void theReminderEmailRedactsItsBodyInToString() {
+        EmailContent mail = EmailTemplates.reminder("Ana", "Secret title", java.time.LocalDate.of(2026, 10, 21), null,
+                "Home", "https://app.example.com/tasks", false);
+        org.assertj.core.api.Assertions.assertThat(mail.toString()).contains("text=****", "html=****");
+    }
 }
