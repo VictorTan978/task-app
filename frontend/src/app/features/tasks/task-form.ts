@@ -14,6 +14,7 @@ export const TASK_NOT_FOUND_MESSAGE = 'This task no longer exists';
 export const LOAD_ERROR = "Couldn't load your tasks. Please try again.";
 export const LOAD_MORE_ERROR = "Couldn't load more tasks. Please try again.";
 export const TASK_ADDED_MESSAGE = 'Task added';
+export const NEXT_SCHEDULED_PREFIX = 'Next one scheduled for ';
 export const ADD_ERROR = "Couldn't add the task. Please try again.";
 export const TOGGLE_ERROR = "Couldn't update the task. Please try again.";
 export const SAVE_ERROR = "Couldn't save the task. Please try again.";
@@ -32,6 +33,7 @@ const CLIENT_MESSAGES: Record<TaskFieldName, Record<string, string>> = {
   tags: {},
   dueTime: {},
   reminder: {},
+  repeat: {},
 };
 
 interface ServerError {

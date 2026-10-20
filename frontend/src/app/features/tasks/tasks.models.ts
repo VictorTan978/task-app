@@ -1,4 +1,4 @@
-/** Models matching the task schemas in `contracts/openapi.yaml` (v0.14.0) exactly. */
+/** Models matching the task schemas in `contracts/openapi.yaml` (v0.15.0) exactly. */
 import { Problem } from '../../core/auth/auth.models';
 
 /** `Priority`: `NONE` is the default (no badge). */
@@ -14,6 +14,17 @@ export interface TaskAddedBy {
 
 /** `Reminder` (0.14.0): my reminder offset. Timed tasks use the first four, date-only the last two. */
 export type Reminder = 'AT_DUE' | 'TEN_MINUTES' | 'ONE_HOUR' | 'ONE_DAY' | 'ON_THE_DAY';
+
+/** `Weekday` (0.15.0). */
+export type Weekday = 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT' | 'SUN';
+
+export type RepeatFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+
+/** `RepeatRule` (0.15.0). In responses `weekdays` is always present (Monday first, `[]` unless WEEKLY). */
+export interface RepeatRule {
+  frequency: RepeatFrequency;
+  weekdays: Weekday[];
+}
 
 export interface Task {
   id: number;
@@ -41,6 +52,8 @@ export interface Task {
   myReminder: Reminder | null;
   /** True when my reminder time is already in the past (0.14.0). */
   myReminderPassed: boolean;
+  /** The repeat rule shared by all members (0.15.0), or null. */
+  repeat: RepeatRule | null;
   /** UTC instant with `Z` suffix and 0–6 fractional digits. */
   createdAt: string;
   updatedAt: string;
@@ -75,7 +88,12 @@ export interface ReplaceTaskRequest {
    * stays. The UI sends it only when the user picked another list.
    */
   listId?: number | null;
+  /** Missing or null leaves the rule unchanged (0.15.0); `NEVER` removes it; a rule sets it. Needs `dueDate`. */
+  repeat?: RepeatRule | 'NEVER' | null;
 }
+
+/** Body of `PUT` and `PATCH /api/tasks/{id}` (0.15.0): the task plus the copy a completion created. */
+export type TaskResult = Task & { nextTask: Task | null };
 
 /** `PATCH /api/tasks/{id}`: at least one of `done` and `status`. The UI sends `status`. */
 export interface SetTaskDoneRequest {
@@ -114,7 +132,7 @@ export interface TaskListQuery {
 
 /** Task-related values of `FieldError.field`. */
 export type TaskFieldName =
-  'title' | 'description' | 'done' | 'status' | 'tags' | 'dueTime' | 'reminder';
+  'title' | 'description' | 'done' | 'status' | 'tags' | 'dueTime' | 'reminder' | 'repeat';
 
 /** `FieldError.field` values of a 400 from `GET /api/tasks`. */
 export type TaskListFieldName = 'q' | 'cursor';
@@ -135,7 +153,8 @@ export type TaskFieldErrorCode =
   | 'TAG_LIMIT'
   | 'STATUS_CONFLICT'
   | 'INVALID_REMINDER'
-  | 'REQUIRES_DUE_DATE';
+  | 'REQUIRES_DUE_DATE'
+  | 'INVALID_REPEAT';
 
 export interface TaskFieldError {
   field: TaskFieldName;

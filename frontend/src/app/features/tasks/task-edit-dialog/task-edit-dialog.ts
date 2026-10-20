@@ -30,26 +30,36 @@ import { TaskTagInput } from '../task-tag-input/task-tag-input';
 import {
   PRIORITIES,
   PRIORITY_LABELS,
+  REPEAT_OPTIONS,
   reminderJustPassed,
   reminderOptions,
+  repeatHint,
   STATUS_LABELS,
   STATUSES,
+  WEEKDAYS,
+  weekdayOf,
 } from '../tasks.logic';
 import {
   Priority,
   Reminder,
+  RepeatFrequency,
   ReplaceTaskRequest,
   Task,
   TaskFieldName,
   TaskProblem,
+  TaskResult,
   TaskStatus,
+  Weekday,
 } from '../tasks.models';
 import { TasksService } from '../tasks.service';
 
 type ShownField = Extract<
   TaskFieldName,
-  'title' | 'description' | 'status' | 'tags' | 'dueTime' | 'reminder'
+  'title' | 'description' | 'status' | 'tags' | 'dueTime' | 'reminder' | 'repeat'
 >;
+
+export const WEEKDAY_REQUIRED = 'Pick at least one weekday';
+export const REPEAT_NEEDS_DATE = 'Set a due date to repeat';
 
 export const REMINDER_PASSED_NOTE = 'This reminder time has passed';
 
@@ -77,7 +87,7 @@ export class TaskEditDialog implements OnInit {
   /** List whose tags are suggested (the open list); null leaves `list` out ("My tasks"). */
   readonly tagsListId = input<number | null>(null);
 
-  readonly saved = output<Task>();
+  readonly saved = output<TaskResult>();
   readonly closed = output<void>();
   readonly notFound = output<void>();
 
@@ -85,6 +95,9 @@ export class TaskEditDialog implements OnInit {
     value,
     label: PRIORITY_LABELS[value],
   }));
+  protected readonly repeatOptions = REPEAT_OPTIONS;
+  protected readonly weekdays = WEEKDAYS;
+  protected readonly repeatNeedsDate = REPEAT_NEEDS_DATE;
   protected readonly statuses = STATUSES.map((value) => ({ value, label: STATUS_LABELS[value] }));
 
   protected readonly form = inject(NonNullableFormBuilder).group({
@@ -95,6 +108,8 @@ export class TaskEditDialog implements OnInit {
     dueDate: [''],
     dueTime: [''],
     reminder: ['NONE' as Reminder | 'NONE'],
+    repeat: ['NEVER' as RepeatFrequency | 'NEVER'],
+    repeatDays: [[] as Weekday[]],
     tags: [[] as string[]],
   });
 
@@ -115,6 +130,21 @@ export class TaskEditDialog implements OnInit {
   /** A save went through and the dialog was kept open to show the passed-reminder note. */
   protected readonly reminderPassedNote = REMINDER_PASSED_NOTE;
   protected readonly savedPassed = signal(false);
+
+  /** Mirrors of the repeat controls, for the hint and the weekday error. */
+  protected readonly repeatFrequency = signal<RepeatFrequency | 'NEVER'>('NEVER');
+  protected readonly repeatDays = signal<readonly Weekday[]>([]);
+  protected readonly dueDateValue = signal('');
+  protected readonly hasDateValue = this.hasDate.asReadonly();
+  protected readonly repeatHintText = computed(() =>
+    repeatHint(this.repeatFrequency(), this.dueDateValue()),
+  );
+  /** Weekly with no weekday picked: Save is blocked and this is shown. */
+  protected readonly weekdayError = computed(() =>
+    this.submitted() && this.repeatFrequency() === 'WEEKLY' && this.repeatDays().length === 0
+      ? WEEKDAY_REQUIRED
+      : null,
+  );
 
   /** "List" select: my lists; the task moves when another one is picked. */
   protected readonly listOptions = this.lists.lists;
@@ -147,9 +177,14 @@ export class TaskEditDialog implements OnInit {
       dueDate: t.dueDate ?? '',
       dueTime: t.dueTime ?? '',
       reminder: t.myReminder ?? 'NONE',
+      repeat: t.repeat?.frequency ?? 'NEVER',
+      repeatDays: t.repeat ? [...t.repeat.weekdays] : [],
       tags: [...t.tags],
     });
     this.hasDate.set(!!t.dueDate);
+    this.dueDateValue.set(t.dueDate ?? '');
+    this.repeatFrequency.set(t.repeat?.frequency ?? 'NEVER');
+    this.repeatDays.set(t.repeat ? [...t.repeat.weekdays] : []);
     this.hasTime.set(!!t.dueTime);
     this.reminderPassed.set(t.myReminder !== null && t.myReminderPassed);
     this.syncDateDependent();
@@ -177,16 +212,52 @@ export class TaskEditDialog implements OnInit {
     this.listError.set(null);
   }
 
+  protected isDaySelected(day: Weekday): boolean {
+    return this.repeatDays().includes(day);
+  }
+
+  protected toggleDay(day: Weekday): void {
+    const next = this.isDaySelected(day)
+      ? this.repeatDays().filter((d) => d !== day)
+      : [...this.repeatDays(), day];
+    this.repeatDays.set(next);
+    const { repeat, repeatDays } = this.form.controls;
+    repeatDays.setValue(next as Weekday[]);
+    // A server error on `repeat` goes away once the user changes the rule.
+    repeat.setErrors(null);
+  }
+
+  /** Server message for the Repeat select (400 on `repeat`), or null. */
+  protected repeatError(): string | null {
+    const control = this.form.controls.repeat;
+    return control.touched || this.submitted() ? taskFieldMessage('repeat', control) : null;
+  }
+
   protected clearDueDate(): void {
     this.form.controls.dueDate.setValue('');
   }
 
   /** Time and reminder follow the date: no date, no time and no reminder. */
   private watchDateTime(): void {
-    const { dueDate, dueTime, reminder } = this.form.controls;
+    const { dueDate, dueTime, reminder, repeat, repeatDays } = this.form.controls;
+    const repeatSub = repeat.valueChanges.subscribe((value) => {
+      this.repeatFrequency.set(value);
+      if (value === 'WEEKLY' && repeatDays.value.length === 0) {
+        // Preselect the due date's weekday.
+        const day = weekdayOf(dueDate.value);
+        if (day) {
+          repeatDays.setValue([day]);
+          this.repeatDays.set([day]);
+        }
+      }
+    });
     const sub = dueDate.valueChanges.subscribe((value) => {
       this.hasDate.set(!!value);
+      this.dueDateValue.set(value);
       if (!value) {
+        repeat.setValue('NEVER');
+        repeatDays.setValue([]);
+        this.repeatDays.set([]);
         dueTime.setValue('', { emitEvent: false });
         this.hasTime.set(false);
         reminder.setValue('NONE', { emitEvent: false });
@@ -200,6 +271,7 @@ export class TaskEditDialog implements OnInit {
     const reminderSub = reminder.valueChanges.subscribe(() => this.reminderPassed.set(false));
     this.destroyRef.onDestroy(() => {
       sub.unsubscribe();
+      repeatSub.unsubscribe();
       timeSub.unsubscribe();
       reminderSub.unsubscribe();
     });
@@ -217,13 +289,15 @@ export class TaskEditDialog implements OnInit {
 
   /** Time and reminder are disabled without a due date (not while a save runs: all are). */
   private syncDateDependent(): void {
-    const { dueTime, reminder } = this.form.controls;
+    const { dueTime, reminder, repeat } = this.form.controls;
     if (this.hasDate() && !this.pending()) {
       dueTime.enable({ emitEvent: false });
       reminder.enable({ emitEvent: false });
+      repeat.enable({ emitEvent: false });
     } else {
       dueTime.disable({ emitEvent: false });
       reminder.disable({ emitEvent: false });
+      repeat.disable({ emitEvent: false });
     }
   }
 
@@ -246,11 +320,13 @@ export class TaskEditDialog implements OnInit {
     this.submitted.set(true);
     // Text still typed in the Tags field counts as a tag.
     const tagsOk = this.tagInput().commitPending();
-    if (this.form.invalid || !tagsOk) {
+    const weekdayMissing =
+      this.repeatFrequency() === 'WEEKLY' && this.hasDate() && this.repeatDays().length === 0;
+    if (this.form.invalid || !tagsOk || weekdayMissing) {
       this.form.markAllAsTouched();
       return;
     }
-    const { title, description, priority, status, dueDate, dueTime, reminder, tags } =
+    const { title, description, priority, status, dueDate, dueTime, reminder, repeat, tags } =
       this.form.getRawValue();
     const request: ReplaceTaskRequest = {
       title: title.trim(),
@@ -265,6 +341,16 @@ export class TaskEditDialog implements OnInit {
     // Missing leaves my reminder as it is, so it is sent only when I changed it.
     if (dueDate && reminder !== (this.task().myReminder ?? 'NONE')) {
       request.reminder = reminder;
+    }
+    // Always send the current rule with the date (re-sending it keeps its anchor). Without a
+    // date the server clears the rule itself.
+    if (dueDate) {
+      if (repeat !== 'NEVER') {
+        const days = WEEKDAYS.map((d) => d.value).filter((d) => this.repeatDays().includes(d));
+        request.repeat = { frequency: repeat, weekdays: repeat === 'WEEKLY' ? days : [] };
+      } else if (this.task().repeat !== null) {
+        request.repeat = 'NEVER';
+      }
     }
     // listId only when another list was picked (a move).
     const target = this.targetListId();
@@ -320,6 +406,7 @@ export class TaskEditDialog implements OnInit {
           return;
         }
         const controls = { ...this.form.controls, done: this.form.controls.status };
+        // `repeat` errors show under the Repeat select.
         if (problem && applyTaskFieldErrors(problem, controls)) {
           return;
         }

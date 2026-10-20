@@ -125,6 +125,12 @@
         <p class="notice notice--info" role="status" data-testid="task-added">{{ addedMessage }}</p>
       }
 
+      @if (nextNotice(); as note) {
+        <p class="notice notice--info" role="status" data-testid="task-next-scheduled">
+          {{ note }}
+        </p>
+      }
+
       @if (loading()) {
         <p class="tasks-status" role="status">
           <span class="spinner" aria-hidden="true"></span>

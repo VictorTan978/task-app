@@ -125,6 +125,52 @@
     }
 
     <div class="field">
+      <label for="task-edit-repeat">Repeat</label>
+      <select
+        id="task-edit-repeat"
+        formControlName="repeat"
+        data-testid="repeat-select"
+        [attr.aria-invalid]="repeatError() ? true : null"
+        [attr.aria-describedby]="'task-edit-repeat-note'"
+      >
+        @for (o of repeatOptions; track o.value) {
+          <option [value]="o.value">{{ o.label }}</option>
+        }
+      </select>
+      @if (repeatFrequency() === 'WEEKLY') {
+        <div class="weekdays" role="group" aria-label="Repeat on" data-testid="repeat-weekdays">
+          @for (d of weekdays; track d.value) {
+            <button
+              type="button"
+              class="weekdays__chip"
+              [attr.aria-pressed]="isDaySelected(d.value)"
+              [disabled]="pending()"
+              [attr.data-testid]="'repeat-day-' + d.value"
+              (click)="toggleDay(d.value)"
+            >
+              {{ d.label }}
+            </button>
+          }
+        </div>
+      }
+      @if (repeatError(); as message) {
+        <p class="field-error" id="task-edit-repeat-error" data-testid="repeat-error">
+          {{ message }}
+        </p>
+      }
+      @if (weekdayError(); as message) {
+        <p class="field-error" role="alert" data-testid="repeat-weekday-error">{{ message }}</p>
+      }
+      <p class="field-hint" id="task-edit-repeat-note" data-testid="repeat-hint">
+        @if (!hasDateValue()) {
+          {{ repeatNeedsDate }}
+        } @else {
+          {{ repeatHintText() }}
+        }
+      </p>
+    </div>
+
+    <div class="field">
       <label for="task-edit-tags">Tags</label>
       <app-task-tag-input
         inputId="task-edit-tags"

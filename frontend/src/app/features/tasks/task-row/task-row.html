@@ -42,6 +42,16 @@
               >&#128276;</span
             >
           }
+          @if (task().repeat; as rule) {
+            <span
+              class="task-row__repeat"
+              [attr.title]="repeatText(rule)"
+              [attr.aria-label]="repeatText(rule)"
+              role="img"
+              data-testid="task-repeat"
+              >&#128257;</span
+            >
+          }
           @if (overdue()) {
             <span class="task-row__overdue">Overdue</span>
           }

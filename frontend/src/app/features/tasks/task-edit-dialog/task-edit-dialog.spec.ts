@@ -19,6 +19,7 @@ const TASK: Task = {
   dueTime: null,
   myReminder: null,
   myReminderPassed: false,
+  repeat: null,
   createdAt: '2026-10-08T09:00:00Z',
   updatedAt: '2026-10-08T09:00:00Z',
 };
@@ -286,6 +287,7 @@ describe('TaskEditDialog due time and reminder', () => {
     dueTime: '09:30',
     myReminder: 'ONE_HOUR',
     myReminderPassed: false,
+    repeat: null,
   };
 
   it('disables time and reminder without a due date', async () => {

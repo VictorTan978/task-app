@@ -18,6 +18,7 @@ const BASE: Task = {
   dueTime: null,
   myReminder: null,
   myReminderPassed: false,
+  repeat: null,
   createdAt: '2026-10-08T09:00:00Z',
   updatedAt: '2026-10-08T09:00:00Z',
 };
@@ -259,5 +260,20 @@ describe('TaskRow due time and reminder', () => {
     host.time.set('09:31');
     await fixture.whenStable();
     expect(el.querySelector('.task-row__overdue')).not.toBeNull();
+  });
+
+  it('shows a repeat icon only for repeating tasks, naming the weekdays', async () => {
+    host.task.set({ ...BASE, dueDate: '2026-10-21' });
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid=task-repeat]')).toBeNull();
+    host.task.set({
+      ...BASE,
+      dueDate: '2026-10-21',
+      repeat: { frequency: 'WEEKLY', weekdays: ['MON', 'WED'] },
+    });
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid=task-repeat]')?.getAttribute('aria-label')).toBe(
+      'Repeats weekly (Mon, Wed)',
+    );
   });
 });

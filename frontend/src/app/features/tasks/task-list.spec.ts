@@ -30,6 +30,7 @@ function task(id: number, overrides: Partial<Task> = {}): Task {
     dueTime: null,
     myReminder: null,
     myReminderPassed: false,
+    repeat: null,
     createdAt: at(id),
     updatedAt: at(id),
     ...overrides,

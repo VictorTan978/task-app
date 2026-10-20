@@ -1,7 +1,7 @@
 import { Component, computed, effect, ElementRef, input, output, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { formatDue, isDone, isOverdue, PRIORITY_LABELS } from '../tasks.logic';
-import { Task } from '../tasks.models';
+import { formatDue, isDone, isOverdue, PRIORITY_LABELS, repeatSummary } from '../tasks.logic';
+import { RepeatRule, Task } from '../tasks.models';
 
 @Component({
   selector: 'app-task-row',
@@ -68,6 +68,10 @@ export class TaskRow {
         this.checkbox().nativeElement.checked = done;
       }
     });
+  }
+
+  protected repeatText(rule: RepeatRule): string {
+    return repeatSummary(rule);
   }
 
   protected onToggle(event: Event): void {
