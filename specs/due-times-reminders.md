@@ -1,6 +1,6 @@
 # Feature: Due times, reminders, notifications, recurring tasks (T4)
 
-**Status:** APPROVED 2026-10-20. **T4a DONE** 2026-10-20 (AC1–AC26 PASS, merged to `main`). **T4b DONE** 2026-10-20 on `feature/t4-recurring` (not merged; AC27–AC33 PASS). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/account-settings.md` (all DONE, on `main`).
+**Status:** APPROVED 2026-10-20. **T4a DONE** 2026-10-20 (AC1–AC26 PASS, merged to `main`). **T4b DONE** 2026-10-20 (AC27–AC33 PASS, merged to `main` as `58f71d9`). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/account-settings.md` (all DONE, on `main`).
 
 **Approving this spec does not approve the gates.** Migration V12 (and V13), the email-sending scheduler, and any new dependency each get their own approval question at build time.
 
