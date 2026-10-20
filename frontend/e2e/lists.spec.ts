@@ -724,7 +724,7 @@ test.describe('T3a Switching lists (AC5-AC7)', () => {
     await page.locator('#task-search').press('Enter');
     await page.goto(`/lists/${home.id}?tag=Errands&sort=title`);
     await settled(page);
-    expect(await titles(page)).toEqual(['Home milk', 'Home done milk']);
+    await expect.poll(() => titles(page)).toEqual(['Home milk', 'Home done milk']);
     await expect(page.locator('#task-sort')).toHaveValue('title');
     for (const r of gets) {
       const u = new URL(r.url());
@@ -732,7 +732,7 @@ test.describe('T3a Switching lists (AC5-AC7)', () => {
     }
     await page.goto(`/lists/${home.id}?filter=active&tag=Errands&q=milk&sort=title`);
     await settled(page);
-    expect(await titles(page)).toEqual(['Home milk']);
+    await expect.poll(() => titles(page)).toEqual(['Home milk']);
     await shot(page, 'ac6-home-filtered');
 
     // switching lists: everything reset, first page, Work only
