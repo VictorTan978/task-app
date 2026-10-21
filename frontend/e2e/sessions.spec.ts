@@ -482,6 +482,7 @@ test.describe('default limits', () => {
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.locator('#account-logout-others').click();
+    await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(calls).toBe(0);
