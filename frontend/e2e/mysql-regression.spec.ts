@@ -36,6 +36,47 @@ async function api(page: Page, method: string, path: string, data?: unknown) {
   return page.request.fetch(path, { method, data, headers: { 'X-XSRF-TOKEN': await xsrf(page) } });
 }
 
+// Capture a request's JSON response in Node (route.fetch) instead of asking Chromium for the body
+// afterwards; CDP sometimes drops response bodies. Register before the click that triggers it.
+interface Captured {
+  status: number;
+  body: { id: number; createdAt: string; updatedAt: string; dueDate: string | null };
+}
+// Returns { result } (not the bare promise) so awaiting the registration does not wait for the response.
+async function captureJson(
+  page: Page,
+  method: string,
+  match: (url: URL) => boolean,
+): Promise<{ result: Promise<Captured> }> {
+  let resolve!: (v: Captured) => void;
+  let reject!: (e: unknown) => void;
+  const captured = new Promise<Captured>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  const handler = async (route: import('@playwright/test').Route) => {
+    const req = route.request();
+    if (req.method() !== method || !match(new URL(req.url()))) {
+      await route.fallback();
+      return;
+    }
+    try {
+      const resp = await route.fetch();
+      const body = (await resp.json()) as Captured['body'];
+      await route.fulfill({ response: resp });
+      resolve({ status: resp.status(), body });
+    } catch (e) {
+      // The request may already be sent: never fallback/continue (it would be sent twice).
+      reject(e);
+      await route.abort().catch(() => undefined);
+    } finally {
+      void page.unroute('**/api/**', handler).catch(() => undefined);
+    }
+  };
+  await page.route('**/api/**', handler);
+  return { result: captured };
+}
+
 async function registerUi(page: Page, name: string, email: string) {
   await page.goto('/register');
   await page.locator('#register-display-name').fill(name);
@@ -56,13 +97,10 @@ for (const tz of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
       await expect(page).toHaveURL(/\/tasks$/);
 
       // Create through the UI and capture the POST response
-      // read the body as soon as the response arrives; the page may re-render before a later read
-      const postResp = page
-        .waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/tasks'))
-        .then((r) => r.json());
+      const postResp = await captureJson(page, 'POST', (u) => u.pathname === '/api/tasks');
       await page.getByLabel('New task').fill(title);
       await page.getByRole('button', { name: 'Add', exact: true }).click();
-      const created = await postResp;
+      const created = (await postResp.result).body;
       expect(created.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
       expect(created.createdAt).toBe(created.updatedAt);
       const skewMs = Math.abs(Date.parse(created.createdAt) - Date.now());
@@ -76,9 +114,9 @@ for (const tz of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
       await row.getByRole('button', { name: 'Edit' }).click();
       const dlg = page.getByRole('dialog', { name: 'Edit task' });
       await dlg.getByLabel('Due date').fill('2031-01-01');
-      const putResp = page.waitForResponse((r) => r.request().method() === 'PUT').then((r) => r.json());
+      const putResp = await captureJson(page, 'PUT', (u) => /^\/api\/tasks\/\d+$/.test(u.pathname));
       await dlg.getByRole('button', { name: 'Save' }).click();
-      const saved = await putResp;
+      const saved = (await putResp.result).body;
       await expect(dlg).toHaveCount(0);
       expect(saved.dueDate).toBe('2031-01-01');
       expect(saved.createdAt).toBe(created.createdAt);
