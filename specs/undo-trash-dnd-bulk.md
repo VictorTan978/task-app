@@ -1,6 +1,6 @@
 # Feature: Undo, trash, bulk actions, drag and drop (T5)
 
-**Status:** APPROVED 2026-10-21. T5a in progress on `feature/t5a-trash-undo`. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
+**Status:** APPROVED 2026-10-21. **T5a DONE** 2026-10-21 (AC1–AC17 PASS, on `feature/t5a-trash-undo`, not merged yet). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
 
 **Approving this spec does not approve the gates.** Each migration (V14, V15), the change to `DELETE /api/tasks/{id}`, and any new dependency (`@angular/cdk`) gets its own approval question at build time.
 
@@ -23,14 +23,14 @@ As a signed-in user, I want to undo mistakes, get deleted tasks back, change man
 ## Part A — T5a: Trash + undo
 
 ### Trash (soft delete, Q2)
-- [ ] AC1: Given a task in one of my lists, when I delete it (the row's delete action, after the existing confirm dialog), then it disappears from the list, from search results, from `total` and from the tag filter. It appears in the Trash and an "Undo" toast is shown (AC9). For T5a the confirm dialog stays. Q6 asks whether to remove it now that undo exists.
-- [ ] AC2: Given the sidebar, then a "Trash" entry opens `/trash`. It lists the trashed tasks of **every list I am a member of**, newest-deleted first. Each row shows the title, the list name, who deleted it and when ("Deleted by Ana · 2 days ago"), and how many days are left before it is purged. A list filter narrows it to one list. Paging works like the task list: 50 per page and "Load more" (Q3).
-- [ ] AC3: Given a trashed task, when I click "Restore", then it goes back to its original list exactly as it was: same tags, priority, status, due date and time, repeat rule, `addedBy` and `createdAt`. My own reminder is active again if its fire time is still in the future, the same as reopening a task. It leaves the Trash.
-- [ ] AC4: Given a trashed task, when I click "Delete forever" and confirm, then it is permanently deleted. Tags that no task in its list uses any more are deleted. "Empty trash" (with a confirm dialog naming the count) does this for every trashed task I can see, or only for the filtered list when the filter is set.
-- [ ] AC5: Given a task that has been in the trash for 30 days, then it is permanently deleted automatically, with the same tag cleanup. It happens within an hour of the 30 days passing, using the existing scheduler (no new dependency) (Q4).
-- [ ] AC6: Shared lists: given a shared list, then every member sees the same trashed tasks of that list, and **any member** can restore them, delete them forever or empty them. This matches "any member can delete any task" (Q3).
-- [ ] AC7: Lost access: if I leave a list or am removed from it, its trashed tasks disappear from my Trash, and any action on them gives 404. If a list is deleted, its trashed tasks are deleted with it (no trash for lists). If an account is deleted, its trashed tasks in other people's lists stay, shown as "Deleted by a deleted user".
-- [ ] AC8: While trashed, a task:
+- [x] AC1: Given a task in one of my lists, when I delete it (the row's delete action, after the existing confirm dialog), then it disappears from the list, from search results, from `total` and from the tag filter. It appears in the Trash and an "Undo" toast is shown (AC9). For T5a the confirm dialog stays. Q6 asks whether to remove it now that undo exists.
+- [x] AC2: Given the sidebar, then a "Trash" entry opens `/trash`. It lists the trashed tasks of **every list I am a member of**, newest-deleted first. Each row shows the title, the list name, who deleted it and when ("Deleted by Ana · 2 days ago"), and how many days are left before it is purged. A list filter narrows it to one list. Paging works like the task list: 50 per page and "Load more" (Q3).
+- [x] AC3: Given a trashed task, when I click "Restore", then it goes back to its original list exactly as it was: same tags, priority, status, due date and time, repeat rule, `addedBy` and `createdAt`. My own reminder is active again if its fire time is still in the future, the same as reopening a task. It leaves the Trash.
+- [x] AC4: Given a trashed task, when I click "Delete forever" and confirm, then it is permanently deleted. Tags that no task in its list uses any more are deleted. "Empty trash" (with a confirm dialog naming the count) does this for every trashed task I can see, or only for the filtered list when the filter is set.
+- [x] AC5: Given a task that has been in the trash for 30 days, then it is permanently deleted automatically, with the same tag cleanup. It happens within an hour of the 30 days passing, using the existing scheduler (no new dependency) (Q4).
+- [x] AC6: Shared lists: given a shared list, then every member sees the same trashed tasks of that list, and **any member** can restore them, delete them forever or empty them. This matches "any member can delete any task" (Q3).
+- [x] AC7: Lost access: if I leave a list or am removed from it, its trashed tasks disappear from my Trash, and any action on them gives 404. If a list is deleted, its trashed tasks are deleted with it (no trash for lists). If an account is deleted, its trashed tasks in other people's lists stay, shown as "Deleted by a deleted user".
+- [x] AC8: While trashed, a task:
   - fires no reminder for anyone (AC3 covers what happens on restore);
   - creates no repeat copy;
   - can't be opened, edited, ticked or moved: `GET`/`PUT /api/tasks/{id}` give 404 `NOT_FOUND`, the same as a deleted task today;
@@ -38,21 +38,21 @@ As a signed-in user, I want to undo mistakes, get deleted tasks back, change man
   - keeps its notifications in the bell. Clicking one shows "This task is in the trash" with a "Restore" button instead of opening it.
 
 ### Undo (Q5)
-- [ ] AC9: Given I just did one of these actions, then a toast appears at the bottom for **8 seconds** with a short message and an "Undo" button:
+- [x] AC9: Given I just did one of these actions, then a toast appears at the bottom for **8 seconds** with a short message and an "Undo" button:
   - delete ("Task moved to trash");
   - tick or untick ("Task completed" / "Task reopened");
   - move to another list ("Moved to Work");
   - save in the edit dialog ("Task updated").
 
   Clicking "Undo" puts the task back the way it was before that action, and the toast says "Undone". Only the latest action can be undone: a new action replaces the toast. The toast closes when I go to another page, and nothing can be undone after a reload. It is announced to screen readers (`aria-live="polite"`), stays open while hovered or focused, and has a close button.
-- [ ] AC10: Undo of a delete is the same as Restore (AC3).
-- [ ] AC11: Undo of completing a **repeating** task reopens it, puts the repeat rule back on it and **permanently deletes the copy** that the completion created. The copy is deleted only if no one has changed it since. If someone has, the original is reopened without the rule, the copy is kept, and the toast says "Undone: the next copy was already changed, so it was kept" (Q7).
-- [ ] AC12: Undo of a move moves the task back to its old list with its old tag names. Tags are created in the old list again if they were cleaned up, following the existing move rules. If I am no longer a member of the old list, the undo fails (AC14).
-- [ ] AC13: Shared lists: undo is last-write-wins, like all edits. If a teammate changed the task after my action, my undo overwrites only the fields my action changed. For an edit, that means the fields I changed in the dialog (Q8).
-- [ ] AC14: Error case: if the undo can't be applied, the toast says "Couldn't undo: the task was deleted / you no longer have access", with no retry, and the list reloads. "The task was deleted" means permanently deleted, or trashed by someone else when the undo is not a delete undo. The API answers 404, never 500.
+- [x] AC10: Undo of a delete is the same as Restore (AC3).
+- [x] AC11: Undo of completing a **repeating** task reopens it, puts the repeat rule back on it and **permanently deletes the copy** that the completion created. The copy is deleted only if no one has changed it since. If someone has, the original is reopened without the rule, the copy is kept, and the toast says "Undone: the next copy was already changed, so it was kept" (Q7).
+- [x] AC12: Undo of a move moves the task back to its old list with its old tag names. Tags are created in the old list again if they were cleaned up, following the existing move rules. If I am no longer a member of the old list, the undo fails (AC14).
+- [x] AC13: Shared lists: undo is last-write-wins, like all edits. If a teammate changed the task after my action, my undo overwrites only the fields my action changed. For an edit, that means the fields I changed in the dialog (Q8).
+- [x] AC14: Error case: if the undo can't be applied, the toast says "Couldn't undo: the task was deleted / you no longer have access", with no retry, and the list reloads. "The task was deleted" means permanently deleted, or trashed by someone else when the undo is not a delete undo. The API answers 404, never 500.
 
 ### Contract, compatibility, states
-- [ ] AC15: Contract 0.16.0:
+- [x] AC15: Contract 0.16.0:
   - `DELETE /api/tasks/{id}` now **moves the task to the trash** (still 204; 404 if it is not in one of my lists or is already trashed).
   - New endpoints:
     - `GET /api/trash` (`list`, `cursor`), returning `TrashPage { items, nextCursor, total }`. Each item is a `Task` plus `deletedAt`, `deletedBy`, `purgeAt`.
@@ -61,8 +61,8 @@ As a signed-in user, I want to undo mistakes, get deleted tasks back, change man
     - `POST /api/trash/empty` (`list` optional) returns 200 with `{ deleted: n }`.
   - Undo for tick, move and edit uses `PATCH /api/tasks/{id}` with only the fields the action changed (see the Decisions log). Undo of a repeating completion uses a new `POST /api/tasks/{id}/undo-complete` with `{ nextTaskId }`, which implements AC11 atomically.
   - All of these keep CSRF, sign-in and the 404-never-403 rule.
-- [ ] AC16: Given the Trash page, then it has a loading state, an empty state ("Trash is empty. Deleted tasks stay here for 30 days."), and an error state with "Retry". Restoring the last task shows the empty state.
-- [ ] AC17: No regressions: every existing e2e test passes. The delete test now expects the task in the Trash.
+- [x] AC16: Given the Trash page, then it has a loading state, an empty state ("Trash is empty. Deleted tasks stay here for 30 days."), and an error state with "Retry". Restoring the last task shows the empty state.
+- [x] AC17: No regressions: every existing e2e test passes. The delete test now expects the task in the Trash.
 
 ---
 
@@ -163,3 +163,4 @@ _Filled in by the PM during the build._
 | 2026-10-21 | Single `NOT_FOUND` for failed undo; UI shows "Couldn't undo: the task was deleted or you no longer have access" | No new error codes | PM |
 | 2026-10-21 | `Notification.taskTrashed` (required boolean); `taskId`/`listId` kept while trashed | AC8 | PM |
 | 2026-10-21 | Edit + move in one save toasts "Moved to <list>"; toast closes on path change only (not query changes); Trash page has "Back to tasks" | Frontend plan | PM |
+| 2026-10-21 | T5a verified: AC1–AC17 PASS; AC5 purge via backend `TrashIntegrationTest` (30 days can't be waited in e2e) | tester report; e2e 414 passed / 22 skipped / 436 | tester |
