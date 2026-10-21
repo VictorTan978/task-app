@@ -156,3 +156,10 @@ _Filled in by the PM during the build._
 | 2026-10-21 | Q9: bulk = loaded tasks only, max 200, one list at a time, all-or-nothing | Predictable; the user sees what changes | User |
 | 2026-10-21 | Q10/Q11: shared "My order" per list, `@angular/cdk` drag-drop (dependency still gated, lazy-loaded) | Touch, keyboard and auto-scroll support; one position column | User |
 | 2026-10-21 | Spec approved | All open questions settled | User |
+| 2026-10-21 | Gate: migration V14 `V14__tasks_trash.sql` (`deleted_at`, `deleted_by` FK SET NULL, 3 indexes) approved | Minimal schema for soft delete; additive | User |
+| 2026-10-21 | Gate: `DELETE /api/tasks/{id}` now moves to trash; permanent delete is `DELETE /api/trash/{id}` | Existing UI delete gets trash + undo | User |
+| 2026-10-21 | Contract 0.16.0 round 1: `PATCH /api/tasks/{id}` takes any subset of task fields (PUT's null rules: null clears only description/dueDate/dueTime); undo of tick/move/edit uses PATCH with only the changed fields | AC13: PUT is a full replace and would revert teammates' edits | PM |
+| 2026-10-21 | `undo-complete {nextTaskId, status?}` returns `nextTaskOutcome` DELETED/KEPT/GONE; "untouched" = same list, not trashed, has rule, TODO, `updatedAt == createdAt`; server restores the rule | AC11 atomically, never deletes an edited copy | PM |
+| 2026-10-21 | Single `NOT_FOUND` for failed undo; UI shows "Couldn't undo: the task was deleted or you no longer have access" | No new error codes | PM |
+| 2026-10-21 | `Notification.taskTrashed` (required boolean); `taskId`/`listId` kept while trashed | AC8 | PM |
+| 2026-10-21 | Edit + move in one save toasts "Moved to <list>"; toast closes on path change only (not query changes); Trash page has "Back to tasks" | Frontend plan | PM |
