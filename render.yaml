@@ -61,7 +61,7 @@ services:
       # REPLACE the destination with your real backend URL (shown in the Render dashboard).
       - type: rewrite
         source: /api/*
-        destination: https://taskapp-backend.onrender.com/api/*
+        destination: https://taskapp-backend-erp4.onrender.com/api/*
       # Angular router: every other path serves index.html.
       - type: rewrite
         source: /*
