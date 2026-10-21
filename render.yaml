@@ -6,6 +6,8 @@ services:
     name: taskapp-backend
     runtime: docker
     plan: free
+    # Same region as the Aiven MySQL service (Singapore) so database calls stay short.
+    region: singapore
     rootDir: backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
