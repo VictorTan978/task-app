@@ -448,12 +448,15 @@ test.describe('email auth (default run)', () => {
     await a.page.goto('/tasks');
     await a.page.locator('#resend-verification').click();
     await expect(a.page.getByTestId('resend-status')).toHaveText(EMAIL_SENT);
-    const r4 = a.page.waitForResponse((r) => r.url().endsWith('/api/account/resend-verification'));
+    // read the body as soon as the response arrives; the page may re-render before a later read
+    const r4 = a.page
+      .waitForResponse((r) => r.url().endsWith('/api/account/resend-verification'))
+      .then(async (r) => ({ status: r.status(), headers: r.headers(), body: await r.json() }));
     await a.page.locator('#resend-verification').click();
     const resp4 = await r4;
-    expect(resp4.status()).toBe(429);
-    expect(resp4.headers()['retry-after']).toMatch(/^\d+$/);
-    expect((await resp4.json()).code).toBe('RATE_LIMITED');
+    expect(resp4.status).toBe(429);
+    expect(resp4.headers['retry-after']).toMatch(/^\d+$/);
+    expect(resp4.body.code).toBe('RATE_LIMITED');
     await expect(a.page.getByTestId('verify-email-banner').getByRole('alert')).toHaveText(TOO_MANY_EMAILS);
     await expect(a.page.getByTestId('resend-status')).toHaveText('');
     await shot(a.page, 'ac5-too-many-emails');
@@ -470,11 +473,13 @@ test.describe('email auth (default run)', () => {
 
     // A still shows the banner (no refresh). Resend → 409 ALREADY_VERIFIED (409 beats 429) → banner disappears
     await expect(a.page.getByTestId('verify-email-banner')).toBeVisible();
-    const r5 = a.page.waitForResponse((r) => r.url().endsWith('/api/account/resend-verification'));
+    const r5 = a.page
+      .waitForResponse((r) => r.url().endsWith('/api/account/resend-verification'))
+      .then(async (r) => ({ status: r.status(), body: await r.json() }));
     await a.page.locator('#resend-verification').click();
     const resp5 = await r5;
-    expect(resp5.status()).toBe(409);
-    expect((await resp5.json()).code).toBe('ALREADY_VERIFIED');
+    expect(resp5.status).toBe(409);
+    expect(resp5.body.code).toBe('ALREADY_VERIFIED');
     await expect(a.page.getByTestId('verify-email-banner')).toHaveCount(0);
     await shot(a.page, 'ac5-409-banner-hidden');
 
@@ -1231,12 +1236,14 @@ test.describe('E2E_RATE_LIMIT=1: real per-IP forgot-password limit (fresh backen
       expect(r.status(), `request ${i + 1}`).toBe(202);
     }
     await a.page.locator('#forgot-email').fill(`qa-ea-rl-${uid()}@example.com`);
-    const r = a.page.waitForResponse((x) => x.url().endsWith('/api/auth/forgot-password'));
+    const r = a.page
+      .waitForResponse((x) => x.url().endsWith('/api/auth/forgot-password'))
+      .then(async (x) => ({ status: x.status(), headers: x.headers(), body: await x.json() }));
     await a.page.getByRole('button', { name: 'Send reset link' }).click();
     const resp = await r;
-    expect(resp.status()).toBe(429);
-    expect(resp.headers()['retry-after']).toMatch(/^\d+$/);
-    expect((await resp.json()).code).toBe('RATE_LIMITED');
+    expect(resp.status).toBe(429);
+    expect(resp.headers['retry-after']).toMatch(/^\d+$/);
+    expect(resp.body.code).toBe('RATE_LIMITED');
     await expect(a.page.getByRole('alert')).toHaveText(TOO_MANY_ATTEMPTS);
     await expect(a.page.getByTestId('reset-link-sent')).toHaveCount(0);
     await expect(a.page.getByRole('button', { name: 'Send reset link' })).toBeEnabled();

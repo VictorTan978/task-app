@@ -169,12 +169,15 @@ test.describe('AC5 rate-limit banner (real backend 429)', () => {
     }
     await page.screenshot({ path: `${SHOTS}/real-login-401-before-limit.png`, fullPage: true });
 
-    const res6 = page.waitForResponse('**/api/auth/login');
+    // read the body as soon as the response arrives; the page may re-render before a later read
+    const res6 = page
+      .waitForResponse('**/api/auth/login')
+      .then(async (r) => ({ status: r.status(), headers: r.headers(), body: await r.json() }));
     await button.click();
     const r6 = await res6;
-    expect(r6.status()).toBe(429);
-    expect(Number(r6.headers()['retry-after'])).toBeGreaterThanOrEqual(1);
-    expect((await r6.json()).code).toBe('RATE_LIMITED');
+    expect(r6.status).toBe(429);
+    expect(Number(r6.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+    expect(r6.body.code).toBe('RATE_LIMITED');
     await expectRateLimitedState(page, 'Sign in');
     await page.screenshot({ path: `${SHOTS}/real-login-429.png`, fullPage: true });
 
@@ -231,12 +234,14 @@ test.describe('AC5 rate-limit banner (real backend 429)', () => {
 
     // 6: valid new email in the UI -> 429 banner, the old field error is gone.
     await page.locator('#register-email').fill(`qa-rl-new-${RUN}@example.com`);
-    const r429 = page.waitForResponse('**/api/auth/register');
+    const r429 = page
+      .waitForResponse('**/api/auth/register')
+      .then(async (x) => ({ status: x.status(), headers: x.headers(), body: await x.json() }));
     await button.click();
     const r = await r429;
-    expect(r.status()).toBe(429);
-    expect(Number(r.headers()['retry-after'])).toBeGreaterThanOrEqual(1);
-    expect((await r.json()).code).toBe('RATE_LIMITED');
+    expect(r.status).toBe(429);
+    expect(Number(r.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+    expect(r.body.code).toBe('RATE_LIMITED');
     await expectRateLimitedState(page, 'Create account');
     await expect(page).toHaveURL(/\/register/);
     await page.screenshot({ path: `${SHOTS}/real-register-429.png`, fullPage: true });

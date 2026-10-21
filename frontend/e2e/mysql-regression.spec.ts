@@ -56,10 +56,13 @@ for (const tz of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
       await expect(page).toHaveURL(/\/tasks$/);
 
       // Create through the UI and capture the POST response
-      const postResp = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/tasks'));
+      // read the body as soon as the response arrives; the page may re-render before a later read
+      const postResp = page
+        .waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/tasks'))
+        .then((r) => r.json());
       await page.getByLabel('New task').fill(title);
       await page.getByRole('button', { name: 'Add', exact: true }).click();
-      const created = await (await postResp).json();
+      const created = await postResp;
       expect(created.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
       expect(created.createdAt).toBe(created.updatedAt);
       const skewMs = Math.abs(Date.parse(created.createdAt) - Date.now());
@@ -73,9 +76,9 @@ for (const tz of ['Pacific/Honolulu', 'Pacific/Kiritimati']) {
       await row.getByRole('button', { name: 'Edit' }).click();
       const dlg = page.getByRole('dialog', { name: 'Edit task' });
       await dlg.getByLabel('Due date').fill('2031-01-01');
-      const putResp = page.waitForResponse((r) => r.request().method() === 'PUT');
+      const putResp = page.waitForResponse((r) => r.request().method() === 'PUT').then((r) => r.json());
       await dlg.getByRole('button', { name: 'Save' }).click();
-      const saved = await (await putResp).json();
+      const saved = await putResp;
       await expect(dlg).toHaveCount(0);
       expect(saved.dueDate).toBe('2031-01-01');
       expect(saved.createdAt).toBe(created.createdAt);

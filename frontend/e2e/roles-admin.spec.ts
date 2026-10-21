@@ -986,11 +986,14 @@ test.describe('roles and admin users', () => {
     await search(a.page, t3.email);
     await startAction(a.page, t3.id, 'disable');
     setRole(a.email, 'USER');
-    const resp = a.page.waitForResponse((r) => r.url().includes(`/api/admin/users/${t3.id}/disable`));
+    // the 403 makes the app navigate to /tasks, which discards the body: read it as soon as the response arrives
+    const resp = a.page
+      .waitForResponse((r) => r.url().includes(`/api/admin/users/${t3.id}/disable`))
+      .then(async (r) => ({ status: r.status(), body: (await r.json()) as { code: string } }));
     await a.page.getByTestId('admin-action-confirm').click();
     const r = await resp;
-    expect(r.status()).toBe(403);
-    expect(((await r.json()) as { code: string }).code).toBe('FORBIDDEN');
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('FORBIDDEN');
     await expect(a.page).toHaveURL(/\/tasks$/);
     await expect(a.page.getByTestId('admin-link')).toHaveCount(0);
     expect(count(`SELECT COUNT(*) FROM users WHERE id = ${t3.id} AND disabled_at IS NULL`)).toBe(1);
