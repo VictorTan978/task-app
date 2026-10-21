@@ -1,9 +1,21 @@
-import { Component, computed, effect, ElementRef, input, output, viewChild } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  ElementRef,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { formatDue, isDone, isOverdue, PRIORITY_LABELS, repeatSummary } from '../tasks.logic';
 import { RepeatRule, Task } from '../tasks.models';
 
-/** A tick of the selection checkbox; `shift` extends the selection from the last one. */
+/**
+ * A click on the selection checkbox. `checked` is the state a plain click asks for (the
+ * opposite of the model); with `shift` (and an anchor) the page selects the whole range.
+ */
 export interface RowSelect {
   checked: boolean;
   shift: boolean;
@@ -68,6 +80,9 @@ export class TaskRow {
   });
 
   private readonly checkbox = viewChild<ElementRef<HTMLInputElement>>('checkbox');
+  private readonly selectBox = viewChild<ElementRef<HTMLInputElement>>('selectBox');
+  /** Bumped by every selection click so the checkbox is re-synced even if `selected` is unchanged. */
+  private readonly selectClicks = signal(0);
 
   constructor() {
     // The list only changes once the server confirms. When no request is running, keep the
@@ -81,6 +96,16 @@ export class TaskRow {
         }
       }
     });
+    // The selection checkbox always shows the model: a native toggle the page did not honour
+    // (e.g. Shift+click on a selected row) is undone here.
+    effect(() => {
+      const selected = this.selected();
+      this.selectClicks();
+      const box = this.selectBox();
+      if (box) {
+        box.nativeElement.checked = selected;
+      }
+    });
   }
 
   protected repeatText(rule: RepeatRule): string {
@@ -92,16 +117,19 @@ export class TaskRow {
   }
 
   protected onSelect(event: Event): void {
+    // The page decides from the model, not from the native toggle (which may have drifted).
     this.selectChange.emit({
-      checked: (event.target as HTMLInputElement).checked,
+      checked: !this.selected(),
       shift: (event as MouseEvent).shiftKey === true,
     });
+    this.selectClicks.update((n) => n + 1);
   }
 
   /** Selection mode: clicking the title selects (or unselects) instead of opening the editor. */
   protected onTitle(event: MouseEvent): void {
     if (this.selecting()) {
       this.selectChange.emit({ checked: !this.selected(), shift: event.shiftKey });
+      this.selectClicks.update((n) => n + 1);
     } else {
       this.edit.emit();
     }

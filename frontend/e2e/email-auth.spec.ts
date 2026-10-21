@@ -132,8 +132,15 @@ async function loginUi(page: Page, mail: string, password = PASSWORD, rememberMe
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
 
-async function xsrf(ctx: BrowserContext, request: APIRequestContext): Promise<string> {
+async function xsrf(ctx: BrowserContext, request: APIRequestContext, page?: Page): Promise<string> {
   let c = (await ctx.cookies()).find((x) => x.name === 'XSRF-TOKEN');
+  if (!c && page && page.url() !== 'about:blank') {
+    // Let the app's own boot request set the cookie; our own GET would get a different token.
+    for (let i = 0; i < 50 && !c; i++) {
+      await page.waitForTimeout(100);
+      c = (await ctx.cookies()).find((x) => x.name === 'XSRF-TOKEN');
+    }
+  }
   if (!c) {
     await request.get('/api/auth/me');
     c = (await ctx.cookies()).find((x) => x.name === 'XSRF-TOKEN');
@@ -143,7 +150,7 @@ async function xsrf(ctx: BrowserContext, request: APIRequestContext): Promise<st
 
 /** POST with the context's cookies and the CSRF header (as the app does). */
 async function post(ctx: BrowserContext, page: Page, path: string, body?: unknown) {
-  const token = await xsrf(ctx, page.request);
+  const token = await xsrf(ctx, page.request, page);
   return page.request.post(path, { data: body, headers: { 'X-XSRF-TOKEN': token } });
 }
 
@@ -953,7 +960,7 @@ test.describe('email auth (default run)', () => {
     const req = await expectProblem(await post(a.ctx, a.page, '/api/auth/forgot-password', {}), 400, 'VALIDATION_FAILED');
     expect(req.errors[0]).toMatchObject({ field: 'email', code: 'REQUIRED' });
     // malformed JSON
-    const token = await xsrf(a.ctx, a.page.request);
+    const token = await xsrf(a.ctx, a.page.request, a.page);
     const mal = await a.page.request.post('/api/auth/forgot-password', {
       data: '{not json',
       headers: { 'X-XSRF-TOKEN': token, 'Content-Type': 'application/json' },

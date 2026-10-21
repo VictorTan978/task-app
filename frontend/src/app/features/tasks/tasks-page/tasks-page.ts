@@ -698,10 +698,11 @@ export class TasksPage {
       return;
     }
     this.selecting.set(true);
-    const ids =
-      shift && this.anchorId !== null ? rangeIds(this.tasks(), this.anchorId, task.id) : [task.id];
+    // Shift+click with an anchor always selects the range, whatever the clicked row's state.
+    const range = shift && this.anchorId !== null;
+    const ids = range ? rangeIds(this.tasks(), this.anchorId!, task.id) : [task.id];
     this.selectedIds.update((current) => {
-      if (checked) {
+      if (checked || range) {
         return addCapped(current, ids);
       }
       const next = new Set(current);

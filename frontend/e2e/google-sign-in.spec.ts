@@ -1,4 +1,4 @@
-import { Browser, BrowserContext, expect, Page, Response, Route, test } from '@playwright/test';
+import { Browser, BrowserContext, expect, Page, request, Response, Route, test } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
@@ -123,6 +123,14 @@ async function cookie(ctx: BrowserContext, name: string) {
 
 async function xsrf(ctx: BrowserContext, page: Page): Promise<string> {
   let c = await cookie(ctx, 'XSRF-TOKEN');
+  if (!c && page.url() !== 'about:blank') {
+    // The app's own boot request (GET /api/auth/me) sets the cookie; firing our own GET would issue a
+    // different token that the late boot response then overwrites.
+    for (let i = 0; i < 50 && !c; i++) {
+      await page.waitForTimeout(100);
+      c = await cookie(ctx, 'XSRF-TOKEN');
+    }
+  }
   if (!c) {
     await page.request.get('/api/auth/me');
     c = await cookie(ctx, 'XSRF-TOKEN');
@@ -1299,6 +1307,30 @@ test.describe('Google on', () => {
     expect(connectionsOfSub(sAtt)).toEqual([]);
     expect(usersWithEmail(attMail)).toBe(0);
     for (const x of [attacker, v1, v2, v3]) await x.ctx.close();
+  });
+
+  test('AC16 + AC19: a late boot /api/auth/me response does not make the captured CSRF token stale', async ({ browser }) => {
+    const a = await newPage(browser);
+    // Fetch the app's boot request through an isolated cookie jar and hold the response, so its
+    // Set-Cookie (a NEW XSRF-TOKEN) lands late, after a helper that fires its own GET would have read one.
+    const iso = await request.newContext();
+    await a.page.route('**/api/auth/me', async (route) => {
+      const res = await iso.get(route.request().url(), {
+        headers: route.request().headers(),
+        failOnStatusCode: false,
+      });
+      await new Promise((r) => setTimeout(r, 1500));
+      await route.fulfill({ status: res.status(), headers: res.headers(), body: await res.body() });
+    });
+    await a.page.goto('/login');
+    const token = await xsrf(a.ctx, a.page);
+    const r = await a.page.request.post('/api/auth/oauth2/authorization/google', {
+      form: { intent: 'login', _csrf: token },
+      maxRedirects: 0,
+    });
+    expect(r.status()).toBe(302);
+    await iso.dispose();
+    await a.ctx.close();
   });
 
   test('AC16 + AC19: start endpoint — 403 without/with a wrong _csrf, 405 on GET, 302s otherwise', async ({ browser }) => {
