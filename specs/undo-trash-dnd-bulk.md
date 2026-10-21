@@ -1,6 +1,6 @@
 # Feature: Undo, trash, bulk actions, drag and drop (T5)
 
-**Status:** DRAFT 2026-10-21. Open questions answered (all as recommended), waiting for final approval. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
+**Status:** APPROVED 2026-10-21. T5a in progress on `feature/t5a-trash-undo`. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
 
 **Approving this spec does not approve the gates.** Each migration (V14, V15), the change to `DELETE /api/tasks/{id}`, and any new dependency (`@angular/cdk`) gets its own approval question at build time.
 
@@ -155,3 +155,4 @@ _Filled in by the PM during the build._
 | 2026-10-21 | Q8: undo is last-write-wins on the fields my action changed | Matches today's editing; no version column | User |
 | 2026-10-21 | Q9: bulk = loaded tasks only, max 200, one list at a time, all-or-nothing | Predictable; the user sees what changes | User |
 | 2026-10-21 | Q10/Q11: shared "My order" per list, `@angular/cdk` drag-drop (dependency still gated, lazy-loaded) | Touch, keyboard and auto-scroll support; one position column | User |
+| 2026-10-21 | Spec approved | All open questions settled | User |
