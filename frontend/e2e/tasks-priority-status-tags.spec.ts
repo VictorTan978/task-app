@@ -239,8 +239,17 @@ function suggestions(page: Page) {
   return page.getByRole('listbox', { name: 'Tag suggestions' });
 }
 async function openEdit(page: Page, title: string) {
+  // The dialog fetches the known tags fresh on every open; the tag input only reuses the stored
+  // spelling once they have loaded. Wait for that request to settle (any outcome) before returning.
+  const isTags = (r: Request) => r.method() === 'GET' && new URL(r.url()).pathname === '/api/tags';
+  const settled = Promise.race([
+    page.waitForEvent('requestfinished', { predicate: isTags }),
+    page.waitForEvent('requestfailed', { predicate: isTags }),
+  ]);
+  settled.catch(() => undefined);
   await row(page, title).getByRole('button', { name: 'Edit' }).click();
   await expect(editDialog(page)).toBeVisible();
+  await settled;
 }
 async function save(page: Page) {
   await editDialog(page).getByRole('button', { name: 'Save' }).click();

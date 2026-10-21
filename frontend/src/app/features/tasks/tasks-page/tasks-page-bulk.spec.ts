@@ -153,6 +153,23 @@ describe('TasksPage bulk actions', () => {
       expect(selectBoxes().map((b) => b.checked)).toEqual([true, true, true, false]);
     });
 
+    it('Shift+click on an already-selected row keeps the range selected and in sync', async () => {
+      await open([task(5), task(4), task(3), task(2), task(1)]);
+      const shiftClick = (i: number) =>
+        selectBoxes()[i].dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true }));
+      await select(1); // B
+      shiftClick(3); // B..D
+      await stable();
+      expect(byId('bulk-count')!.textContent?.trim()).toBe('3 selected');
+      selectBoxes()[4].click(); // plain E moves the anchor
+      await stable();
+      expect(byId('bulk-count')!.textContent?.trim()).toBe('4 selected');
+      shiftClick(2); // C is already selected: still a range select, not a deselect
+      await stable();
+      expect(byId('bulk-count')!.textContent?.trim()).toBe('4 selected');
+      expect(selectBoxes().map((b) => b.checked)).toEqual([false, true, true, true, true]);
+    });
+
     it('Cancel and Esc leave the mode', async () => {
       await open([task(2), task(1)]);
       await select(0);

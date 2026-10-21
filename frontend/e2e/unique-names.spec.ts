@@ -98,9 +98,10 @@ test.describe('AC14: unique display names (UI)', () => {
     const errors = watch(page);
     await page.goto('/register');
     await fillRegister(page, `ZOE BOTH ${S}`, ownerEmail.toUpperCase());
-    const resp = page.waitForResponse((r) => r.url().endsWith('/api/auth/register'));
+    // read the body as soon as the response arrives; the page may re-render before a later read
+    const resp = page.waitForResponse((r) => r.url().endsWith('/api/auth/register')).then((r) => r.json());
     await submit(page);
-    const body = await (await resp).json();
+    const body = await resp;
     expect(body.code).toBe('EMAIL_TAKEN');
     expect(body.errors.map((e: { field: string }) => e.field)).toEqual(['email', 'displayName']);
     await expect(page.locator('#register-email-error')).toHaveText(EMAIL_TAKEN);

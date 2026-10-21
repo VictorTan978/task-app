@@ -65,22 +65,28 @@ test('AC11/AC12: auth flow writes one SECURITY line per event and no secrets', a
   expect(errors).toEqual([]);
 
   test.skip(!LOG, 'E2E_BACKEND_LOG not set; log assertions skipped');
-  await page.waitForTimeout(500);
+  const securityLines = () =>
+    readFileSync(LOG!, 'utf8')
+      .split('\n')
+      .filter((l) => l.includes('SECURITY event=') && (l.includes(`email=${email} `) || l.includes(`email=${unknown} `)))
+      .map((l) => l.slice(l.indexOf('SECURITY event=')).replace(/ ip=\S+/, ''));
+  // EMAIL_VERIFICATION_SENT is logged from the email- thread pool, so it can land after later events.
+  await expect.poll(() => securityLines().length, { timeout: 10_000 }).toBe(7);
   const log = readFileSync(LOG!, 'utf8');
-  const mine = log
-    .split('\n')
-    .filter((l) => l.includes('SECURITY event=') && (l.includes(`email=${email} `) || l.includes(`email=${unknown} `)))
-    .map((l) => l.slice(l.indexOf('SECURITY event=')).replace(/ ip=\S+/, ''));
-  expect(mine).toEqual([
-    `SECURITY event=REGISTER_SUCCESS email=${email} path=/api/auth/register`,
-    // specs/email-auth.md AC17 (0.7.0): the confirmation email queued by register
-    `SECURITY event=EMAIL_VERIFICATION_SENT trigger=register email=${email} path=/api/auth/register`,
+  const mine = securityLines();
+  const sent = `SECURITY event=EMAIL_VERIFICATION_SENT trigger=register email=${email} path=/api/auth/register`;
+  const registered = `SECURITY event=REGISTER_SUCCESS email=${email} path=/api/auth/register`;
+  expect(mine.filter((l) => l !== sent)).toEqual([
+    registered,
     `SECURITY event=LOGOUT email=${email} path=/api/auth/logout`,
     `SECURITY event=LOGIN_FAILURE reason=bad_password email=${email} path=/api/auth/login`,
     `SECURITY event=LOGIN_FAILURE reason=unknown_email email=${unknown} path=/api/auth/login`,
     `SECURITY event=LOGIN_SUCCESS email=${email} path=/api/auth/login`,
     `SECURITY event=LOGOUT email=${email} path=/api/auth/logout`,
   ]);
+  // specs/email-auth.md AC17 (0.7.0): the confirmation email queued by register, exactly once
+  expect(mine.filter((l) => l === sent)).toHaveLength(1);
+  expect(mine.indexOf(sent)).toBeGreaterThan(mine.indexOf(registered));
   expect(log).not.toContain(PASSWORD);
   expect(log).not.toContain(`Wrong-${RUN}`);
   expect(log).not.toMatch(/\$2[aby]\$/);

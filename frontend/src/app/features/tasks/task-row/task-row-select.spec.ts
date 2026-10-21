@@ -95,4 +95,14 @@ describe('TaskRow selection', () => {
     expect(host.picks).toEqual([{ checked: false, shift: false }]);
     expect(host.edits).toBe(0);
   });
+
+  it('the checkbox shows the model after a click the page does not honour', async () => {
+    host.selecting.set(true);
+    host.selected.set(true);
+    await fixture.whenStable();
+    boxes()[0].dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true }));
+    expect(host.picks).toEqual([{ checked: false, shift: true }]);
+    await fixture.whenStable();
+    expect(boxes()[0].checked).toBe(true);
+  });
 });
