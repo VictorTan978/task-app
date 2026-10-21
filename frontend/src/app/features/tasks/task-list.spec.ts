@@ -302,4 +302,55 @@ describe('task-list', () => {
       expect(s.total).toBe(3);
     });
   });
+
+  describe('My order (sort=manual)', () => {
+    const M: TaskListQuery = { ...Q, sort: 'manual' };
+    const doneTask = (id: number) => task(id, { status: 'DONE', done: true });
+
+    it('appendPage skips ids that are already loaded and never moves them', () => {
+      const s1 = firstPage(page([task(5), task(3), task(4)], 6, 'c1'), 'manual');
+      // 4 is back on page 2 (a drop after the last row), with a newer updatedAt.
+      const newer = task(4, { updatedAt: at(9) });
+      const s2 = appendPage(s1, page([newer, task(2), task(1)], 6, null), 'manual');
+      expect(ids(s2)).toEqual([5, 3, 4, 2, 1]);
+      expect(s2.items[2].updatedAt).toBe(at(4));
+      expect(s2.total).toBe(6);
+    });
+
+    it('other sorts still move a repeat with a newer updatedAt', () => {
+      const s1 = firstPage(page([task(5), task(4)], 4, 'c1'));
+      const s2 = appendPage(s1, page([task(4, { updatedAt: at(9) }), task(3)], 4, null));
+      expect(ids(s2)).toEqual([5, 4, 3]);
+      expect(s2.items[1].updatedAt).toBe(at(9));
+    });
+
+    it('a created task goes to the top of its group, not by createdAt', () => {
+      const state = firstPage(page([task(2), task(8), doneTask(7)], 3), 'manual');
+      const result = applyChange(state, task(1), M, 'created');
+      expect(ids(result.state)).toEqual([1, 2, 8, 7]);
+    });
+
+    it('an edited task that stays in its group keeps its place', () => {
+      const state = firstPage(page([task(2), task(8), task(5)], 3), 'manual');
+      const result = applyChange(state, task(8, { title: 'New' }), M, 'updated');
+      expect(ids(result.state)).toEqual([2, 8, 5]);
+      expect(result.state.items[1].title).toBe('New');
+    });
+
+    it('a ticked task goes to the top of the done group', () => {
+      const state = firstPage(page([task(2), task(8), doneTask(7)], 3), 'manual');
+      const result = applyChange(state, doneTask(8), M, 'updated');
+      expect(ids(result.state)).toEqual([2, 8, 7]);
+      const first = applyChange(state, doneTask(2), M, 'updated');
+      expect(ids(first.state)).toEqual([8, 2, 7]);
+    });
+
+    it('a done task fits only once the done group is loaded', () => {
+      const open = firstPage(page([task(2), task(1)], 5, 'c1'), 'manual');
+      expect(fitsLoaded(open, task(9), 'manual')).toBe(true);
+      expect(fitsLoaded(open, doneTask(9), 'manual')).toBe(false);
+      const withDone = firstPage(page([task(2), doneTask(1)], 5, 'c1'), 'manual');
+      expect(fitsLoaded(withDone, doneTask(9), 'manual')).toBe(true);
+    });
+  });
 });

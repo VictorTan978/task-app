@@ -2,6 +2,7 @@
 export const TASKS_API = {
   list: '/api/tasks',
   one: (id: number) => `/api/tasks/${id}`,
+  position: (id: number) => `/api/tasks/${id}/position`,
   tags: '/api/tags',
   bulk: '/api/tasks/bulk',
   bulkPatch: '/api/tasks/bulk-patch',

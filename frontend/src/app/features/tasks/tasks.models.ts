@@ -138,8 +138,8 @@ export interface Tag {
 
 export type TaskFilter = 'all' | 'active' | 'in_progress' | 'done';
 
-/** `GET /api/tasks?sort=`. `newest` is the default and is never sent. */
-export type TaskSort = 'newest' | 'oldest' | 'due' | 'priority' | 'title';
+/** `GET /api/tasks?sort=`. `newest` is the default and is never sent. `manual` is "My order" (0.18.0). */
+export type TaskSort = 'newest' | 'oldest' | 'due' | 'priority' | 'title' | 'manual';
 
 /** `TaskPage`: one page (at most 50) of `GET /api/tasks`. */
 export interface TaskPage {
@@ -158,6 +158,11 @@ export interface TaskListQuery {
   /** Trimmed search text, at most 100 characters; null when blank. */
   q: string | null;
   sort: TaskSort;
+}
+
+/** `PUT /api/tasks/{id}/position` body (0.18.0): `afterId` null = top of the task's group. */
+export interface TaskPositionRequest {
+  afterId: number | null;
 }
 
 /** Task-related values of `FieldError.field`. */
