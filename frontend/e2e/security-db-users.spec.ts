@@ -97,10 +97,28 @@ test('AC16: full data path works through the UI with the restricted app user', a
   await expect(page).toHaveURL(/\/tasks$/);
   await expect(page.getByRole('checkbox', { name: 'Done: D renamed' })).toBeVisible();
 
+  if (dockerAvailable) {
+    // The data written above really went to MySQL. T5a: delete is a soft delete, so the
+    // deleted task is still a row, marked with deleted_at (an UPDATE by the restricted user).
+    const q = (extra: string) =>
+      asRoot(`SELECT COUNT(*) FROM taskapp.tasks t JOIN taskapp.users u ON u.id = t.owner_id WHERE u.email = '${email}'${extra}`);
+    const n = q('');
+    expect(n.ok, n.out).toBe(true);
+    expect(n.out.trim()).toBe('2');
+    expect(q(' AND t.deleted_at IS NOT NULL').out.trim()).toBe('1');
+  }
+
+  // DELETE FOR GOOD through the Trash page: a real DELETE by the restricted user
+  await page.goto('/trash');
+  await expect(page.getByTestId('trash-row')).toHaveCount(1);
+  await expect(page.getByTestId('trash-title')).toHaveText('D first');
+  await page.getByTestId('trash-delete').click();
+  await page.getByTestId('trash-confirm').click();
+  await expect(page.getByTestId('trash-empty')).toBeVisible();
+
   expect(errors).toEqual([]);
 
   if (dockerAvailable) {
-    // The data written above really went to MySQL.
     const n = asRoot(`SELECT COUNT(*) FROM taskapp.tasks t JOIN taskapp.users u ON u.id = t.owner_id WHERE u.email = '${email}'`);
     expect(n.ok, n.out).toBe(true);
     expect(n.out.trim()).toBe('1');

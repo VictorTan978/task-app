@@ -135,7 +135,7 @@ async function order(page: Page): Promise<string[]> {
 async function gotoTasks(page: Page, query = '') {
   await page.goto(`/tasks${query}`);
   await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
-  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(page.locator('[role=status]:not(.toast-region):visible')).toHaveCount(0); // T5a: the toast region is always in the shell
 }
 function addBox(page: Page) {
   return page.getByLabel('New task');
@@ -523,7 +523,7 @@ test.describe('Edit', () => {
 // ---------- Delete ----------
 
 test.describe('Delete', () => {
-  test('AC11: confirm dialog; Cancel keeps; Delete removes permanently', async ({ page }) => {
+  test('AC11: confirm dialog; Cancel keeps; Delete moves to the trash (T5a) with an Undo toast', async ({ page }) => {
     await signUp(page, 'ac11');
     await createTask(page, { title: 'Doomed' });
     await createTask(page, { title: 'Survivor' });
@@ -546,11 +546,15 @@ test.describe('Delete', () => {
     await expect(row(page, 'Doomed')).toHaveCount(0);
     await expect.poll(() => order(page)).toEqual(['Survivor']);
     expect(dels.length).toBe(1);
+    // T5a: not permanent any more. The toast offers Undo and the task is in the trash.
+    await expect(page.getByRole('status').getByRole('button', { name: 'Undo' })).toBeVisible();
 
     await page.reload();
     await expect(rows(page)).toHaveCount(1);
     await expect.poll(() => order(page)).toEqual(['Survivor']);
     expect((await listTasks(page)).map((t) => t.title)).toEqual(['Survivor']);
+    const trash = await (await api(page, 'GET', '/api/trash')).json();
+    expect(trash.items.map((t: { title: string }) => t.title)).toEqual(['Doomed']);
   });
 });
 
@@ -633,7 +637,7 @@ test.describe('States', () => {
     await expect(page.getByRole('status').filter({ hasText: 'Loading tasks…' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/ac14-loading.png`, fullPage: true });
     release();
-    await expect(page.getByRole('status')).toHaveCount(0);
+    await expect(page.locator('[role=status]:not(.toast-region):visible')).toHaveCount(0); // T5a: the toast region is always in the shell
     await expect(rows(page)).toHaveCount(2);
     await page.unrouteAll({ behavior: 'wait' });
 
@@ -696,7 +700,7 @@ test.describe('States', () => {
     const alert = page.getByRole('alert');
     await expect(alert).toBeVisible();
     await expect(alert.getByRole('button', { name: 'Retry' })).toBeVisible();
-    await expect(page.getByRole('status')).toHaveCount(0);
+    await expect(page.locator('[role=status]:not(.toast-region):visible')).toHaveCount(0); // T5a: the toast region is always in the shell
     await page.screenshot({ path: `${SHOTS}/ac15-load-failed.png`, fullPage: true });
     console.log('AC15 load banner:', await alert.textContent());
 

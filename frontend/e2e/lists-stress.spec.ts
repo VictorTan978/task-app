@@ -374,7 +374,9 @@ test.describe('T3a AC13 concurrency stress', () => {
         tally.track('DELETE', call(c, 'DELETE', `/api/tasks/${t.id}`), [204, 404]),
         tally.track('DELETE', call(c, 'DELETE', `/api/tasks/${t.id}`), [204, 404]),
       ]);
-      expect(num(`SELECT COUNT(*) FROM tasks WHERE id = ${t.id}`)).toBe(0);
+      // T5a: DELETE moves the task to the trash. No racing PUT/PATCH may bring it back or leave it live.
+      expect(num(`SELECT COUNT(*) FROM tasks WHERE id = ${t.id} AND deleted_at IS NULL`)).toBe(0);
+      expect(num(`SELECT COUNT(*) FROM tasks WHERE id = ${t.id} AND deleted_at IS NOT NULL`)).toBe(1);
     }
     tally.report();
     checkData(c.id, 'old-race');

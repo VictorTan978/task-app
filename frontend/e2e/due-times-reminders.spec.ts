@@ -91,7 +91,7 @@ const TASK_KEYS = [
   'myReminderPassed', 'priority', 'repeat', 'status', 'tags', 'title', 'updatedAt',
 ];
 const USER_KEYS = ['connections', 'displayName', 'email', 'emailVerified', 'hasPassword', 'id', 'reminderEmails', 'role', 'timeZone'];
-const NOTIF_KEYS = ['createdAt', 'dueDate', 'dueTime', 'id', 'late', 'listId', 'read', 'taskId', 'title', 'type'];
+const NOTIF_KEYS = ['createdAt', 'dueDate', 'dueTime', 'id', 'late', 'listId', 'read', 'taskId', 'taskTrashed', 'title', 'type'];
 
 // ---------- DB / mail helpers ----------
 function sql(query: string): string {
@@ -849,9 +849,16 @@ test.describe('reminders', () => {
     // deleted
     const del = await mk('Deleted');
     expect((await api(u.page, 'DELETE', `/api/tasks/${del.id}`)).status()).toBe(204);
-    expect(sqlNum(`SELECT COUNT(*) FROM reminders WHERE task_id = ${del.id}`)).toBe(0);
-    await u.page.waitForTimeout(3000);
+    // T5a: trashed, not deleted: the reminder row is kept (a restore re-arms it) but it must not fire
+    pokeDue([del.id], 1, u.id);
+    await u.page.waitForTimeout(5000);
     expect(notifCount(u.id)).toBe(1);
+    expect(remStatus(del.id, u.id)).not.toBe('SENT');
+    // deleted for good: the reminder row goes with the task
+    const trashed = (await (await api(u.page, 'GET', '/api/trash')).json()).items.find((x: Task) => x.id === del.id);
+    expect(trashed).toBeTruthy();
+    expect((await api(u.page, 'DELETE', `/api/trash/${del.id}`)).status()).toBe(204);
+    expect(sqlNum(`SELECT COUNT(*) FROM reminders WHERE task_id = ${del.id}`)).toBe(0);
   });
 
   test('AC13: member who left / was removed / lost the task by a move gets nothing; account deletion removes reminders + notifications', async ({ kit }) => {
@@ -1100,7 +1107,9 @@ test.describe('firing, email, notifications', () => {
     // filler -> 25 total for paging (older than the four above)
     for (let i = 0; i < 21; i++) ins(tp, `Filler${String(i).padStart(2, '0')}`, '2030-11-05', '10:00', 100 + i);
     // gone: delete the task (SET NULL); lost access: owner removes me from the list... (shared task NLeft only; NShared stays reachable)
+    // (T5a: delete = trash; "delete forever" is what sets the notification's task to NULL)
     expect((await api(u.page, 'DELETE', `/api/tasks/${tgone.id}`)).status()).toBe(204);
+    expect((await api(u.page, 'DELETE', `/api/trash/${tgone.id}`)).status()).toBe(204);
     expect(await unread(u.page)).toBe(25);
 
     await u.page.goto('/tasks');
@@ -1465,7 +1474,9 @@ test.describe('concurrency', () => {
     expect(preTitles).toEqual(pre.slice(4).map((t) => t.title).sort());
     // no reminder left pending/in limbo for set A
     // (a title edit recomputes the artificial past fire_at back to 2030 -> PENDING with a future time is legitimate)
-    expect(sqlNum(`SELECT COUNT(*) FROM reminders WHERE task_id IN (${setA.map((t) => t.id).join(',')}) AND status = 'PENDING' AND next_attempt_at < UTC_TIMESTAMP(6) - INTERVAL 20 SECOND`)).toBe(0);
+    expect(sqlNum(`SELECT COUNT(*) FROM reminders WHERE task_id IN (${setA.map((t) => t.id).join(',')}) AND status = 'PENDING' AND next_attempt_at < UTC_TIMESTAMP(6) - INTERVAL 20 SECOND AND task_id NOT IN (SELECT id FROM tasks WHERE deleted_at IS NOT NULL)`)).toBe(0);
+    // T5a: the 4 Pre tasks trashed before the poke keep their reminder rows but were never sent
+    expect(sqlNum(`SELECT COUNT(*) FROM reminders WHERE task_id IN (${pre.slice(0, 4).map((t) => t.id).join(',')}) AND status = 'SENT'`)).toBe(0);
     // mails: at most one per notified title for the verified owner
     const mails = await mailsTo(owner.email);
     const subjects = mails.map((m) => m.Subject);
