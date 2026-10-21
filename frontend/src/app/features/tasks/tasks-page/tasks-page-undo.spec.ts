@@ -269,8 +269,10 @@ describe('TasksPage undo', () => {
       save();
       http.expectOne({ method: 'PUT', url: '/api/tasks/2' }).flush(result(task(2)));
       await stable();
-      // Give the undo code time to load and find nothing to undo.
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // The undo code is loaded by now; let the page find that there is nothing to undo.
+      await import('../undo.logic');
+      await Promise.resolve();
+      await Promise.resolve();
       expect(toasts.current()).toBeNull();
     });
 

@@ -148,7 +148,9 @@ describe('TrashPage', () => {
 
   it('has the Trash entry highlighted in the list picker and a "Back to tasks" link', async () => {
     await open();
-    expect(el.querySelector('[data-testid=trash-link]')?.getAttribute('aria-current')).toBe('page');
+    expect(
+      el.querySelector('a[href="/trash"].list-picker__link')?.getAttribute('aria-current'),
+    ).toBe('page');
     expect(q('trash-back')?.getAttribute('href')).toBe('/tasks');
     expect(q('trash-back')?.textContent).toContain('Back to tasks');
   });

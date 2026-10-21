@@ -62,10 +62,7 @@ describe('ListPicker', () => {
 
   const stable = () => fixture.whenStable();
   const q = <T extends Element = HTMLInputElement>(sel: string) => el.querySelector<T>(sel);
-  const links = () =>
-    Array.from(
-      el.querySelectorAll<HTMLAnchorElement>('.list-picker__link:not(.list-picker__trash)'),
-    );
+  const links = () => Array.from(el.querySelectorAll<HTMLAnchorElement>('nav[aria-label=Lists] a'));
   const button = (name: string) =>
     Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === name)!;
 
@@ -122,10 +119,11 @@ describe('ListPicker', () => {
   });
 
   describe('Trash entry', () => {
-    const trashLink = () => q<HTMLAnchorElement>('[data-testid=trash-link]');
+    const trashLink = () => q<HTMLAnchorElement>('a[href="/trash"]');
 
-    it('is a link to /trash under the lists, not active on a list page', async () => {
+    it('is a link to /trash under the lists (not among the lists), not active on a list page', async () => {
       await loadLists();
+      expect(links().map((a) => a.getAttribute('href'))).not.toContain('/trash');
       expect(trashLink()?.getAttribute('href')).toBe('/trash');
       expect(trashLink()?.textContent).toContain('Trash');
       expect(trashLink()?.getAttribute('aria-current')).toBeNull();
