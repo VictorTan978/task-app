@@ -44,7 +44,11 @@ import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.security.SecurityConfig;
 import com.taskapp.security.UnchangedSessionUserLookup;
 import com.taskapp.task.dto.CreateTaskRequest;
+import com.taskapp.task.dto.DateUpdate;
+import com.taskapp.task.dto.DueTimeUpdate;
+import com.taskapp.task.dto.TextUpdate;
 import com.taskapp.task.dto.ReplaceTaskRequest;
+import com.taskapp.task.dto.SetTaskDoneRequest;
 import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
 import com.taskapp.task.dto.TaskResult;
@@ -360,12 +364,11 @@ class TaskControllerTest {
 
     @Test
     void patchSetsDone() throws Exception {
-        when(taskService.setStatus(OWNER, 12L, null, true)).thenReturn(TaskResult.of(MILK));
+        when(taskService.patch(OWNER, 12L, new SetTaskDoneRequest(true, null))).thenReturn(TaskResult.of(MILK));
 
-        mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":true,\"title\":\"ignored\",\"tags\":[\"x\"]}"))
-                .andExpect(status().isOk());
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":true}")).andExpect(status().isOk());
 
-        verify(taskService).setStatus(OWNER, 12L, null, true);
+        verify(taskService).patch(OWNER, 12L, new SetTaskDoneRequest(true, null));
     }
 
     @ParameterizedTest
@@ -384,7 +387,7 @@ class TaskControllerTest {
 
     @Test
     void patchOnMissingTaskIs404() throws Exception {
-        when(taskService.setStatus(OWNER, 42L, null, false)).thenThrow(new TaskNotFoundException());
+        when(taskService.patch(OWNER, 42L, new SetTaskDoneRequest(false, null))).thenThrow(new TaskNotFoundException());
 
         mockMvc.perform(json(patch("/api/tasks/42"), "{\"done\":false}"))
                 .andExpect(status().isNotFound())
@@ -450,13 +453,13 @@ class TaskControllerTest {
     @Test
     void ownerAlwaysComesFromSession() throws Exception {
         when(taskService.create(anyLong(), any())).thenReturn(MILK);
-        when(taskService.setStatus(anyLong(), anyLong(), any(), any())).thenReturn(TaskResult.of(MILK));
+        when(taskService.patch(anyLong(), anyLong(), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(post("/api/tasks"), "{\"title\":\"x\",\"ownerId\":999}")).andExpect(status().isCreated());
         mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":true,\"ownerId\":999}")).andExpect(status().isOk());
 
         verify(taskService).create(eq(OWNER), any());
-        verify(taskService).setStatus(OWNER, 12L, null, true);
+        verify(taskService).patch(OWNER, 12L, new SetTaskDoneRequest(true, null));
     }
 
     // ---- 0.10.0: priority, status, tags ----
@@ -725,16 +728,16 @@ class TaskControllerTest {
 
     @Test
     void patchPassesStatusAndOrDone() throws Exception {
-        when(taskService.setStatus(anyLong(), anyLong(), any(), any())).thenReturn(TaskResult.of(MILK));
+        when(taskService.patch(anyLong(), anyLong(), any())).thenReturn(TaskResult.of(MILK));
 
         mockMvc.perform(json(patch("/api/tasks/12"), "{\"status\":\"IN_PROGRESS\"}")).andExpect(status().isOk());
-        verify(taskService).setStatus(OWNER, 12L, TaskStatus.IN_PROGRESS, null);
+        verify(taskService).patch(OWNER, 12L, new SetTaskDoneRequest(null, TaskStatus.IN_PROGRESS));
 
         mockMvc.perform(json(patch("/api/tasks/12"), "{\"status\":\"DONE\",\"done\":true}")).andExpect(status().isOk());
-        verify(taskService).setStatus(OWNER, 12L, TaskStatus.DONE, true);
+        verify(taskService).patch(OWNER, 12L, new SetTaskDoneRequest(true, TaskStatus.DONE));
 
         mockMvc.perform(json(patch("/api/tasks/12"), "{\"status\":\"TODO\",\"done\":null}")).andExpect(status().isOk());
-        verify(taskService).setStatus(OWNER, 12L, TaskStatus.TODO, null);
+        verify(taskService).patch(OWNER, 12L, new SetTaskDoneRequest(null, TaskStatus.TODO));
     }
 
     @ParameterizedTest
@@ -870,5 +873,119 @@ class TaskControllerTest {
         mockMvc.perform(json(put("/api/tasks/12"), "{\"title\":\"x\"}"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+    }
+
+    // ---- partial PATCH (0.16.0) ----
+
+    @Test
+    void patchTakesAnySubsetAndTellsMissingFromNullForTheClearableFields() throws Exception {
+        when(taskService.patch(anyLong(), anyLong(), any())).thenReturn(TaskResult.of(MILK));
+
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"title\":\"  New  \",\"priority\":\"HIGH\","
+                + "\"tags\":[\"a\"],\"listId\":8,\"reminder\":\"NONE\",\"repeat\":\"NEVER\"}"))
+                .andExpect(status().isOk());
+        var captor = org.mockito.ArgumentCaptor.forClass(SetTaskDoneRequest.class);
+        verify(taskService).patch(eq(OWNER), eq(12L), captor.capture());
+        SetTaskDoneRequest sent = captor.getValue();
+        org.assertj.core.api.Assertions.assertThat(sent.title()).isEqualTo("New");
+        org.assertj.core.api.Assertions.assertThat(sent.priority()).isEqualTo(Priority.HIGH);
+        org.assertj.core.api.Assertions.assertThat(sent.tags()).containsExactly("a");
+        org.assertj.core.api.Assertions.assertThat(sent.listId()).isEqualTo(8L);
+        org.assertj.core.api.Assertions.assertThat(sent.reminder()).isEqualTo("NONE");
+        org.assertj.core.api.Assertions.assertThat(sent.repeat().isNever()).isTrue();
+        // Not sent: null (unchanged).
+        org.assertj.core.api.Assertions.assertThat(sent.description()).isNull();
+        org.assertj.core.api.Assertions.assertThat(sent.dueDate()).isNull();
+        org.assertj.core.api.Assertions.assertThat(sent.dueTime()).isNull();
+        org.assertj.core.api.Assertions.assertThat(sent.onlyStatus()).isFalse();
+
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"description\":null,\"dueDate\":null,\"dueTime\":null}"))
+                .andExpect(status().isOk());
+        var cleared = org.mockito.ArgumentCaptor.forClass(SetTaskDoneRequest.class);
+        verify(taskService, org.mockito.Mockito.times(2)).patch(eq(OWNER), eq(12L), cleared.capture());
+        SetTaskDoneRequest clear = cleared.getAllValues().get(1);
+        org.assertj.core.api.Assertions.assertThat(clear.description()).isEqualTo(TextUpdate.CLEAR);
+        org.assertj.core.api.Assertions.assertThat(clear.dueDate()).isEqualTo(DateUpdate.CLEAR);
+        org.assertj.core.api.Assertions.assertThat(clear.dueTime()).isEqualTo(DueTimeUpdate.CLEAR);
+    }
+
+    @Test
+    void patchValidatesEachFieldLikePut() throws Exception {
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"title\":\"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("title"))
+                .andExpect(jsonPath("$.errors[0].code").value("REQUIRED"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"title\":\"" + "x".repeat(201) + "\"}"))
+                .andExpect(jsonPath("$.errors[0].field").value("title"))
+                .andExpect(jsonPath("$.errors[0].code").value("TOO_LONG"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"description\":\"" + "x".repeat(2001) + "\"}"))
+                .andExpect(jsonPath("$.errors[0].field").value("description"))
+                .andExpect(jsonPath("$.errors[0].code").value("TOO_LONG"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"reminder\":\"SOON\"}"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_REMINDER"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"repeat\":\"SOMETIMES\"}"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_REPEAT"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"tags\":[\"a,b\"]}"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_CHARACTERS"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"done\":false,\"status\":\"DONE\"}"))
+                .andExpect(jsonPath("$.errors[0].code").value("STATUS_CONFLICT"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"priority\":null}"))
+                .andExpect(jsonPath("$.errors[0].field").value("done"))
+                .andExpect(jsonPath("$.errors[0].code").value("REQUIRED"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"dueDate\":\"nope\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        mockMvc.perform(json(patch("/api/tasks/12"), "{\"description\":5}"))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        verifyNoInteractions(taskService);
+    }
+
+    // ---- undo-complete (0.16.0) ----
+
+    @Test
+    void undoCompleteAnswersTheTaskWithTheOutcome() throws Exception {
+        when(taskService.undoComplete(OWNER, 12L, 15L, null)).thenReturn(
+                new com.taskapp.task.dto.UndoCompleteResult(MILK, com.taskapp.task.dto.UndoCompleteResult.Outcome.KEPT));
+
+        mockMvc.perform(json(post("/api/tasks/12/undo-complete"), "{\"nextTaskId\":15}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(12))
+                .andExpect(jsonPath("$.nextTaskOutcome").value("KEPT"));
+        verify(taskService).undoComplete(OWNER, 12L, 15L, null);
+
+        when(taskService.undoComplete(OWNER, 12L, 15L, TaskStatus.IN_PROGRESS)).thenReturn(
+                new com.taskapp.task.dto.UndoCompleteResult(MILK, com.taskapp.task.dto.UndoCompleteResult.Outcome.DELETED));
+        mockMvc.perform(json(post("/api/tasks/12/undo-complete"), "{\"nextTaskId\":15,\"status\":\"IN_PROGRESS\"}"))
+                .andExpect(jsonPath("$.nextTaskOutcome").value("DELETED"));
+    }
+
+    @Test
+    void undoCompleteValidatesItsBody() throws Exception {
+        mockMvc.perform(json(post("/api/tasks/12/undo-complete"), "{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("nextTaskId"))
+                .andExpect(jsonPath("$.errors[0].code").value("REQUIRED"));
+        mockMvc.perform(json(post("/api/tasks/12/undo-complete"), "{\"nextTaskId\":0}"))
+                .andExpect(jsonPath("$.errors[0].code").value("OUT_OF_RANGE"));
+        mockMvc.perform(json(post("/api/tasks/12/undo-complete"), "{\"nextTaskId\":3,\"status\":\"DONE\"}"))
+                .andExpect(jsonPath("$.errors[0].field").value("status"))
+                .andExpect(jsonPath("$.errors[0].code").value("OUT_OF_RANGE"));
+        mockMvc.perform(json(post("/api/tasks/12/undo-complete"), "{\"nextTaskId\":\"3\"}"))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        mockMvc.perform(json(post("/api/tasks/abc/undo-complete"), "{\"nextTaskId\":3}"))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void undoCompleteOnAMissingTaskIs404AndNeedsCsrfAndSignIn() throws Exception {
+        when(taskService.undoComplete(OWNER, 42L, 15L, null)).thenThrow(new TaskNotFoundException());
+        mockMvc.perform(json(post("/api/tasks/42/undo-complete"), "{\"nextTaskId\":15}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        mockMvc.perform(post("/api/tasks/12/undo-complete").with(signedIn()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nextTaskId\":15}")).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/tasks/12/undo-complete").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nextTaskId\":15}")).andExpect(status().isUnauthorized());
     }
 }

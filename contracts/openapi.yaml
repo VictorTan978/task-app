@@ -60,8 +60,9 @@ info:
       go, notifications keep `taskId: null`, and tags of its list that no remaining task
       (trashed or not) uses are deleted.
     - **Undo** is done by the client with existing calls: undo of delete = `POST
-      /api/trash/{id}/restore`; undo of tick, move or edit = `PUT /api/tasks/{id}` with the old
-      values. There is no version check: last write wins, like every edit. The one exception is
+      /api/trash/{id}/restore`; undo of tick, move or edit = `PATCH /api/tasks/{id}` with only
+      the fields that action changed, set back to their old values (so a teammate's later edit of
+      other fields is kept). There is no version check: last write wins, like every edit. The one exception is
       undoing the completion of a repeating task: `POST /api/tasks/{id}/undo-complete`.
     - **404, never 403.** A task that does not exist, is in a list I am not a member of, or (for
       the `/api/trash/{id}` calls) is not in the trash, answers 404 `NOT_FOUND`, identical body.
@@ -2780,7 +2781,7 @@ paths:
         '403':
           $ref: '#/components/responses/CsrfInvalid'
         '404':
-          $ref: '#/components/responses/TaskNotFound'
+          $ref: '#/components/responses/TaskOrListNotFound'
     delete:
       summary: Move a task to the trash
       description: |
@@ -2886,8 +2887,10 @@ paths:
           description: |
             `MALFORMED_REQUEST` (path id not an integer, or the body is not valid JSON), or
             `VALIDATION_FAILED` with `nextTaskId` / `REQUIRED` (missing or null) or
-            `nextTaskId` / `INVALID` (not a positive integer, or equal to `{id}`), or `status` /
-            `INVALID` (not `TODO` or `IN_PROGRESS`).
+            `nextTaskId` / `OUT_OF_RANGE` (below 1), or `status` / `OUT_OF_RANGE` (`DONE`). A
+            `nextTaskId` that is not an integer, or a `status` that is not a task status, is
+            `MALFORMED_REQUEST`. A `nextTaskId` equal to `{id}` is not an error: that task is never
+            deleted, the outcome is `KEPT`.
           content:
             application/problem+json:
               schema:
@@ -6406,7 +6409,7 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat, nextTaskId]
           description: |
             Name of the request field (exactly as in the request body, or the query parameter).
             `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
@@ -6445,6 +6448,8 @@ components:
             - INVALID_TIME_ZONE: (new in 0.14.0, field `timeZone`) not an IANA region id
             - OUT_OF_RANGE also: (0.14.0, `limit` of `GET /api/notifications`) not an integer
               1-50
+            - OUT_OF_RANGE also: (0.16.0, `POST /api/tasks/{id}/undo-complete`) `nextTaskId` below 1,
+              or `status` `DONE`. `nextTaskId` is also a new `REQUIRED` field there.
             - INVALID_CURSOR also: (0.14.0, field `cursor` of `GET /api/notifications`) the
               cursor cannot be read
             - INVALID_CHARACTERS: (new in 0.10.0, field `tags`) a tag contains a comma or a

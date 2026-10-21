@@ -38,7 +38,7 @@ public interface ListRepository extends JpaRepository<TaskList, Long> {
 
     long countByOwnerId(long ownerId);
 
-    @Query(value = "SELECT COUNT(*) FROM tasks WHERE list_id = :listId", nativeQuery = true)
+    @Query(value = "SELECT COUNT(*) FROM tasks WHERE list_id = :listId AND deleted_at IS NULL", nativeQuery = true)
     long countTasks(@Param("listId") long listId);
 
     /**

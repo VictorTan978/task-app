@@ -27,7 +27,7 @@ public @interface DoneOrStatusRequired {
     class Validator implements ConstraintValidator<DoneOrStatusRequired, StatusAndDone> {
         @Override
         public boolean isValid(StatusAndDone request, ConstraintValidatorContext context) {
-            if (request == null || request.status() != null || request.done() != null) {
+            if (request == null || request.hasChanges()) {
                 return true;
             }
             context.disableDefaultConstraintViolation();

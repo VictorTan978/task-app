@@ -92,7 +92,7 @@ public class ReminderProcessor {
 
     private record Info(String title, LocalDate dueDate, LocalTime dueTime, boolean done, long listId,
             String listName, boolean personal, boolean member, String email, String displayName,
-            boolean reminderEmails, boolean disabled, boolean verified) {
+            boolean reminderEmails, boolean disabled, boolean verified, boolean trashed) {
     }
 
     /**
@@ -103,8 +103,10 @@ public class ReminderProcessor {
         Instant now = clock.instant();
         List<Candidate> due;
         try {
-            due = jdbc.query("SELECT id, user_id, task_id FROM reminders WHERE status = 'PENDING'"
-                    + " AND next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT ?",
+            // A trashed task's reminders are left alone (restore re-arms them), so the scan skips them (0.16.0).
+            due = jdbc.query("SELECT r.id, r.user_id, r.task_id FROM reminders r JOIN tasks t ON t.id = r.task_id"
+                    + " WHERE r.status = 'PENDING' AND t.deleted_at IS NULL"
+                    + " AND r.next_attempt_at <= ? ORDER BY r.next_attempt_at, r.id LIMIT ?",
                     (rs, i) -> new Candidate(rs.getLong(1), rs.getLong(2), rs.getLong(3)),
                     ReminderTimes.toDb(now), properties.batchSize());
         } catch (RuntimeException e) {
@@ -145,6 +147,10 @@ public class ReminderProcessor {
             return null;
         }
         Info info = info(candidate);
+        if (info != null && info.trashed()) {
+            // Trashed between the scan and this claim: nothing fires, nothing changes (restore re-arms it).
+            return null;
+        }
         if (!reminder.notified()) {
             Duration lateness = Duration.between(reminder.fireAt(), now);
             if (lateness.compareTo(SKIP_AFTER) >= 0 || info == null || info.done() || !info.member()
@@ -228,13 +234,13 @@ public class ReminderProcessor {
     private Info info(Candidate c) {
         return jdbc.query("SELECT t.title, t.due_date, t.due_time, t.done, t.list_id, l.name, l.personal,"
                 + " (m.user_id IS NOT NULL), u.email, u.display_name, u.reminder_emails, u.disabled_at IS NOT NULL,"
-                + " u.email_verified_at IS NOT NULL FROM users u JOIN tasks t ON t.id = ?"
+                + " u.email_verified_at IS NOT NULL, t.deleted_at IS NOT NULL FROM users u JOIN tasks t ON t.id = ?"
                 + " JOIN lists l ON l.id = t.list_id"
                 + " LEFT JOIN list_members m ON m.list_id = t.list_id AND m.user_id = u.id WHERE u.id = ?",
                 rs -> rs.next() ? new Info(rs.getString(1), rs.getObject(2, LocalDate.class),
                         rs.getObject(3, LocalTime.class), rs.getBoolean(4), rs.getLong(5), rs.getString(6),
                         rs.getBoolean(7), rs.getBoolean(8), rs.getString(9), rs.getString(10), rs.getBoolean(11),
-                        rs.getBoolean(12), rs.getBoolean(13)) : null,
+                        rs.getBoolean(12), rs.getBoolean(13), rs.getBoolean(14)) : null,
                 c.taskId(), c.userId());
     }
 

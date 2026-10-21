@@ -129,6 +129,16 @@ public class ReminderService {
     }
 
     /**
+     * A task came back from the trash (contract 0.16.0). The scheduler left its reminders alone while it was trashed,
+     * so a PENDING one whose fire time passed meanwhile and that never notified is dropped now (it never fires, like a
+     * past one on save); one still in the future fires normally. Everyone's reminders on the task, same transaction.
+     */
+    public void afterRestore(Task task) {
+        jdbc.update("UPDATE reminders SET status = 'SKIPPED' WHERE task_id = ? AND status = 'PENDING'"
+                + " AND notified_at IS NULL AND fire_at <= ?", task.getId(), ReminderTimes.toDb(clock.instant()));
+    }
+
+    /**
      * Copies every reminder of {@code source} to {@code copy} (the next task of a completed repeating task, already
      * saved in its list) for the users who are members of the copy's list, with the same offset and the fire time
      * recomputed for the copy's date in the owner's zone. One whose fire time is not in the future is saved as

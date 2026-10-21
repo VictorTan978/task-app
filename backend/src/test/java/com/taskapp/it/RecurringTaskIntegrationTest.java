@@ -282,7 +282,9 @@ class RecurringTaskIntegrationTest {
         long list = ana.createList("L");
         long id = repeating(ana, "Gone", list, "2026-10-20", "{\"frequency\":\"DAILY\"}");
         assertThat(ana.delete("/api/tasks/" + id).status()).isEqualTo(204);
-        assertThat(count("select count(*) from tasks where list_id = ?", list)).isZero();
+        // Moved to the trash (0.16.0): nothing is left in the list, and no copy was made.
+        assertThat(count("select count(*) from tasks where list_id = ? and deleted_at is null", list)).isZero();
+        assertThat(count("select count(*) from tasks where list_id = ?", list)).isEqualTo(1);
     }
 
     @Test

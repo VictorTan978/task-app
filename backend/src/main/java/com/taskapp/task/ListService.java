@@ -205,6 +205,12 @@ public class ListService {
         return list;
     }
 
+    /** The id of the list's owner, if the list exists. Plain read (the purge, which has no user). */
+    @Transactional(readOnly = true)
+    public Optional<Long> ownerOf(long listId) {
+        return lists.findById(listId).map(TaskList::getOwnerId);
+    }
+
     /** The user's "My tasks". Plain read. */
     @Transactional(readOnly = true)
     public TaskList personal(long userId) {
