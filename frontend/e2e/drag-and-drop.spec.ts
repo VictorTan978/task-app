@@ -531,6 +531,48 @@ test.describe('AC24 drag, persist, groups, hint', () => {
     await expect(p.getByTestId('drag-handle')).toHaveCount(0);
   });
 
+  test('AC24: touch drag (CDP touch events on the grip) sends one PUT and the order survives a reload', async ({ kit, browser }) => {
+    const u = await kit.newUser('ac24t');
+    const l = await personal(u.page);
+    const [t1, t2, t3] = [await mk(u.page, 'T1'), await mk(u.page, 'T2'), await mk(u.page, 'T3')];
+    const tctx = await browser.newContext({ baseURL: BASE, hasTouch: true, storageState: await u.ctx.storageState(), viewport: { width: 1280, height: 900 } });
+    const p = await tctx.newPage();
+    const errors: string[] = [];
+    p.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+    p.on('pageerror', (e) => errors.push(e.message));
+    await openManual(p);
+    expect(await uiIds(p)).toEqual([t3.id, t2.id, t1.id]);
+    const puts = requests(p, 'PUT', /\/position$/);
+    const cdp = await tctx.newCDPSession(p);
+    const hb = (await handleOf(p, t1.id).boundingBox())!;
+    const tb = (await rowOf(p, t3.id).boundingBox())!;
+    const sx = hb.x + hb.width / 2;
+    const sy = hb.y + hb.height / 2;
+    const ty = tb.y + tb.height * 0.3;
+    const touch = (type: string, x: number, y: number) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+    const put = putResponse(p);
+    await touch('touchStart', sx, sy);
+    await p.waitForTimeout(300);
+    const steps = 20;
+    for (let i = 1; i <= steps; i++) {
+      await touch('touchMove', sx, sy + ((ty - sy) * i) / steps);
+      await p.waitForTimeout(20);
+    }
+    await touch('touchMove', sx, ty + 1);
+    await p.waitForTimeout(100);
+    await touch('touchEnd', sx, ty);
+    expect((await put).status()).toBe(204);
+    expect(puts.length).toBe(1);
+    expect(JSON.parse(puts[0].postData() ?? '{}')).toEqual({ afterId: null });
+    expect(await uiIds(p)).toEqual([t1.id, t3.id, t2.id]);
+    await p.reload();
+    await expect(p.getByTestId('sort-group-open')).toBeVisible();
+    expect(await uiIds(p)).toEqual([t1.id, t3.id, t2.id]);
+    expect(await manualIds(p, l.id)).toEqual([t1.id, t3.id, t2.id]);
+    expect(errors).toEqual([]);
+    await tctx.close();
+  });
+
   test('AC24: the server accepts sort=manual with a filter/tag/q (server-side), and the touch/pointer path is the same pointer events', async ({ kit }) => {
     const u = await kit.newUser('ac24e');
     const p = u.page;
