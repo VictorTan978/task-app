@@ -59,7 +59,7 @@ As a signed-in user, I want to undo mistakes, get deleted tasks back, change man
     - `POST /api/trash/{id}/restore` returns 200 with the `Task`.
     - `DELETE /api/trash/{id}` (delete forever) returns 204.
     - `POST /api/trash/empty` (`list` optional) returns 200 with `{ deleted: n }`.
-  - Undo for tick, move and edit uses the existing `PUT`. Undo of a repeating completion uses a new `POST /api/tasks/{id}/undo-complete` with `{ nextTaskId }`, which implements AC11 atomically.
+  - Undo for tick, move and edit uses `PATCH /api/tasks/{id}` with only the fields the action changed (see the Decisions log). Undo of a repeating completion uses a new `POST /api/tasks/{id}/undo-complete` with `{ nextTaskId }`, which implements AC11 atomically.
   - All of these keep CSRF, sign-in and the 404-never-403 rule.
 - [ ] AC16: Given the Trash page, then it has a loading state, an empty state ("Trash is empty. Deleted tasks stay here for 30 days."), and an error state with "Retry". Restoring the last task shows the empty state.
 - [ ] AC17: No regressions: every existing e2e test passes. The delete test now expects the task in the Trash.
