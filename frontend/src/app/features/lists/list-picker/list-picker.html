@@ -23,6 +23,7 @@
             <a
               class="list-picker__link"
               [routerLink]="link(l)"
+              [attr.data-drop-list-id]="l.id"
               [class.list-picker__link--active]="l.id === activeId()"
               [attr.aria-current]="l.id === activeId() ? 'page' : null"
               >{{ l.name }}

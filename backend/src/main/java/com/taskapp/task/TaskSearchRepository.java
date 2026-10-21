@@ -13,4 +13,23 @@ public interface TaskSearchRepository {
 
     /** Number of matching tasks (all pages). */
     long countMatching(TaskSearchCriteria criteria);
+
+    /** A task id and its "My order" position (null = never ordered). */
+    record GroupRow(long id, Long position) {
+    }
+
+    /**
+     * The live tasks of one group of a list ({@code done} or not), in "My order" (the order of
+     * {@code sort=manual}). Ids and positions only.
+     */
+    List<GroupRow> manualGroup(long listId, boolean done);
+
+    /** Locks the rows of that group FOR UPDATE, in ascending id (the last step of the lock order). */
+    void lockGroup(long listId, boolean done);
+
+    /**
+     * Gives these tasks (live, locked) the positions {@code step, 2 * step, ...} in the order given; {@code
+     * updated_at} is not touched.
+     */
+    void assignPositions(List<Long> orderedIds, long step);
 }

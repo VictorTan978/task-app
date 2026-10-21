@@ -95,6 +95,26 @@
   }
   @if (!selecting()) {
     <div class="task-row__actions">
+      @if (reorderable()) {
+        <button
+          type="button"
+          class="btn btn--secondary btn--small"
+          data-testid="move-up"
+          [disabled]="busy() || !canMoveUp()"
+          (click)="moveUp.emit()"
+        >
+          Move up
+        </button>
+        <button
+          type="button"
+          class="btn btn--secondary btn--small"
+          data-testid="move-down"
+          [disabled]="busy() || !canMoveDown()"
+          (click)="moveDown.emit()"
+        >
+          Move down
+        </button>
+      }
       <button
         type="button"
         class="btn btn--secondary btn--small"

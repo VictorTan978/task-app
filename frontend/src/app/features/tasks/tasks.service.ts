@@ -13,6 +13,7 @@ import {
   TaskResult,
   TaskListQuery,
   TaskPage,
+  TaskPositionRequest,
   TaskStatus,
 } from './tasks.models';
 
@@ -66,6 +67,17 @@ export class TasksService {
   setStatus(id: number, status: TaskStatus): Observable<TaskResult> {
     const body: SetTaskDoneRequest = { status };
     return this.http.patch<TaskResult>(TASKS_API.one(id), body);
+  }
+
+  /** Moves the task into `afterId`'s place in "My order" (null: top of its group); 204. */
+  setPosition(id: number, afterId: number | null): Observable<void> {
+    const body: TaskPositionRequest = { afterId };
+    return this.http.put<unknown>(TASKS_API.position(id), body).pipe(map(() => undefined));
+  }
+
+  /** Drag onto a list: `PATCH {listId, tags}`, the move the edit dialog does (tags carried over). */
+  move(id: number, listId: number, tags: readonly string[]): Observable<TaskResult> {
+    return this.http.patch<TaskResult>(TASKS_API.one(id), { listId, tags: [...tags] });
   }
 
   /** Moves the task to the trash (0.16.0; still 204). */

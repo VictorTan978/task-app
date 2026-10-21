@@ -16,7 +16,9 @@ public enum TaskSort {
     /** HIGH, MEDIUM, LOW, NONE. */
     PRIORITY,
     /** Title A-Z by the column collation (utf8mb4_0900_ai_ci: case and accents ignored). */
-    TITLE;
+    TITLE,
+    /** "My order" (0.18.0): positioned tasks by position ASC, then the rest newest first. Appended: ordinals stay. */
+    MANUAL;
 
     public static TaskSort parse(String value) {
         if (value == null) {
@@ -27,6 +29,7 @@ public enum TaskSort {
             case "due" -> DUE;
             case "priority" -> PRIORITY;
             case "title" -> TITLE;
+            case "manual" -> MANUAL;
             default -> NEWEST;
         };
     }

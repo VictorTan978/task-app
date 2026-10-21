@@ -13,7 +13,7 @@ import {
 } from './tasks.models';
 
 const FILTERS: readonly TaskFilter[] = ['all', 'active', 'in_progress', 'done'];
-const SORTS: readonly TaskSort[] = ['newest', 'oldest', 'due', 'priority', 'title'];
+const SORTS: readonly TaskSort[] = ['newest', 'oldest', 'due', 'priority', 'title', 'manual'];
 
 /** Longest search the API accepts (UTF-16 code units, after trimming). */
 export const SEARCH_MAX = 100;
@@ -160,6 +160,9 @@ function compareKey(a: Task, b: Task, sort: TaskSort): number {
       return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     case 'title':
       return TITLE_COLLATOR.compare(a.title, b.title);
+    case 'manual':
+      // The shared position is hidden from the client; the page places rows itself.
+      return 0;
   }
 }
 

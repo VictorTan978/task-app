@@ -52,7 +52,10 @@ public class RecurrenceService {
     @Transactional(propagation = Propagation.MANDATORY)
     public Task createNext(long addedBy, Task completed, RepeatRule rule, LocalDate anchor, Instant now) {
         LocalDate due = rule.next(anchor, completed.getDueDate(), today(addedBy));
-        Task next = tasks.saveAndFlush(completed.nextOccurrence(addedBy, due, rule, anchor, now));
+        Task copy = completed.nextOccurrence(addedBy, due, rule, anchor, now);
+        // "My order" (0.18.0): the copy goes to the top of the list, like any new task.
+        copy.positionedAt(Task.above(tasks.minLivePosition(completed.getListId())));
+        Task next = tasks.saveAndFlush(copy);
         tags.copyTags(completed.getId(), next.getId());
         reminders.copyReminders(completed, next);
         return next;

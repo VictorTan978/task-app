@@ -173,4 +173,40 @@ describe('TasksService', () => {
       .flush({ status: 404, code: 'NOT_FOUND' }, { status: 404, statusText: 'Not Found' });
     await expect(result).rejects.toMatchObject({ status: 404 });
   });
+
+  it('list with sort=manual sends ?sort=manual', async () => {
+    const result = firstValueFrom(service.list({ ...Q, sort: 'manual' }, 'cur', 4));
+    const req = http.expectOne((r) => r.url === '/api/tasks');
+    expect(req.request.params.get('sort')).toBe('manual');
+    expect(req.request.params.get('cursor')).toBe('cur');
+    expect(req.request.params.get('list')).toBe('4');
+    req.flush(PAGE);
+    expect(await result).toEqual(PAGE);
+  });
+
+  it('setPosition sends PUT /api/tasks/{id}/position with afterId and completes on 204', async () => {
+    const result = firstValueFrom(service.setPosition(12, 8));
+    const req = http.expectOne('/api/tasks/12/position');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ afterId: 8 });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    expect(await result).toBeUndefined();
+  });
+
+  it('setPosition sends afterId null for the top of the group', async () => {
+    const result = firstValueFrom(service.setPosition(12, null));
+    const req = http.expectOne('/api/tasks/12/position');
+    expect(req.request.body).toEqual({ afterId: null });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await result;
+  });
+
+  it('move sends PATCH {listId, tags} and returns the task', async () => {
+    const result = firstValueFrom(service.move(12, 9, ['a', 'b']));
+    const req = http.expectOne('/api/tasks/12');
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.body).toEqual({ listId: 9, tags: ['a', 'b'] });
+    req.flush({ ...TASK, listId: 9, nextTask: null });
+    expect((await result).listId).toBe(9);
+  });
 });

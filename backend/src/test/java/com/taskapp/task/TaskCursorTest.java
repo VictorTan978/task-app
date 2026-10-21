@@ -18,6 +18,9 @@ class TaskCursorTest {
     private static final Instant CREATED = Instant.parse("2026-10-08T09:15:02.123456Z");
 
     private static TaskCursor cursor(TaskSort sort, String title) {
+        if (sort == TaskSort.MANUAL) {
+            return TaskCursor.manual(true, 123_456_789L);
+        }
         return new TaskCursor(true,
                 sort == TaskSort.DUE ? LocalDate.parse("2026-10-10") : null,
                 sort == TaskSort.PRIORITY ? Priority.MEDIUM : null,
@@ -98,12 +101,34 @@ class TaskCursorTest {
         assertThat(TaskCursor.decode(encoded, TaskSort.TITLE, query.fingerprint(4L))).isEmpty();
     }
 
-    /** 0.14.0 writes version 3; older cursors are rejected once, see otherRequestsAndFormatsAreRejected. */
-    @Test
-    void cursorsAreVersion3() {
-        String encoded = cursor(TaskSort.NEWEST, null).encode(TaskSort.NEWEST, FINGERPRINT);
+    /** 0.18.0 writes version 4; older cursors are rejected once (every sort), see otherRequestsAndFormatsAreRejected. */
+    @ParameterizedTest
+    @EnumSource(TaskSort.class)
+    void cursorsAreVersion4AndAVersion3CursorIsRejected(TaskSort sort) {
+        String encoded = cursor(sort, "Buy milk").encode(sort, FINGERPRINT);
         byte[] raw = Base64.getUrlDecoder().decode(encoded);
-        assertThat(raw[0]).isEqualTo((byte) 3);
+        assertThat(raw[0]).isEqualTo((byte) 4);
+
+        // Same bytes with version 3 and a valid checksum: well-formed, but from 0.14.0 - 0.17.0.
+        byte[] v3 = Arrays.copyOf(raw, raw.length);
+        v3[0] = 3;
+        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+        crc.update(v3, 0, v3.length - 4);
+        java.nio.ByteBuffer.wrap(v3).putInt(v3.length - 4, (int) crc.getValue());
+        assertThat(TaskCursor.decode(Base64.getUrlEncoder().withoutPadding().encodeToString(v3), sort, FINGERPRINT))
+                .isEmpty();
+    }
+
+    /** The manual cursor is the group and the anchor id only (0.18.0): nothing else of the task is in it. */
+    @Test
+    void manualCursorHoldsOnlyTheGroupAndTheAnchorId() {
+        TaskCursor manual = TaskCursor.manual(false, 42L);
+        String encoded = manual.encode(TaskSort.MANUAL, FINGERPRINT);
+
+        assertThat(TaskCursor.decode(encoded, TaskSort.MANUAL, FINGERPRINT)).contains(manual);
+        assertThat(TaskCursor.decode(encoded, TaskSort.NEWEST, FINGERPRINT)).isEmpty();
+        // version + sort + 8 fingerprint + done + id + 4 checksum
+        assertThat(Base64.getUrlDecoder().decode(encoded)).hasSize(1 + 1 + 8 + 1 + 8 + 4);
     }
 
     @Test

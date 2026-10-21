@@ -1,0 +1,99 @@
+:host {
+  display: block;
+}
+
+.sort-list {
+  & + & {
+    margin-top: 0.75rem;
+  }
+
+  &__item {
+    display: flex;
+    align-items: center;
+    background: #fff;
+
+    &:first-child {
+      border-top-left-radius: var(--radius);
+      border-top-right-radius: var(--radius);
+    }
+
+    &:last-child {
+      border-bottom-left-radius: var(--radius);
+      border-bottom-right-radius: var(--radius);
+    }
+
+    &--picked {
+      outline: 2px solid var(--color-primary);
+      outline-offset: -2px;
+    }
+  }
+
+  &__row {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__handle {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    width: 2rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-muted);
+    fill: currentColor;
+    cursor: grab;
+    touch-action: none;
+
+    &:hover:not(:disabled),
+    &[aria-pressed='true'] {
+      color: var(--color-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: -2px;
+    }
+
+    &:disabled {
+      cursor: default;
+      opacity: 0.4;
+    }
+  }
+
+  &__help {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* The item that follows the pointer (a clone in <body>) and the gap it leaves. */
+.cdk-drag-preview {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 20%);
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.cdk-drag-placeholder {
+  opacity: 0.3;
+}
+
+.cdk-drag-animating {
+  transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.sort-list.cdk-drop-list-dragging .sort-list__item:not(.cdk-drag-placeholder) {
+  transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
+}

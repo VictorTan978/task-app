@@ -1103,7 +1103,7 @@ describe('TasksPage', () => {
       sortSelect().dispatchEvent(new Event('change'));
     }
 
-    it('offers the five sorts with a "Sort" label; Newest is the default', async () => {
+    it('offers the six sorts with a "Sort" label; Newest is the default', async () => {
       await openWith([MILK]);
       expect(el.querySelector('label[for=task-sort]')?.textContent?.trim()).toBe('Sort');
       expect(Array.from(sortSelect().options).map((o) => [o.value, o.textContent?.trim()])).toEqual(
@@ -1113,6 +1113,7 @@ describe('TasksPage', () => {
           ['due', 'Due date'],
           ['priority', 'Priority'],
           ['title', 'Title A–Z'],
+          ['manual', 'My order'],
         ],
       );
       expect(sortSelect().value).toBe('newest');

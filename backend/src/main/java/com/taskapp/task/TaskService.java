@@ -116,6 +116,12 @@ public class TaskService {
         byte[] fingerprint = query.fingerprint(listId);
         if (query.hasCursor()) {
             after = TaskCursor.decode(query.cursor(), query.sort(), fingerprint).orElse(null);
+            if (after != null && query.sort() == TaskSort.MANUAL) {
+                // The manual cursor holds only the anchor's id: its position and creation time are read now. An anchor
+                // that is trashed, deleted, moved or not in this list makes the cursor invalid.
+                TaskCursor issued = after;
+                after = taskRepository.findLiveInList(issued.id(), listId).map(issued::resolved).orElse(null);
+            }
             if (after == null) {
                 errors.rejectValue("cursor", INVALID_CURSOR_CONSTRAINT, CURSOR_MESSAGE);
             }
@@ -175,6 +181,8 @@ public class TaskService {
             }
             Task task = new Task(userId, list.getId(), request.title(), request.description(), request.dueDate(),
                     now());
+            // "My order" (0.18.0): a new task goes to the top of the list.
+            task.positionedAt(Task.above(taskRepository.minLivePosition(list.getId())));
             return respond(userId, taskRepository.saveAndFlush(task), List.of());
         }));
     }
@@ -272,11 +280,15 @@ public class TaskService {
                     : tagService.replaceTags(source.getOwnerId(), source.getId(), task.getId(), request.tags());
             return applied(userId, task, tags, spawn);
         }
+        // "My order" (0.18.0): a moved task goes to the top of the target list (read before it joins the list).
+        long top = Task.above(taskRepository.minLivePosition(target.getId()));
         if (taskRepository.moveToList(task.getId(), source.getId(), target.getId()) == 0) {
             // Not reachable: the source list's lock keeps the task in it.
             throw new TaskNotFoundException();
         }
+        taskRepository.setPosition(task.getId(), top);
         task.movedTo(target.getId());
+        task.positionedAt(top);
         return applied(userId, task, tagService.moveTags(target.getOwnerId(), source.getId(), target.getId(),
                 task.getId(), request.tags()), spawn);
     }
@@ -464,6 +476,115 @@ public class TaskService {
             task.ifPresent(this::removeForGood);
             return task.isPresent();
         })));
+    }
+
+    /** Puts a (locked) task of {@code listId} above every other task of that list in "My order". */
+    void putOnTop(Task task, long listId) {
+        long top = Task.above(taskRepository.minLivePosition(listId));
+        taskRepository.setPosition(task.getId(), top);
+        task.positionedAt(top);
+    }
+
+    /**
+     * {@code PUT /api/tasks/{id}/position} (contract 0.18.0): puts the task right after {@code afterId} (null: at the
+     * top) inside its group (done / not done) of its list, in one transaction with the list row locked FOR UPDATE
+     * (like a move: no other write of the list runs meanwhile, so two reorders queue up and the last wins). Checks, in
+     * order, on the locked task: {@code afterId} must be a live task of one of the caller's lists (404), not the task
+     * itself ({@code SELF}), in the same list ({@code OTHER_LIST}) and group ({@code OTHER_GROUP}). {@code updated_at}
+     * is not touched.
+     */
+    public void reposition(long userId, long id, Long afterId) {
+        writeLocked(userId, id, null, true, false, (task, lists) -> {
+            if (afterId != null) {
+                Task after = taskRepository.findAccessible(afterId, userId).orElseThrow(TaskNotFoundException::new);
+                if (after.getId().equals(task.getId())) {
+                    throw afterIdError("Self", "A task cannot be placed after itself");
+                }
+                if (!after.getListId().equals(task.getListId())) {
+                    throw afterIdError("OtherList", "The task is in another list");
+                }
+                if (after.isDone() != task.isDone()) {
+                    throw afterIdError("OtherGroup", "The task is in the other group (done or not done)");
+                }
+            }
+            place(task, afterId);
+            return Boolean.TRUE;
+        });
+    }
+
+    private static InvalidFieldsException afterIdError(String constraint, String message) {
+        MapBindingResult errors = new MapBindingResult(new HashMap<>(), "taskPositionRequest");
+        errors.rejectValue("afterId", constraint, message);
+        return new InvalidFieldsException(errors);
+    }
+
+    /**
+     * The order logic of {@link #reposition}, on the locked task. The group is read in "My order". If a task of it
+     * has no position, the whole group is numbered first (1024, 2048, ... in that order, rows locked in id order).
+     * Then the task takes the middle of the gap between {@code afterId} and the task that follows it (not counting the
+     * task itself); with no whole number in between (a gap under 2, e.g. a tie) the group is renumbered with the task
+     * in its new place.
+     */
+    private void place(Task task, Long afterId) {
+        long listId = task.getListId();
+        boolean done = task.isDone();
+        long self = task.getId();
+        List<TaskSearchRepository.GroupRow> rows = taskRepository.manualGroup(listId, done);
+        if (rows.stream().anyMatch(row -> row.position() == null)) {
+            taskRepository.lockGroup(listId, done);
+            taskRepository.assignPositions(rows.stream().map(TaskSearchRepository.GroupRow::id).toList(),
+                    Task.POSITION_STEP);
+            List<TaskSearchRepository.GroupRow> numbered = new ArrayList<>();
+            for (int i = 0; i < rows.size(); i++) {
+                numbered.add(new TaskSearchRepository.GroupRow(rows.get(i).id(), (i + 1) * Task.POSITION_STEP));
+            }
+            rows = numbered;
+        }
+        int at = indexOf(rows, self);
+        if (at < 0) {
+            // Not reachable: the task is locked, live and in this group.
+            throw new TaskNotFoundException();
+        }
+        List<TaskSearchRepository.GroupRow> others = new ArrayList<>(rows);
+        others.remove(at);
+        int slot = 0;
+        if (afterId != null) {
+            int after = indexOf(others, afterId);
+            if (after < 0) {
+                throw new TaskNotFoundException();
+            }
+            slot = after + 1;
+        }
+        if (slot == at) {
+            return;
+        }
+        long position;
+        if (slot == 0) {
+            position = others.isEmpty() ? 0 : others.get(0).position() - Task.POSITION_STEP;
+        } else if (slot == others.size()) {
+            position = others.get(slot - 1).position() + Task.POSITION_STEP;
+        } else {
+            long below = others.get(slot - 1).position();
+            long above = others.get(slot).position();
+            if (above - below < 2) {
+                List<Long> ordered = new ArrayList<>(others.stream().map(TaskSearchRepository.GroupRow::id).toList());
+                ordered.add(slot, self);
+                taskRepository.lockGroup(listId, done);
+                taskRepository.assignPositions(ordered, Task.POSITION_STEP);
+                return;
+            }
+            position = below + (above - below) / 2;
+        }
+        taskRepository.setPosition(self, position);
+    }
+
+    private static int indexOf(List<TaskSearchRepository.GroupRow> rows, long id) {
+        for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).id() == id) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**

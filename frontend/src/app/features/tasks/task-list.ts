@@ -7,7 +7,13 @@
  * starts right after that position, so a task that sorts after it will come back via "Load more"
  * and must not be shown yet (it would show twice or out of place).
  */
-import { compareTasks, instantMicros, matchesView, titleOrderUncertain } from './tasks.logic';
+import {
+  compareTasks,
+  instantMicros,
+  isDone,
+  matchesView,
+  titleOrderUncertain,
+} from './tasks.logic';
 import { Task, TaskListQuery, TaskPage, TaskSort } from './tasks.models';
 
 export interface TaskListState {
@@ -34,9 +40,13 @@ export function hasMore(state: TaskListState): boolean {
 /**
  * Appends a page: skips ids deleted in this paging session, de-duplicates by id (a task already
  * shown stays where it is unless the page has a newer version, which then takes the page's
- * place), and re-syncs `total` and the cursor from the page.
+ * place; with `sort=manual` it is skipped), and re-syncs `total` and the cursor from the page.
  */
-export function appendPage(state: TaskListState, page: TaskPage): TaskListState {
+export function appendPage(
+  state: TaskListState,
+  page: TaskPage,
+  sort: TaskSort = 'newest',
+): TaskListState {
   const items = [...state.items];
   for (const task of page.items) {
     if (state.deleted.has(task.id)) {
@@ -44,6 +54,11 @@ export function appendPage(state: TaskListState, page: TaskPage): TaskListState 
     }
     const i = items.findIndex((t) => t.id === task.id);
     if (i >= 0) {
+      // "My order": a loaded row is never moved or replaced (a drop may have changed its place;
+      // the contract has the client skip ids it already has).
+      if (sort === 'manual') {
+        continue;
+      }
       if (instantMicros(task.updatedAt) <= instantMicros(items[i].updatedAt)) {
         continue;
       }
@@ -61,8 +76,8 @@ export function appendPage(state: TaskListState, page: TaskPage): TaskListState 
 }
 
 /** The first page of a new paging session. */
-export function firstPage(page: TaskPage): TaskListState {
-  return appendPage(emptyList(), page);
+export function firstPage(page: TaskPage, sort: TaskSort = 'newest'): TaskListState {
+  return appendPage(emptyList(), page, sort);
 }
 
 /** Inserts `task` before the first item that sorts after it (the rest keep the server order). */
@@ -82,7 +97,30 @@ export function fitsLoaded(state: TaskListState, task: Task, sort: TaskSort): bo
   if (!hasMore(state) || boundary === null) {
     return true;
   }
+  if (sort === 'manual') {
+    // New and moved-in rows go to the top of their group: they fit unless the group is not
+    // loaded yet (a done task while the boundary is still in the not-done group).
+    return isDone(task) === isDone(boundary) || !isDone(task);
+  }
   return compareTasks(task, boundary, sort) <= 0 || titleOrderUncertain(task, boundary, sort);
+}
+
+/**
+ * "My order": the client can't see positions. A created task goes to the top of its group; an
+ * updated one that stays in its group keeps its place (the server keeps its position); one that
+ * changed group (a tick) goes to the top of the new group, which may differ from the server's
+ * place until the next reload.
+ */
+function placeManual(items: readonly Task[], task: Task, created: boolean): Task[] {
+  const current = items.findIndex((t) => t.id === task.id);
+  if (!created && current >= 0 && isDone(items[current]) === isDone(task)) {
+    return items.map((t, i) => (i === current ? task : t));
+  }
+  const others = items.filter((t) => t.id !== task.id);
+  const first = others.findIndex((t) => isDone(t) === isDone(task));
+  const at =
+    first >= 0 ? first : isDone(task) ? others.length : others.filter((t) => !isDone(t)).length;
+  return [...others.slice(0, at), task, ...others.slice(at)];
 }
 
 export type TaskChange = 'created' | 'updated';
@@ -120,7 +158,10 @@ export function applyChange(
   const counted = shown && !created;
   const total = counted ? state.total : state.total + 1;
   if (fitsLoaded(state, task, query.sort)) {
-    const items = insertSorted(others, task, query.sort);
+    const items =
+      query.sort === 'manual'
+        ? placeManual(state.items, task, created)
+        : insertSorted(others, task, query.sort);
     return { state: { ...state, items, total }, addedHidden: false };
   }
   return { state: { ...state, items: others, total }, addedHidden: created };

@@ -1,8 +1,41 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.17.0
+  version: 0.18.0
   description: |
+    ## Changes in 0.18.0 (drag and drop, specs/undo-trash-dnd-bulk.md Part C / T5c)
+    Additive, plus a one-off cursor reset. Migration V15 adds `tasks.position` (internal).
+    - `GET /api/tasks` gains `sort=manual` ("My order"), an order shared by all members of the
+      list. The cursor of every sort changes version (4), so every cursor issued before 0.18.0
+      gives 400 `INVALID_CURSOR` once (clients already reload from page 1 on it). With
+      `sort=manual` the cursor is anchored on the last row's task id (see `cursor` below).
+    - New endpoint `PUT /api/tasks/{id}/position` (`{ afterId }`, 204): put a task right after
+      another one of its group, or at the top of its group.
+    - New `FieldError` field `afterId` and codes `SELF`, `OTHER_LIST`, `OTHER_GROUP`.
+    - `position` is **never** exposed in any schema. No `Task` / `TaskResult` field changed.
+    - Reordering does **not** change `updatedAt` (the T5a "untouched copy" rule compares
+      `updatedAt` with `createdAt`).
+
+    ## My order (0.18.0)
+    - **Position.** Each task has a hidden, list-wide number (`position`, may be unset). Tasks
+      without one come after the positioned ones, newest first. Existing tasks have none.
+      Each group (not done / done, see `GET /api/tasks`) is sorted on its own, so the numbers
+      of the two groups may interleave.
+    - **What each write does to the position:**
+      | Write | Position |
+      |---|---|
+      | create (`POST /api/tasks`), the repeat copy of a completed task | top of its group: the list's lowest position minus 1024 (0 minus 1024 if no task has one) |
+      | tick / untick, `PUT` / `PATCH` `status` or `done`, bulk `COMPLETE` / `REOPEN` / `SET_STATUS`, `undo-complete`, `bulk-undo-complete` | **kept**, so undoing a tick puts the task back in its old place |
+      | list move (`PUT` / `PATCH` `listId`, bulk `MOVE`, `bulk-patch` with `listId`, and their undo) | top of the destination list (so undoing a move does not restore the old place) |
+      | trash restore (`POST /api/trash/{id}/restore`, `POST /api/trash/restore`) | **kept** |
+      | `PUT /api/tasks/{id}/position` | as asked |
+    - **Gaps.** Positions are spaced by 1024. When no whole number fits between two
+      neighbours, the server renumbers that group in the same transaction. Clients never see
+      positions; the only visible effect is through `sort=manual` paging (see `cursor`).
+    - **Concurrency.** Reordering takes the list row `FOR UPDATE` first (lock order unchanged:
+      users, lists, memberships, tasks by id; a renumber locks the group's tasks in id order).
+      Two members reordering at once never give a 500 or a deadlock; the last write wins.
+
     ## Changes in 0.17.0 (bulk actions, specs/undo-trash-dnd-bulk.md Part B / T5b)
     Additive. No migration. Tag `tasks` gains three endpoints, tag `trash` one:
     - `POST /api/tasks/bulk`: one **action** (complete, reopen, set status, set priority, add or
@@ -2274,7 +2307,12 @@ paths:
            - `priority`: `HIGH`, `MEDIUM`, `LOW`, `NONE`.
            - `title`: A-Z by `title`, ignoring letter case and accents (MySQL
              `utf8mb4_0900_ai_ci`), so `café` and `Cafe` are equal and tie.
-        3. Ties (`due`, `priority`, `title`; for `due`: same date and same time or both
+           - `manual` ("My order", 0.18.0): tasks that have a position, ascending; then tasks
+             without one, `createdAt` descending. Ties (same position): `createdAt`
+             descending. The order is shared by every member of the list (see "My order").
+             Allowed together with any `filter`, `tag` and `q` (the web UI only offers
+             dragging when there are none).
+        3. Ties (`due`, `priority`, `title`, `manual`; for `due`: same date and same time or both
            date-only): `createdAt` descending, then `id` descending.
         Status other than done never changes the order inside a group.
 
@@ -2285,12 +2323,17 @@ paths:
         edited, ticked or deleted between requests never make a later page repeat or skip a task
         that kept its place in the order. A task whose sort position changed after its page was
         loaded (e.g. retitled under `sort=title`, or ticked under `filter=all`) can be returned
-        again on a later page; clients should de-duplicate by `id`. A page can be empty with
+        again on a later page; clients should de-duplicate by `id`. With `sort=manual` (0.18.0)
+        the cursor is anchored on a task id instead (see `cursor`), so a drop made after the
+        last loaded row comes back on the next page: de-duplicate by `id` there too. A page can be empty with
         `nextCursor: null` (e.g. the remaining tasks were deleted). Page size is fixed at 50; there
         is no `limit` parameter (unknown parameters are ignored).
 
         `total` is the number of tasks of the list matching `filter` + `tag` + `q` right now (all
         pages), not the number on this page. It is recomputed on every page.
+
+        "Done group" (0.18.0 note): with `filter=all`, the group of a task is its `done` flag
+        (`status = DONE`); the other filters hold one group.
 
         Nothing but `q` and `cursor` can cause a 400: unknown `filter` / `sort` values fall back
         to the default and an unusable `tag` gives an empty page. Nothing but `list` can cause a
@@ -2345,12 +2388,12 @@ paths:
           in: query
           required: false
           description: |
-            New in 0.11.0. See "Order" above. Matching is exact and case-sensitive. A missing,
+            New in 0.11.0; `manual` ("My order") is new in 0.18.0. See "Order" above. Matching is exact and case-sensitive. A missing,
             empty or unrecognised value (e.g. `?sort=foo`, `?sort=Due`) is treated as `newest`;
             it never causes a 400.
           schema:
             type: string
-            enum: [newest, oldest, due, priority, title]
+            enum: [newest, oldest, due, priority, title, manual]
             default: newest
         - name: cursor
           in: query
@@ -2370,7 +2413,20 @@ paths:
             0.12.0: the cursor format changed (version 2, it now carries the list), so every
             cursor issued before 0.12.0 gives `INVALID_CURSOR` once. 0.14.0: version 3 (it now
             carries the due time), so every cursor issued before 0.14.0 gives `INVALID_CURSOR`
-            once.
+            once. 0.18.0: version 4 (new `manual` sort), so every cursor issued before 0.18.0
+            gives `INVALID_CURSOR` once, for every sort.
+
+            **`sort=manual` (0.18.0): the cursor is anchored on the last row's task id.** It
+            holds that id and the `done` group it was issued in, not a sort key. When the next
+            page is asked, the server reads the anchor task's *current* `position` and
+            `createdAt` and returns the rows after that point in the same group (then the next
+            group, as usual with `filter=all`). So the cursor survives a renumbering and a
+            drag. If the anchor no longer qualifies (trashed, deleted, moved to another list, or
+            in a list I am not a member of) the cursor is invalid: 400 `INVALID_CURSOR`, and the
+            client reloads from the first page. A task that is dropped after the anchor in the
+            meantime is returned by the next page; clients de-duplicate by `id` (a row already
+            loaded is skipped), so nothing is repeated or skipped. Other sorts keep their
+            cursor content.
           schema:
             type: string
             maxLength: 1024
@@ -2473,6 +2529,8 @@ paths:
         `listId` that is not one of my lists (unknown, another user's, deleted) gives 404
         `LIST_NOT_FOUND` and nothing is created. Body validation (400) runs first.
         0.13.0: any list I'm a member of (owner or member).
+        0.18.0: the new task goes to the top of its (not done) group in "My order" (see "My
+        order"); other sorts are unchanged.
       operationId: createTask
       tags: [tasks]
       security:
@@ -2562,6 +2620,11 @@ paths:
         `LIST_NOT_FOUND` (`MOVE` target is not one of my lists) > 400 `ids` / `MIXED_LISTS` >
         400 `tags` / `TOO_MANY` (+ `failedIds`, `ADD_TAG` only) > 400 `tags` / `TAG_LIMIT`
         (`ADD_TAG` or `MOVE`; no `failedIds`). Nothing is changed on any error.
+
+        0.18.0, "My order": `COMPLETE`, `REOPEN` and `SET_STATUS` keep each task's position (a
+        repeat copy created by `COMPLETE` goes to the top of its group); `MOVE` puts the moved
+        tasks at the top of the target list in request order (the first id of the request
+        ends up first, the last one of them last); `DELETE` keeps the position (restore keeps it too).
       operationId: bulkTasks
       tags: [tasks]
       security:
@@ -2686,6 +2749,9 @@ paths:
         with the 1-based item number) > 404 `NOT_FOUND` (+ `failedIds`) > 404 `LIST_NOT_FOUND`
         (a `listId` in a patch) > 400 `items` / `MIXED_LISTS` > 400 `tags` / `TAG_LIMIT`. Nothing
         is changed on any error.
+
+        0.18.0, "My order": positions follow the same rules as `PATCH` (status changes keep
+        the position, a `listId` puts the task at the top of the target list).
       operationId: bulkPatchTasks
       tags: [tasks]
       security:
@@ -2751,6 +2817,9 @@ paths:
         `status` problem is reported as field `items` with the code of `undo-complete` and the
         item number in `message`) > 404 `NOT_FOUND` (+ `failedIds`: tasks `id` not in my lists
         or trashed; nothing is undone) > 200.
+
+        0.18.0, "My order": reopened tasks keep their position. A deleted copy takes its
+        position with it.
       operationId: bulkUndoCompleteTasks
       tags: [tasks]
       security:
@@ -2888,6 +2957,11 @@ paths:
         - `createdAt` is unchanged; `updatedAt` is set to now as on every PUT. The task keeps its
           `id`.
 
+        **My order (0.18.0):** a status or `done` change keeps the task's position (so undoing
+        a tick restores its old place); a move to another list puts the task at the top of
+        the target list (so undoing a move does not restore the old place). Nothing else
+        touches the position.
+
         **Checks, in order:** 400 `MALFORMED_REQUEST` (id or body) > 400 `VALIDATION_FAILED`
         (body fields) > 404 `NOT_FOUND` (the task is not in one of my lists, e.g. deleted
         meanwhile, also when its list was deleted) > 404 `LIST_NOT_FOUND` (`listId` is not one
@@ -3000,6 +3074,10 @@ paths:
         created and returned as `nextTask`, and the completed task's `repeat` becomes `null`
         (see "Recurring tasks"). Otherwise `nextTask` is `null` (including when a concurrent
         call already completed the task). `PATCH` never changes `repeat` any other way.
+
+        0.18.0, "My order": same as `PUT`: `status` / `done` keep the position (the repeat
+        `nextTask` goes to the top of its group); `listId` puts the task at the top of the
+        target list.
       operationId: setTaskDone
       tags: [tasks]
       security:
@@ -3119,6 +3197,88 @@ paths:
         '404':
           $ref: '#/components/responses/TaskNotFound'
 
+  /api/tasks/{id}/position:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    put:
+      summary: Move a task in "My order"
+      description: |
+        New in 0.18.0, see "My order". Puts task `{id}` right after task `afterId` in the
+        shared order of its list (`GET /api/tasks?sort=manual`), or at the top of its group
+        when `afterId` is `null`. A group is the not-done tasks or the done tasks of the list;
+        a task can only be placed inside its own group (no change of status).
+        Answers **204 No Content**; the order is read back with `GET /api/tasks?sort=manual`.
+        The position is not part of any response. `updatedAt` is **not** changed, and no
+        notification or reminder is touched.
+
+        Any member of the list (owner or member) can reorder, as for editing a task.
+        Placing a task where it already is succeeds and changes nothing visible.
+
+        **What the server does**, in one transaction: lock the list row `FOR UPDATE` first (the
+        task is looked up before, then re-checked under the lock), then, if the group still
+        has tasks without a position, give every task of the group a position (steps of 1024)
+        following its current "My order" (positioned ones first, then the unpositioned ones
+        newest first); then give `{id}` a position between `afterId` and the task that follows
+        `afterId` (or below the first task for `null`). If no whole number fits, renumber the
+        group (its tasks locked in id order) and retry. Two members reordering at once never
+        cause a 500 or a deadlock; the last write wins.
+
+        **Checks, in order:** 401 > 403 `CSRF_INVALID` > 400 `MALFORMED_REQUEST` (path id, body
+        not JSON, `afterId` not an integer) > 400 `VALIDATION_FAILED` (`afterId` / `OUT_OF_RANGE`
+        below 1) > 404 `NOT_FOUND` (`{id}` or `afterId` does not exist, is trashed, or is in a
+        list I am not a member of; the same body for all of these, never 403) > 400
+        `VALIDATION_FAILED` with `afterId` / `SELF` (`afterId` equals `{id}`) > 400 `afterId` /
+        `OTHER_LIST` (`afterId` is in another of my lists) > 400 `afterId` / `OTHER_GROUP`
+        (`afterId` is done and `{id}` is not, or the reverse) > 204. A missing `afterId`
+        property counts as `null` (top of the group).
+      operationId: setTaskPosition
+      tags: [tasks]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskPositionRequest'
+            examples:
+              after:
+                summary: Right after task 8
+                value:
+                  afterId: 8
+              top:
+                summary: Top of its group
+                value:
+                  afterId: null
+      responses:
+        '204':
+          description: The task was placed. No body.
+        '400':
+          description: |
+            `MALFORMED_REQUEST`, or `VALIDATION_FAILED` with `afterId` / `OUT_OF_RANGE`,
+            `SELF`, `OTHER_LIST` or `OTHER_GROUP`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/tasks/12/position
+                code: VALIDATION_FAILED
+                errors:
+                  - field: afterId
+                    code: OTHER_GROUP
+                    message: The task is in the other group (done or not done)
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/TaskNotFound'
   /api/tasks/{id}/undo-complete:
     parameters:
       - $ref: '#/components/parameters/TaskId'
@@ -3153,6 +3313,9 @@ paths:
         **Checks, in order:** 401 > 403 `CSRF_INVALID` > 400 `MALFORMED_REQUEST` (path id) >
         400 `VALIDATION_FAILED` (body) > 404 `NOT_FOUND` (task `{id}` not in my lists, or
         trashed) > 200. The copy never causes a 404: a missing one is `GONE`.
+
+        0.18.0, "My order": the reopened task keeps its position, so it returns to its old
+        place. A copy that is kept keeps its own position.
       operationId: undoCompleteTask
       tags: [tasks]
       security:
@@ -3289,7 +3452,7 @@ paths:
         New in 0.17.0. `POST /api/trash/{id}/restore` for 1-200 unique `ids`, in one
         transaction, all-or-nothing. The tasks may be in different lists (any lists I am a
         member of). This is the undo of a bulk delete. Response: `tasks` = the restored
-        `Task`s in request order.
+        `Task`s in request order. 0.18.0: each task keeps its "My order" position.
 
         **Checks, in order:** 401 > 403 `CSRF_INVALID` > 400 `MALFORMED_REQUEST` > 400
         `VALIDATION_FAILED` (`ids`: `REQUIRED`, `OUT_OF_RANGE`, `DUPLICATE`) > 404 `NOT_FOUND`
@@ -3334,6 +3497,7 @@ paths:
         "Trash"; this is also the undo of a delete). Any member of the list. Answers the `Task`
         as `GET /api/tasks/{id}` would. 404 `NOT_FOUND` when the task is not trashed (so a
         second restore is a 404), does not exist, or is in a list I am not a member of.
+        0.18.0: the task keeps its "My order" position.
 
         **Checks, in order:** 401 > 403 `CSRF_INVALID` > 400 `MALFORMED_REQUEST` > 404 > 200.
       operationId: restoreTask
@@ -6912,6 +7076,20 @@ components:
             integer → 400 `MALFORMED_REQUEST`.
           example: 8
 
+    TaskPositionRequest:
+      type: object
+      description: |
+        New in 0.18.0. Body of `PUT /api/tasks/{id}/position`. `afterId` is the id of the task
+        that must come right before `{id}` in "My order"; `null` or missing = top of the
+        group of `{id}`. It must be a different task of the same list and the same group (done
+        or not done).
+      properties:
+        afterId:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 1
+          example: 8
     SetTaskDoneRequest:
       type: object
       description: |
@@ -6991,7 +7169,7 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat, nextTaskId, ids, items, action, value]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat, nextTaskId, ids, items, action, value, afterId]
           description: |
             Name of the request field (exactly as in the request body, or the query parameter).
             `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
@@ -7003,9 +7181,13 @@ components:
             0.14.0. `repeat` (`PUT /api/tasks/{id}`) is new in 0.15.0.
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR, REQUIRES_DUE_DATE, INVALID_REMINDER, INVALID_TIME_ZONE, INVALID_REPEAT, MIXED_LISTS, DUPLICATE]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR, REQUIRES_DUE_DATE, INVALID_REMINDER, INVALID_TIME_ZONE, INVALID_REPEAT, MIXED_LISTS, DUPLICATE, SELF, OTHER_LIST, OTHER_GROUP]
           description: |
             Stable machine-readable reason.
+            - SELF / OTHER_LIST / OTHER_GROUP: (new in 0.18.0, field `afterId` of
+              `PUT /api/tasks/{id}/position`) `afterId` is the task itself; it is in another
+              list; it is in the other group (done vs not done). `afterId` / `OUT_OF_RANGE` is
+              `afterId` below 1.
             - MIXED_LISTS / DUPLICATE: (new in 0.17.0, fields `ids` / `items` of the bulk
               endpoints) the tasks are not all in the same list; the same id appears twice.
               OUT_OF_RANGE also: `ids` / `items` empty or over 200. `TOO_MANY`, `TAG_LIMIT`,
@@ -7020,7 +7202,8 @@ components:
               stripping
             - INVALID_CURSOR: (new in 0.11.0, field `cursor` of `GET /api/tasks`) the cursor
               cannot be read or was issued for a different list (0.12.0), `filter`, `tag`, `q`
-              or `sort`; reload from the first page
+              or `sort`; reload from the first page. 0.18.0: also a `sort=manual` cursor whose
+              anchor task is trashed, deleted, moved or not in my lists
             - REQUIRES_DUE_DATE: (new in 0.14.0, fields `dueTime` and `reminder` of
               `PUT /api/tasks/{id}`) a time or a reminder was sent without a `dueDate`
             - INVALID_REMINDER: (new in 0.14.0, field `reminder`) not one of the offsets, or an

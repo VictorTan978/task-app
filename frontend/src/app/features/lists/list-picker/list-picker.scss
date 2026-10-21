@@ -33,6 +33,13 @@
       background: #fff;
     }
 
+    /* A task is dragged over this list (class set by the deferred drag list). */
+    &--drop {
+      background: var(--color-primary-soft, #eef4ff);
+      outline: 2px dashed var(--color-primary);
+      outline-offset: -2px;
+    }
+
     &:focus-visible {
       outline: 2px solid var(--color-primary);
       outline-offset: 1px;

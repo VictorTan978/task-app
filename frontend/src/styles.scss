@@ -233,3 +233,9 @@ body {
   text-align: center;
   color: var(--color-muted);
 }
+
+/* Hint above the task list: why the drag handles are hidden */
+.tasks-hint {
+  margin: 0 0 0.75rem;
+  color: var(--color-muted);
+}

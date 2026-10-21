@@ -661,7 +661,7 @@ test.describe('T2 Sort (AC5-AC8)', () => {
     await seed(page, sortSeeds());
     await gotoTasks(page);
     await expect(sortSelect(page)).toHaveValue('newest');
-    expect((await sortSelect(page).locator('option').allInnerTexts()).map((x) => x.trim())).toEqual(['Newest', 'Oldest', 'Due date', 'Priority', 'Title A–Z']);
+    expect((await sortSelect(page).locator('option').allInnerTexts()).map((x) => x.trim())).toEqual(['Newest', 'Oldest', 'Due date', 'Priority', 'Title A–Z', 'My order']);
     for (const [label, value] of [['Oldest', 'oldest'], ['Due date', 'due'], ['Priority', 'priority'], ['Title A–Z', 'title']]) {
       await sortSelect(page).selectOption({ label });
       await expect.poll(() => params(page)).toEqual({ sort: value });

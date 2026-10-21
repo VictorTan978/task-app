@@ -407,4 +407,235 @@ class TaskSearchRepositoryTest {
                     .isEqualTo(all.subList(i + 1, all.size()).stream().map(Task::getId).toList());
         }
     }
+
+    // ---- "My order" (sort=manual, contract 0.18.0) ----
+
+    private Task positioned(String title, int createdSeconds, Long position, TaskStatus status) {
+        Task task = task(alice, title, null, null, Priority.NONE, status, at(createdSeconds));
+        if (position != null) {
+            jdbc.update("update tasks set position = ? where id = ?", position, task.getId());
+        }
+        // Written behind the entity's back (its position column is not updatable): read fresh rows from now on.
+        em.clear();
+        return task;
+    }
+
+    private Task positioned(String title, int createdSeconds, Long position) {
+        return positioned(title, createdSeconds, position, TaskStatus.TODO);
+    }
+
+    @Test
+    void manualIsPositionAscendingThenUnpositionedNewestFirst() {
+        positioned("none old", 0, null);
+        positioned("p3", 1, 3072L);
+        positioned("none new", 9, null);
+        positioned("p1", 2, 1024L);
+        positioned("negative", 3, -1024L);
+        positioned("p2", 4, 2048L);
+
+        assertThat(titles(TaskFilter.ALL, TaskSort.MANUAL))
+                .containsExactly("negative", "p1", "p2", "p3", "none new", "none old");
+    }
+
+    @Test
+    void manualTiesOfAPositionAreNewestFirstThenHighestId() {
+        positioned("old", 0, 1024L);
+        positioned("tie a", 5, 1024L);
+        positioned("tie b", 5, 1024L);
+        positioned("new", 9, 1024L);
+        positioned("first", 9, 512L);
+
+        assertThat(titles(TaskFilter.ALL, TaskSort.MANUAL)).containsExactly("first", "new", "tie b", "tie a", "old");
+    }
+
+    @Test
+    void manualKeepsTheDoneGroupLastAndOrdersEachGroupOnItsOwn() {
+        positioned("done p1", 0, 1024L, TaskStatus.DONE);
+        positioned("todo p5", 1, 5120L);
+        positioned("done none", 2, null, TaskStatus.DONE);
+        positioned("progress p2", 3, 2048L, TaskStatus.IN_PROGRESS);
+        positioned("done p0", 4, 0L, TaskStatus.DONE);
+        positioned("todo none", 5, null);
+
+        assertThat(titles(TaskFilter.ALL, TaskSort.MANUAL))
+                .containsExactly("progress p2", "todo p5", "todo none", "done p0", "done p1", "done none");
+        assertThat(titles(TaskFilter.ACTIVE, TaskSort.MANUAL)).containsExactly("progress p2", "todo p5", "todo none");
+        assertThat(titles(TaskFilter.DONE, TaskSort.MANUAL)).containsExactly("done p0", "done p1", "done none");
+        assertThat(titles(TaskFilter.IN_PROGRESS, TaskSort.MANUAL)).containsExactly("progress p2");
+    }
+
+    @Test
+    void manualSkipsTrashedTasksAndOtherListsAndWorksWithTagAndSearch() {
+        Task gone = positioned("trashed", 0, 1L);
+        jdbc.update("update tasks set deleted_at = ? where id = ?", java.sql.Timestamp.from(at(50)), gone.getId());
+        positioned("milk", 1, 2L);
+        positioned("bread", 2, 1L);
+        task(bob, "bob's", null, null, Priority.NONE, TaskStatus.TODO, at(3));
+
+        assertThat(titles(TaskFilter.ALL, TaskSort.MANUAL)).containsExactly("bread", "milk");
+        assertThat(titles(new TaskSearchCriteria(alice, TaskFilter.ALL, TaskSort.MANUAL, null, "mil")))
+                .containsExactly("milk");
+        assertThat(repository.countMatching(new TaskSearchCriteria(alice, TaskFilter.ALL, TaskSort.MANUAL, null, null)))
+                .isEqualTo(2);
+    }
+
+    /** Pages of {@code size} chained the way the service does it (manual: the anchor row is read again each time). */
+    private List<String> pages(TaskFilter filter, int size) {
+        TaskSearchCriteria criteria = new TaskSearchCriteria(alice, filter, TaskSort.MANUAL, null, null);
+        List<String> all = new ArrayList<>();
+        TaskCursor after = null;
+        while (true) {
+            List<Task> page = repository.findPage(criteria, after, size);
+            page.forEach(t -> all.add(t.getTitle()));
+            if (page.size() < size) {
+                return all;
+            }
+            Task last = page.get(page.size() - 1);
+            em.clear();
+            Task anchor = repository.findLiveInList(last.getId(), alice).orElseThrow();
+            after = TaskCursor.manual(last.isDone(), last.getId()).resolved(anchor);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TaskFilter.class, names = {"ALL", "ACTIVE", "DONE"})
+    void manualKeysetPagesEqualTheWholeOrderAcrossPositionedTiedAndUnpositionedRows(TaskFilter filter) {
+        for (int i = 0; i < 7; i++) {
+            positioned("p" + i, i % 3, (long) (i / 2) * 1024, i % 4 == 3 ? TaskStatus.DONE : TaskStatus.TODO);
+            positioned("n" + i, i % 3, null, i % 4 == 1 ? TaskStatus.DONE : TaskStatus.TODO);
+        }
+        List<String> whole = titles(filter, TaskSort.MANUAL);
+
+        for (int size : new int[] {1, 2, 3, 5}) {
+            assertThat(pages(filter, size)).as("page size " + size).containsExactlyElementsOf(whole);
+        }
+    }
+
+    @Test
+    void manualCursorFollowsTheAnchorWhenItIsMovedOrRenumberedBetweenPages() {
+        Task a = positioned("a", 0, 1024L);
+        Task b = positioned("b", 1, 2048L);
+        positioned("c", 2, 3072L);
+        positioned("d", 3, 4096L);
+        TaskSearchCriteria criteria = new TaskSearchCriteria(alice, TaskFilter.ALL, TaskSort.MANUAL, null, null);
+        assertThat(repository.findPage(criteria, null, 2)).extracting(Task::getTitle).containsExactly("a", "b");
+
+        // A drop right after the last loaded row (b): "x" lands between b and c. The cursor is the anchor b.
+        Task x = positioned("x", 4, 2560L);
+        TaskCursor after = TaskCursor.manual(false, b.getId())
+                .resolved(repository.findLiveInList(b.getId(), alice).orElseThrow());
+        assertThat(repository.findPage(criteria, after, 10)).extracting(Task::getTitle).containsExactly("x", "c", "d");
+
+        // The group is renumbered meanwhile (position = id * 100, so the order is a, b, c, d, x): the same anchor id
+        // still points at b and what follows it is c, d, x.
+        jdbc.update("update tasks set position = id * 100 where list_id = ?", alice);
+        em.clear();
+        after = TaskCursor.manual(false, b.getId()).resolved(repository.findLiveInList(b.getId(), alice).orElseThrow());
+        assertThat(repository.findPage(criteria, after, 10)).extracting(Task::getId)
+                .containsExactly(a.getId() + 2, a.getId() + 3, x.getId());
+    }
+
+    @Test
+    void manualCursorKeepsTheIssuedGroupWhenTheAnchorWasTickedBetweenPages() {
+        positioned("a", 0, 1024L);
+        Task b = positioned("b", 1, 2048L);
+        positioned("c", 2, 3072L);
+        positioned("d", 3, 4096L);
+        positioned("e done", 4, 512L, TaskStatus.DONE);
+        TaskSearchCriteria criteria = new TaskSearchCriteria(alice, TaskFilter.ALL, TaskSort.MANUAL, null, null);
+        TaskCursor issued = TaskCursor.manual(false, b.getId());
+
+        // b is ticked after its page was loaded: it is now in the done group, with its old position (2048).
+        jdbc.update("update tasks set status = 'DONE', done = true where id = ?", b.getId());
+        em.clear();
+        TaskCursor after = issued.resolved(repository.findLiveInList(b.getId(), alice).orElseThrow());
+
+        // Rest of the not-done group by the anchor's position, then the whole done group (b shows there again).
+        assertThat(repository.findPage(criteria, after, 10)).extracting(Task::getTitle)
+                .containsExactly("c", "d", "e done", "b");
+    }
+
+    @Test
+    void anchorLookupOnlyFindsLiveTasksOfTheList() {
+        Task live = positioned("live", 0, 1L);
+        Task trashed = positioned("trashed", 1, 2L);
+        jdbc.update("update tasks set deleted_at = ? where id = ?", java.sql.Timestamp.from(at(50)), trashed.getId());
+        Task others = task(bob, "bob's", null, null, Priority.NONE, TaskStatus.TODO, at(2));
+
+        assertThat(repository.findLiveInList(live.getId(), alice)).isPresent();
+        assertThat(repository.findLiveInList(live.getId(), bob)).isEmpty();
+        assertThat(repository.findLiveInList(trashed.getId(), alice)).isEmpty();
+        assertThat(repository.findLiveInList(others.getId(), alice)).isEmpty();
+        assertThat(repository.findLiveInList(999_999L, alice)).isEmpty();
+    }
+
+    @Test
+    void lowestLivePositionIgnoresTrashedTasksOtherListsAndNulls() {
+        assertThat(repository.minLivePosition(alice)).isEmpty();
+        positioned("none", 0, null);
+        assertThat(repository.minLivePosition(alice)).isEmpty();
+        positioned("p", 1, 500L);
+        Task low = positioned("low", 2, -7000L);
+        assertThat(repository.minLivePosition(alice)).contains(-7000L);
+        jdbc.update("update tasks set deleted_at = ? where id = ?", java.sql.Timestamp.from(at(50)), low.getId());
+        assertThat(repository.minLivePosition(alice)).contains(500L);
+        assertThat(repository.minLivePosition(bob)).isEmpty();
+    }
+
+    @Test
+    void groupHelpersReadTheOrderAndNumberTheRows() {
+        Task none = positioned("none", 5, null);
+        Task p2 = positioned("p2", 0, 2048L);
+        Task p1 = positioned("p1", 1, 1024L);
+        Task done = positioned("done", 2, 7L, TaskStatus.DONE);
+
+        assertThat(repository.manualGroup(alice, false)).extracting(TaskSearchRepository.GroupRow::id)
+                .containsExactly(p1.getId(), p2.getId(), none.getId());
+        assertThat(repository.manualGroup(alice, true)).extracting(TaskSearchRepository.GroupRow::id)
+                .containsExactly(done.getId());
+        assertThat(repository.manualGroup(alice, false).get(2).position()).isNull();
+
+        repository.lockGroup(alice, false);
+        repository.assignPositions(List.of(none.getId(), p1.getId(), p2.getId()), 1024);
+        em.clear();
+        assertThat(repository.manualGroup(alice, false)).extracting(TaskSearchRepository.GroupRow::id,
+                TaskSearchRepository.GroupRow::position).containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(none.getId(), 1024L),
+                        org.assertj.core.groups.Tuple.tuple(p1.getId(), 2048L),
+                        org.assertj.core.groups.Tuple.tuple(p2.getId(), 3072L));
+        // The other group and updated_at are untouched.
+        assertThat(repository.manualGroup(alice, true).get(0).position()).isEqualTo(7L);
+        assertThat(repository.findById(none.getId()).orElseThrow().getUpdatedAt()).isEqualTo(at(5));
+    }
+
+    @Test
+    void assignPositionsHandlesMoreRowsThanOneStatementTakes() {
+        List<Long> ids = new ArrayList<>();
+        for (int i = 0; i < 450; i++) {
+            ids.add(positioned("t" + i, i, null).getId());
+        }
+        repository.assignPositions(ids, 1024);
+        em.clear();
+
+        List<TaskSearchRepository.GroupRow> rows = repository.manualGroup(alice, false);
+        assertThat(rows).hasSize(450);
+        for (int i = 0; i < rows.size(); i++) {
+            assertThat(rows.get(i).id()).isEqualTo(ids.get(i));
+            assertThat(rows.get(i).position()).isEqualTo((i + 1) * 1024L);
+        }
+    }
+
+    @Test
+    void setPositionWritesOnlyThePositionAndAnEntitySaveNeverWritesItBack() {
+        Task t = positioned("t", 0, null);
+        assertThat(repository.setPosition(t.getId(), -2048L)).isOne();
+        // A stale managed entity (position still null in memory) saved later must not undo the write.
+        t.changePriority(Priority.HIGH, at(60));
+        repository.saveAndFlush(t);
+        em.clear();
+
+        assertThat(jdbc.queryForObject("select position from tasks where id = ?", Long.class, t.getId()))
+                .isEqualTo(-2048L);
+        assertThat(repository.findById(t.getId()).orElseThrow().getPriority()).isEqualTo(Priority.HIGH);
+    }
 }

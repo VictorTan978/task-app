@@ -28,12 +28,18 @@ import java.util.zip.CRC32;
  * Wire format: base64url WITHOUT padding (only {@code A-Z a-z 0-9 - _}) of a binary record: version, sort, the
  * {@link TaskListQuery#fingerprint(long) fingerprint} of the request it was issued for, done, the sort's own key
  * (due date and, since 3, due time; priority; or title), created_at in epoch microseconds, id; then a CRC32 of all that, so a damaged
- * cursor is rejected. Not signed: the list is always checked against the session's user first, so a forged cursor
+ * cursor is rejected. Version 4 ({@code manual}): done, then only the anchor task's id (no key, no created_at). Not signed: the list is always checked against the session's user first, so a forged cursor
  * can only move inside one of the caller's own lists. At most 1024 characters (the longest, a 200-character title of 3-byte UTF-8 characters,
  * is about 845).
  */
 public record TaskCursor(boolean done, LocalDate dueDate, LocalTime dueTime, Priority priority, String title,
-        Instant createdAt, long id) {
+        Instant createdAt, long id, Long position) {
+
+    /** A cursor without a "My order" position (every sort but {@code manual}). */
+    public TaskCursor(boolean done, LocalDate dueDate, LocalTime dueTime, Priority priority, String title,
+            Instant createdAt, long id) {
+        this(done, dueDate, dueTime, priority, title, createdAt, id, null);
+    }
 
     /** A cursor without a due time (every sort but {@code due}, or a task with a date only). */
     public TaskCursor(boolean done, LocalDate dueDate, Priority priority, String title, Instant createdAt, long id) {
@@ -44,24 +50,43 @@ public record TaskCursor(boolean done, LocalDate dueDate, LocalTime dueTime, Pri
     static final int FINGERPRINT_LENGTH = 8;
 
     /**
-     * 3 since 0.14.0: the due sort carries the due time; 2 since 0.12.0: the fingerprint includes the list. Cursors of
-     * an older version are rejected once.
+     * 4 since 0.18.0: the {@code manual} sort (its cursor holds an anchor task id, see {@link #manual}); 3 since 0.14.0:
+     * the due sort carries the due time; 2 since 0.12.0: the fingerprint includes the list. Cursors of an older
+     * version are rejected once.
      */
-    private static final int VERSION = 3;
+    static final int VERSION = 4;
     private static final int CHECKSUM_LENGTH = 4;
     private static final int MAX_TITLE_LENGTH = 200;
     private static final Pattern BASE64URL_NO_PADDING = Pattern.compile("[A-Za-z0-9_-]+");
     private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
 
+    /**
+     * The {@code manual} cursor as issued and as decoded: only the group ({@code done}) and the anchor task's
+     * {@code id}; the anchor's position and {@code createdAt} are read when the next page is asked ({@link
+     * #resolved}), so the cursor survives a renumbering or a drag.
+     */
+    static TaskCursor manual(boolean done, long anchorId) {
+        return new TaskCursor(done, null, null, null, null, null, anchorId, null);
+    }
+
+    /** This {@code manual} cursor with the anchor's current position and creation time (the group stays the issued one). */
+    TaskCursor resolved(Task anchor) {
+        return new TaskCursor(done, null, null, null, null, anchor.getCreatedAt(), anchor.getId(),
+                anchor.getPosition());
+    }
+
     /** The position right after {@code task} in {@code sort} order. */
     public static TaskCursor after(Task task, TaskSort sort) {
+        if (sort == TaskSort.MANUAL) {
+            return manual(task.isDone(), task.getId());
+        }
         return new TaskCursor(task.isDone(),
                 sort == TaskSort.DUE ? task.getDueDate() : null,
                 sort == TaskSort.DUE ? task.getDueTime() : null,
                 sort == TaskSort.PRIORITY ? task.getPriority() : null,
                 sort == TaskSort.TITLE ? task.getTitle() : null,
-                task.getCreatedAt(), task.getId());
+                task.getCreatedAt(), task.getId(), null);
     }
 
     public String encode(TaskSort sort, byte[] fingerprint) {
@@ -88,10 +113,12 @@ public record TaskCursor(boolean done, LocalDate dueDate, LocalTime dueTime, Pri
                     out.writeShort(utf8.length);
                     out.write(utf8);
                 }
-                case NEWEST, OLDEST -> {
+                case NEWEST, OLDEST, MANUAL -> {
                 }
             }
-            out.writeLong(ChronoUnit.MICROS.between(Instant.EPOCH, createdAt));
+            if (sort != TaskSort.MANUAL) {
+                out.writeLong(ChronoUnit.MICROS.between(Instant.EPOCH, createdAt));
+            }
             out.writeLong(id);
         } catch (IOException e) {
             throw new IllegalStateException("Writing to memory cannot fail", e);
@@ -158,8 +185,12 @@ public record TaskCursor(boolean done, LocalDate dueDate, LocalTime dueTime, Pri
                         return Optional.empty();
                     }
                 }
-                case NEWEST, OLDEST -> {
+                case NEWEST, OLDEST, MANUAL -> {
                 }
+            }
+            if (sort == TaskSort.MANUAL) {
+                long anchor = in.readLong();
+                return in.available() != 0 || anchor < 1 ? Optional.empty() : Optional.of(manual(done, anchor));
             }
             Instant createdAt = Instant.EPOCH.plus(in.readLong(), ChronoUnit.MICROS);
             long id = in.readLong();
