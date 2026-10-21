@@ -7,7 +7,7 @@ import {
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { User } from '../../../core/auth/auth.models';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -137,17 +137,27 @@ describe('TasksPage My order', () => {
     it('with another sort there are no handles and the hint says how to get them', async () => {
       await open(page([task(2), task(1)]), '/lists/8');
       expect(handles()).toHaveLength(0);
-      expect(byId('drag-hint')!.textContent?.trim()).toBe('Switch to My order to drag');
+      expect(byId('drag-hint-text')!.textContent?.trim()).toBe(
+        'Drag to reorder is only available in "My order".',
+      );
+      expect(byId('drag-hint-action')!.textContent?.trim()).toBe('Use My order');
       expect(titles()).toEqual(['Task 2', 'Task 1']);
     });
 
-    it('in My order with a tag, search or a non-All tab: no handles, another hint', async () => {
-      for (const query of ['tag=home', 'q=milk', 'filter=active']) {
+    const hintText = () => byId('drag-hint-text')!.textContent!.replace(/\s+/g, ' ').trim();
+
+    it('in My order with a tag, search or a non-All tab: no handles, lists the blockers', async () => {
+      const cases: [string, string][] = [
+        ['tag=home', 'tag "home"'],
+        ['q=milk', 'search "milk"'],
+        ['filter=active', 'Active tab'],
+        ['filter=done&tag=home&q=milk', 'Done tab · tag "home" · search "milk"'],
+      ];
+      for (const [query, blockers] of cases) {
         await open(page([task(2), task(1)]), `/lists/8?sort=manual&${query}`);
         expect(handles()).toHaveLength(0);
-        expect(byId('drag-hint')!.textContent?.trim()).toBe(
-          'Show All with no tag or search to drag',
-        );
+        expect(hintText()).toBe(`To drag, show all tasks. Now filtered by: ${blockers}`);
+        expect(byId('drag-hint-action')!.textContent?.trim()).toBe('Clear filters');
         TestBed.resetTestingModule();
         TestBed.configureTestingModule({
           providers: [
@@ -158,8 +168,54 @@ describe('TasksPage My order', () => {
           ],
         });
         http = TestBed.inject(HttpTestingController);
-        toasts = TestBed.inject(ToastService);
       }
+    });
+
+    it('"Use My order" sets the sort to My order', async () => {
+      await open(page([task(2), task(1)]), '/lists/8?sort=oldest');
+      const btn = byId('drag-hint-action') as HTMLButtonElement;
+      expect(btn.tagName).toBe('BUTTON');
+      expect(btn.type).toBe('button');
+      btn.click();
+      await stable();
+      const req = tasksReq();
+      expect(req.request.params.get('sort')).toBe('manual');
+      req.flush(page([task(2), task(1)]));
+      await stable();
+      expect(TestBed.inject(Router).url).toContain('sort=manual');
+      expect(handles()).toHaveLength(2);
+      expect(byId('drag-hint')).toBeNull();
+    });
+
+    it('"Use My order" with filters on turns the box into the Clear filters one', async () => {
+      await open(page([task(2), task(1)]), '/lists/8?sort=newest&filter=done');
+      byId('drag-hint-action')!.click();
+      await stable();
+      tasksReq().flush(page([task(2), task(1)]));
+      await stable();
+      expect(hintText()).toBe('To drag, show all tasks. Now filtered by: Done tab');
+      expect(byId('drag-hint-action')!.textContent?.trim()).toBe('Clear filters');
+    });
+
+    it('"Clear filters" resets tab, tag and search (and the search box), keeps My order', async () => {
+      await open(page([task(2), task(1)]), '/lists/8?sort=manual&filter=active&tag=home&q=milk');
+      const input = el.querySelector<HTMLInputElement>('input[type="search"], #task-search')!;
+      expect(input.value).toBe('milk');
+      byId('drag-hint-action')!.click();
+      await stable();
+      const req = tasksReq();
+      expect(req.request.params.get('sort')).toBe('manual');
+      expect(req.request.params.has('tag')).toBe(false);
+      expect(req.request.params.has('q')).toBe(false);
+      expect(req.request.params.get('filter')).not.toBe('active');
+      req.flush(page([task(2), task(1)]));
+      await stable();
+      const url = TestBed.inject(Router).url;
+      expect(url).toContain('sort=manual');
+      expect(url).not.toMatch(/filter=|tag=|q=/);
+      expect(input.value).toBe('');
+      expect(byId('drag-hint')).toBeNull();
+      expect(handles()).toHaveLength(2);
     });
 
     it('no hint on an empty list', async () => {

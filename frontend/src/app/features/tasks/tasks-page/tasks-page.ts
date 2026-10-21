@@ -290,12 +290,22 @@ export class TasksPage {
   protected readonly dragAllowed = computed(
     () => canDrag(this.listQuery()) && this.loaded() && !this.selecting(),
   );
-  /** "Switch to My order to drag" and its siblings; null when handles are shown or no tasks. */
-  protected readonly dragHintText = computed(() =>
-    this.loaded() && this.tasks().length > 0 && !this.selecting()
-      ? dragHint(this.listQuery())
-      : null,
-  );
+  /** The drag hint box (text, blockers, button); null when handles are shown or no tasks. */
+  protected readonly dragHintInfo = computed(() => {
+    if (!this.loaded() || this.tasks().length === 0 || this.selecting()) {
+      return null;
+    }
+    const query = this.listQuery();
+    const tag = query.tag;
+    const label =
+      tag === null
+        ? null
+        : (findTag(
+            this.tasks().flatMap((t) => t.tags),
+            tag,
+          ) ?? tag);
+    return dragHint(query, label);
+  });
   /** A position request is running: dragging and Move up / down wait for it. */
   protected readonly reordering = signal(false);
   /** The open list's id for the sidebar: dropping on it does nothing. */
@@ -549,6 +559,26 @@ export class TasksPage {
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { tag: null },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  /** Hint button "Use My order": same as picking it in the sort menu. */
+  protected useMyOrder(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { sort: 'manual' },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  /** Hint button "Clear filters": All tab, no tag, no search; the sort stays. */
+  protected clearFilters(): void {
+    this.cancelSearchTimer();
+    this.searchText.set('');
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { filter: null, tag: null, q: null },
       queryParamsHandling: 'merge',
     });
   }

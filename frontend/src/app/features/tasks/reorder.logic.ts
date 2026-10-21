@@ -9,10 +9,15 @@ import { isDone } from './tasks.logic';
 import { Task, TaskListQuery } from './tasks.models';
 
 export const REORDER_ERROR = "Couldn't save the new order";
-/** Hint when handles are hidden because the sort is not "My order". */
-export const SWITCH_TO_MANUAL_HINT = 'Switch to My order to drag';
-/** Hint when the sort is "My order" but a filter, tag or search hides the handles. */
-export const CLEAR_FILTERS_HINT = 'Show All with no tag or search to drag';
+/** Hint text when handles are hidden because the sort is not "My order" (button: "Use My order"). */
+export const SWITCH_TO_MANUAL_HINT = 'Drag to reorder is only available in "My order".';
+export const SWITCH_TO_MANUAL_ACTION = 'Use My order';
+/**
+ * Hint text when the sort is "My order" but a tab, tag or search hides the handles; the active
+ * blockers follow it (button: "Clear filters").
+ */
+export const CLEAR_FILTERS_HINT = 'To drag, show all tasks. Now filtered by:';
+export const CLEAR_FILTERS_ACTION = 'Clear filters';
 
 /** The task that is dropped on a list in the sidebar, and where. */
 export interface ListDrop {
@@ -34,12 +39,46 @@ export function canDrag(query: TaskListQuery): boolean {
   );
 }
 
+/** What the hint box shows instead of the handles. */
+export interface DragHint {
+  /** `switch`: sort is not "My order". `clear`: "My order" but filters are on. */
+  kind: 'switch' | 'clear';
+  text: string;
+  /** Active blockers (`clear` only), e.g. `Active tab`, `tag "home"`, `search "milk"`. */
+  blockers: string[];
+  actionLabel: string;
+}
+
+const TAB_LABELS: Record<string, string> = {
+  active: 'Active',
+  in_progress: 'In progress',
+  done: 'Done',
+};
+
 /** The hint shown instead of the handles, or null when handles are shown (or not needed). */
-export function dragHint(query: TaskListQuery): string | null {
+export function dragHint(query: TaskListQuery, tagLabel: string | null = null): DragHint | null {
   if (canDrag(query)) {
     return null;
   }
-  return query.sort === 'manual' ? CLEAR_FILTERS_HINT : SWITCH_TO_MANUAL_HINT;
+  if (query.sort !== 'manual') {
+    return {
+      kind: 'switch',
+      text: SWITCH_TO_MANUAL_HINT,
+      blockers: [],
+      actionLabel: SWITCH_TO_MANUAL_ACTION,
+    };
+  }
+  const blockers: string[] = [];
+  if (query.filter !== 'all') {
+    blockers.push(`${TAB_LABELS[query.filter] ?? query.filter} tab`);
+  }
+  if (query.tag !== null) {
+    blockers.push(`tag "${tagLabel ?? query.tag}"`);
+  }
+  if (query.q !== null) {
+    blockers.push(`search "${query.q}"`);
+  }
+  return { kind: 'clear', text: CLEAR_FILTERS_HINT, blockers, actionLabel: CLEAR_FILTERS_ACTION };
 }
 
 /** The tasks of one group, in list order. */
