@@ -991,4 +991,82 @@ class TaskControllerTest {
         mockMvc.perform(post("/api/tasks/12/undo-complete").with(csrf()).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"nextTaskId\":15}")).andExpect(status().isUnauthorized());
     }
+
+    // ---- PUT /api/tasks/{id}/position (0.18.0) ----
+
+    @Test
+    void positionPassesAfterIdAndAnswers204() throws Exception {
+        mockMvc.perform(json(put("/api/tasks/12/position"), "{\"afterId\":8}"))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        verify(taskService).reposition(OWNER, 12L, 8L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"afterId\":null}", "{}"})
+    void positionNullOrMissingAfterIdMeansTop(String body) throws Exception {
+        mockMvc.perform(json(put("/api/tasks/12/position"), body)).andExpect(status().isNoContent());
+        verify(taskService).reposition(OWNER, 12L, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"afterId\":0}", "{\"afterId\":-3}"})
+    void positionAfterIdBelowOneIsOutOfRange(String body) throws Exception {
+        mockMvc.perform(json(put("/api/tasks/12/position"), body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("afterId"))
+                .andExpect(jsonPath("$.errors[0].code").value("OUT_OF_RANGE"));
+        verifyNoInteractions(taskService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"afterId\":\"8\"}", "{\"afterId\":1.5}", "{\"afterId\":true}", "[8]", "nope", ""})
+    void positionMalformedBodyIsMalformed(String body) throws Exception {
+        mockMvc.perform(json(put("/api/tasks/12/position"), body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+        verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void positionWithANonNumericIdIsMalformed() throws Exception {
+        mockMvc.perform(json(put("/api/tasks/abc/position"), "{\"afterId\":8}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Self:SELF", "OtherList:OTHER_LIST", "OtherGroup:OTHER_GROUP"})
+    void positionFieldErrorsMapToTheirCodes(String pair) throws Exception {
+        String[] parts = pair.split(":");
+        MapBindingResult errors = new MapBindingResult(new HashMap<>(), "taskPositionRequest");
+        errors.rejectValue("afterId", parts[0], "message");
+        org.mockito.Mockito.doThrow(new InvalidFieldsException(errors)).when(taskService).reposition(OWNER, 12L, 8L);
+
+        mockMvc.perform(json(put("/api/tasks/12/position"), "{\"afterId\":8}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("afterId"))
+                .andExpect(jsonPath("$.errors[0].code").value(parts[1]));
+    }
+
+    @Test
+    void positionOnAMissingTaskIs404() throws Exception {
+        org.mockito.Mockito.doThrow(new TaskNotFoundException()).when(taskService).reposition(OWNER, 42L, null);
+
+        mockMvc.perform(json(put("/api/tasks/42/position"), "{}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void positionRequiresSignInAndCsrf() throws Exception {
+        mockMvc.perform(put("/api/tasks/12/position").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{}")).andExpect(status().isUnauthorized());
+        mockMvc.perform(put("/api/tasks/12/position").with(signedIn()).contentType(MediaType.APPLICATION_JSON)
+                .content("{}")).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("CSRF_INVALID"));
+        verifyNoInteractions(taskService);
+    }
 }
