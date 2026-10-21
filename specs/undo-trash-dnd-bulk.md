@@ -1,6 +1,6 @@
 # Feature: Undo, trash, bulk actions, drag and drop (T5)
 
-**Status:** APPROVED 2026-10-21. **T5a DONE** 2026-10-21 (AC1–AC17 PASS, merged to `main`).  **T5b DONE** 2026-10-21 (AC18–AC22 PASS, on `feature/t5b-bulk`, not merged yet). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
+**Status:** APPROVED 2026-10-21. **T5a DONE** 2026-10-21 (AC1–AC17 PASS, merged to `main`).  **T5b DONE** 2026-10-21 (AC18–AC22 PASS, merged to `main`). **T5c** next (new session). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
 
 **Approving this spec does not approve the gates.** Each migration (V14, V15), the change to `DELETE /api/tasks/{id}`, and any new dependency (`@angular/cdk`) gets its own approval question at build time.
 
