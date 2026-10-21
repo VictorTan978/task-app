@@ -1,6 +1,6 @@
 # Feature: Undo, trash, bulk actions, drag and drop (T5)
 
-**Status:** DRAFT 2026-10-20, waiting for approval. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
+**Status:** DRAFT 2026-10-21. Open questions answered (all as recommended), waiting for final approval. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
 
 **Approving this spec does not approve the gates.** Each migration (V14, V15), the change to `DELETE /api/tasks/{id}`, and any new dependency (`@angular/cdk`) gets its own approval question at build time.
 
@@ -125,7 +125,7 @@ As a signed-in user, I want to undo mistakes, get deleted tasks back, change man
 - Frontend bundle: the initial bundle is 475.77 kB against a 500 kB budget. The toast is small. `@angular/cdk` (T5c) must load only with the tasks route, never in the initial bundle.
 - Existing behaviour that must not change: single task create, edit and tick, sorting other than "My order", paging, sharing permissions, reminders and recurrence for tasks that aren't trashed.
 
-## Open questions (PM recommendation in bold)
+## Open questions (PM recommendation in bold; all answered 2026-10-21, see the Decisions log)
 1. **Split:** **T5a trash + undo, T5b bulk, T5c drag and drop**, each with its own branch, contract, migration and merge. Alternatively, one T5 (too big to test), or T5a = trash + undo + bulk.
 2. **How delete works:** **soft delete** (`deleted_at` and `deleted_by` on `tasks`, migration V14), so both the trash and the undo work. The alternative is undo only, by delaying the real delete on the client for 8 s: no migration, but no trash, and the task is lost if the tab closes.
 3. **Trash scope on shared lists:** **one Trash page for all my lists, where any member can restore or delete forever.** Alternative: only the person who deleted a task sees it in their Trash.
@@ -145,3 +145,13 @@ _Filled in by the PM during the build._
 
 | Date | Decision | Why | Approved by |
 |---|---|---|---|
+| 2026-10-21 | Q1: split into T5a trash + undo, T5b bulk, T5c drag and drop | Small, separately testable parts; later parts reuse T5a | User |
+| 2026-10-21 | Q2: soft delete (`deleted_at`, `deleted_by`, V14 still gated) | Only option that gives a real trash | User |
+| 2026-10-21 | Q3: one Trash page for all my lists; any member restores or deletes forever | Matches "any member can delete any task" | User |
+| 2026-10-21 | Q4: 30 days, then hourly auto-purge; plus "Empty trash" | Bounded table, familiar rule | User |
+| 2026-10-21 | Q5: undo for delete, tick/untick, move, edit-dialog save (bulk in T5b) | Covers the common mistakes | User |
+| 2026-10-21 | Q6: keep the delete confirm dialog in T5a | No behaviour change; revisit later | User |
+| 2026-10-21 | Q7: undoing a repeating completion deletes the copy unless it was changed | Never loses a teammate's edit | User |
+| 2026-10-21 | Q8: undo is last-write-wins on the fields my action changed | Matches today's editing; no version column | User |
+| 2026-10-21 | Q9: bulk = loaded tasks only, max 200, one list at a time, all-or-nothing | Predictable; the user sees what changes | User |
+| 2026-10-21 | Q10/Q11: shared "My order" per list, `@angular/cdk` drag-drop (dependency still gated, lazy-loaded) | Touch, keyboard and auto-scroll support; one position column | User |
