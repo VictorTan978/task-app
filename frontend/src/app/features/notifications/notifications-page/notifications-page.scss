@@ -112,3 +112,16 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.notification__trashed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.notification__trashed .btn {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+}

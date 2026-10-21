@@ -11,6 +11,7 @@
             {{ l.name }}{{ l.memberCount > 1 ? ' (' + countLabel(l) + ')' : '' }}
           </option>
         }
+        <option value="trash" [selected]="trashActive()">Trash</option>
       </select>
     </div>
 
@@ -34,6 +35,17 @@
             </a>
           </li>
         }
+        <li class="list-picker__trash-item">
+          <a
+            class="list-picker__link list-picker__trash"
+            routerLink="/trash"
+            data-testid="trash-link"
+            [class.list-picker__link--active]="trashActive()"
+            [attr.aria-current]="trashActive() ? 'page' : null"
+          >
+            <span aria-hidden="true">&#128465;</span>&nbsp; Trash</a
+          >
+        </li>
       </ul>
     </nav>
   } @else if (loading()) {

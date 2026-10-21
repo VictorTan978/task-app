@@ -66,6 +66,7 @@ export class TasksService {
     return this.http.patch<TaskResult>(TASKS_API.one(id), body);
   }
 
+  /** Moves the task to the trash (0.16.0; still 204). */
   delete(id: number): Observable<void> {
     return this.http.delete<unknown>(TASKS_API.one(id)).pipe(map(() => undefined));
   }

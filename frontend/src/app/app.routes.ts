@@ -61,6 +61,13 @@ export const routes: Routes = [
             (m) => m.NotificationsPage,
           ),
       },
+      // The trash (T5a): deleted tasks of all my lists, kept 30 days.
+      {
+        path: 'trash',
+        title: 'Trash · Task App',
+        loadComponent: () =>
+          import('./features/trash/trash-page/trash-page').then((m) => m.TrashPage),
+      },
       {
         path: 'account',
         title: 'Account · Task App',

@@ -19,6 +19,8 @@ export interface AppNotification {
   taskId: number | null;
   /** Null when the task is gone or I lost access. */
   listId: number | null;
+  /** 0.16.0, always present: the task is in the trash (`taskId` / `listId` are still set). */
+  taskTrashed: boolean;
 }
 
 /** `GET /api/notifications`: newest first. */
