@@ -723,7 +723,9 @@ export class TasksPage {
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
-    if (this.selecting() && !this.bulkBusy() && !this.editing() && !this.deleting()) {
+    // Esc closes the innermost thing only: a dialog first, then selection mode.
+    const dialogOpen = this.editing() || this.deleting() || this.confirmingBulkDelete();
+    if (this.selecting() && !this.bulkBusy() && !dialogOpen) {
       this.exitSelection();
     }
   }

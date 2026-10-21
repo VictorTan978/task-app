@@ -165,6 +165,23 @@ describe('TasksPage bulk actions', () => {
       expect(byId('bulk-bar')).toBeNull();
     });
 
+    it('Esc in the delete confirm closes only the dialog; the selection stays', async () => {
+      await open([task(2), task(1)]);
+      await select(0);
+      await press('bulk-delete');
+      await vi.waitFor(() => expect(byId('bulk-delete-dialog')).not.toBeNull());
+      const dialog = byId('bulk-delete-dialog')!;
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+      await stable();
+      expect(byId('bulk-delete-dialog')).toBeNull();
+      expect(byId('bulk-bar')).not.toBeNull();
+      expect(byId('bulk-count')!.textContent?.trim()).toBe('1 selected');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await stable();
+      expect(byId('bulk-bar')).toBeNull();
+    });
+
     it('a filter change leaves the mode and forgets the selection', async () => {
       await open([task(2), task(1)]);
       await select(0);
