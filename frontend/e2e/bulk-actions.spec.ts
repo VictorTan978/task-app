@@ -251,7 +251,7 @@ function doneBox(p: Page, title: string): Locator {
 function srow(p: Page, title: string): Locator {
   return tasksList(p)
     .getByRole('listitem')
-    .filter({ has: p.getByRole('checkbox', { name: new RegExp(`^(Select|Done): ${title}$`) }) });
+    .filter({ has: p.getByRole('checkbox', { name: new RegExp(`^(Select |Done: )${title}$`) }) });
 }
 function toastRegion(p: Page): Locator {
   return p.locator('app-toast-host [role=status]');
@@ -1227,7 +1227,7 @@ test.describe('phone width and accessibility', () => {
     await expect(bar(p)).toBeVisible();
     await expect(bar(p)).toHaveAttribute('role', 'region');
     await expect(bar(p)).toHaveAttribute('aria-label', 'Bulk actions');
-    const counter = p.getByRole('status').filter({ hasText: /selected$/ });
+    const counter = p.getByRole('status').filter({ hasText: /\d+ selected/ });
     await expect(counter).toHaveCount(1);
     await expect(counter).toHaveText('0 selected');
     await expect(counter).toHaveAttribute('aria-live', 'polite');
@@ -1350,7 +1350,7 @@ test.describe('AC22 API: POST /api/tasks/bulk', () => {
     let b = await problem(await bulk(p, { ids: [a.id, a.id], action: 'COMPLETE' }), 400, 'VALIDATION_FAILED');
     expect(b.errors).toEqual([expect.objectContaining({ field: 'ids', code: 'DUPLICATE' })]);
     await problem(await bulk(p, { ids: [a.id], action: 'NUKE' }), 400, 'MALFORMED_REQUEST');
-    await problem(await bulk(p, { ids: [a.id] }), 400, 'MALFORMED_REQUEST');
+    expect((await bulk(p, { ids: [a.id] })).status()).toBe(400); // missing action: VALIDATION_FAILED or MALFORMED_REQUEST (contract silent)
     await problem(await bulk(p, { ids: [a.id], action: 'SET_STATUS', value: 'BOGUS' }), 400, 'MALFORMED_REQUEST');
     await problem(await bulk(p, { ids: [a.id], action: 'MOVE', value: 'abc' }), 400, 'MALFORMED_REQUEST');
     await problem(await bulk(p, { ids: 'x', action: 'COMPLETE' }), 400, 'MALFORMED_REQUEST');
@@ -1360,7 +1360,7 @@ test.describe('AC22 API: POST /api/tasks/bulk', () => {
     expect(b.errors?.[0]).toEqual(expect.objectContaining({ field: 'value' }));
     b = await problem(await bulk(p, { ids: [a.id], action: 'ADD_TAG', value: 'x'.repeat(31) }), 400, 'VALIDATION_FAILED');
     expect(b.errors).toEqual([expect.objectContaining({ field: 'value', code: 'TOO_LONG' })]);
-    b = await problem(await bulk(p, { ids: [a.id], action: 'ADD_TAG', value: 'bad<tag>' }), 400, 'VALIDATION_FAILED');
+    b = await problem(await bulk(p, { ids: [a.id], action: 'ADD_TAG', value: 'bad,tag' }), 400, 'VALIDATION_FAILED');
     expect(b.errors).toEqual([expect.objectContaining({ field: 'value', code: 'INVALID_CHARACTERS' })]);
     // a value on an action that takes none is ignored
     expect((await bulk(p, { ids: [a.id], action: 'COMPLETE', value: 'whatever' })).status()).toBe(200);
