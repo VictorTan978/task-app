@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
  * E2E for specs/undo-trash-dnd-bulk.md Part C (T5c: drag and drop "My order", AC23-AC28), contract 0.18.0.
  * The Decisions log of 2026-10-21 overrides the AC wording:
  *  - no row menu: "Move up" / "Move down" are buttons in the row (disabled at a group's edge);
- *  - hint "Switch to My order to drag" (other sort) / "Show All with no tag or search to drag" (manual + filter/tag/search);
+ *  - hint box (other sort: "Drag to reorder is only available in "My order"." + button "Use My order"; manual + filter/tag/search: "To drag, show all tasks. Now filtered by: ..." + button "Clear filters");
  *  - the sidebar drop works by hit-testing `[data-drop-list-id]`; highlight class list-picker__link--drop;
  *  - cursor v4; manual cursor anchored on the last row's id; PUT /api/tasks/{id}/position {afterId|null} -> 204.
  * The page size is 50 (contract). Needs `docker compose up -d db mail oidc`.
@@ -497,13 +497,14 @@ test.describe('AC24 drag, persist, groups, hint', () => {
     await p.goto('/tasks');
     await expect(p.getByText('Loading tasks…')).toHaveCount(0);
     await expect(p.getByTestId('drag-handle')).toHaveCount(0);
-    await expect(p.getByTestId('drag-hint')).toHaveText('Switch to My order to drag');
+    await expect(p.getByTestId('drag-hint-text')).toHaveText('Drag to reorder is only available in "My order".');
     for (const s of ['oldest', 'due', 'priority', 'title']) {
       await p.goto(`/tasks?sort=${s}`);
       await expect(p.getByText('Loading tasks…')).toHaveCount(0);
       await expect(p.getByTestId('drag-handle')).toHaveCount(0);
-      await expect(p.getByTestId('drag-hint')).toHaveText('Switch to My order to drag');
+      await expect(p.getByTestId('drag-hint-text')).toHaveText('Drag to reorder is only available in "My order".');
     }
+    await p.screenshot({ path: '../test-results/drag-hint/desktop-other-sort.png', fullPage: true });
     // manual + All: handles, no hint
     await openManual(p);
     await expect(p.getByTestId('drag-handle')).toHaveCount(3);
@@ -512,23 +513,113 @@ test.describe('AC24 drag, persist, groups, hint', () => {
     await p.goto('/tasks?sort=manual&filter=active');
     await expect(p.getByText('Loading tasks…')).toHaveCount(0);
     await expect(p.getByTestId('drag-handle')).toHaveCount(0);
-    await expect(p.getByTestId('drag-hint')).toHaveText('Show All with no tag or search to drag');
+    await expect(p.getByTestId('drag-hint-text')).toHaveText('To drag, show all tasks. Now filtered by: Active tab');
     // manual + tag
     await p.goto('/tasks?sort=manual&tag=errand');
     await expect(p.getByText('Loading tasks…')).toHaveCount(0);
     await expect(p.getByTestId('drag-handle')).toHaveCount(0);
-    await expect(p.getByTestId('drag-hint')).toHaveText('Show All with no tag or search to drag');
+    await expect(p.getByTestId('drag-hint-text')).toHaveText('To drag, show all tasks. Now filtered by: tag "errand"');
     // manual + search
     await p.goto('/tasks?sort=manual&q=milk');
     await expect(p.getByText('Loading tasks…')).toHaveCount(0);
     await expect(p.getByTestId('drag-handle')).toHaveCount(0);
-    await expect(p.getByTestId('drag-hint')).toHaveText('Show All with no tag or search to drag');
+    await expect(p.getByTestId('drag-hint-text')).toHaveText('To drag, show all tasks. Now filtered by: search "milk"');
     await shot(p, 'ac24-hint-search');
+    await p.screenshot({ path: '../test-results/drag-hint/desktop-filtered.png', fullPage: true });
     // selection mode hides the handles
     await openManual(p);
     await p.getByTestId('select-mode').click();
     await expect(p.getByTestId('bulk-bar')).toBeVisible();
     await expect(p.getByTestId('drag-handle')).toHaveCount(0);
+  });
+
+  test('AC24: hint box "Use My order" switches the sort and shows the grips', async ({ kit }) => {
+    const u = await kit.newUser('ac24h1');
+    const p = u.page;
+    await mk(p, 'U1');
+    await mk(p, 'U2');
+    await p.goto('/tasks?sort=oldest');
+    await expect(p.getByText('Loading tasks…')).toHaveCount(0);
+    await expect(p.getByTestId('drag-handle')).toHaveCount(0);
+    await expect(p.getByTestId('drag-hint-action')).toHaveText('Use My order');
+    await p.getByTestId('drag-hint-action').click();
+    await expect(p).toHaveURL(/sort=manual/);
+    await expect(p.getByTestId('drag-handle')).toHaveCount(2);
+    await expect(p.getByTestId('drag-hint')).toHaveCount(0);
+    await expect(p.locator('#task-sort')).toHaveValue('manual');
+  });
+
+  test('AC24: hint box lists all blockers; "Clear filters" resets them, empties search, and a drag persists', async ({ kit }) => {
+    const u = await kit.newUser('ac24h2');
+    const p = u.page;
+    const l = await personal(p);
+    const [a, b, c] = [await mk(p, 'milk A', { tags: ['errand'] }), await mk(p, 'milk B', { tags: ['errand'] }), await mk(p, 'milk C', { tags: ['errand'] })];
+    await p.goto('/tasks?sort=manual&filter=active&tag=errand&q=milk');
+    await expect(p.getByText('Loading tasks…')).toHaveCount(0);
+    await expect(p.getByTestId('drag-handle')).toHaveCount(0);
+    await expect(p.getByTestId('drag-hint-text')).toHaveText('To drag, show all tasks. Now filtered by: Active tab · tag "errand" · search "milk"');
+    await expect(p.getByTestId('drag-hint-action')).toHaveText('Clear filters');
+    await expect(p.getByRole('searchbox', { name: 'Search tasks' })).toHaveValue('milk');
+    await shot(p, 'hint-filters');
+    await p.getByTestId('drag-hint-action').click();
+    await expect(p.getByTestId('drag-hint')).toHaveCount(0);
+    await expect(p.getByTestId('drag-handle')).toHaveCount(3);
+    await expect(p.getByRole('searchbox', { name: 'Search tasks' })).toHaveValue('');
+    await expect(p.getByTestId('tag-filter-bar')).toHaveCount(0);
+    const url = new URL(p.url());
+    expect([...url.searchParams.entries()]).toEqual([['sort', 'manual']]);
+    expect(await uiIds(p)).toEqual([c.id, b.id, a.id]);
+    await dragRow(p, a.id, c.id, 'above');
+    expect(await uiIds(p)).toEqual([a.id, c.id, b.id]);
+    await p.reload();
+    await expect(p.getByTestId('sort-group-open')).toBeVisible();
+    expect(await uiIds(p)).toEqual([a.id, c.id, b.id]);
+    expect(await manualIds(p, l.id)).toEqual([a.id, c.id, b.id]);
+  });
+
+  test('AC24: the hint button is keyboard reachable (Tab + Enter)', async ({ kit }) => {
+    const u = await kit.newUser('ac24h3');
+    const p = u.page;
+    await mk(p, 'K1');
+    await mk(p, 'K2');
+    await p.goto('/tasks?sort=title');
+    await expect(p.getByText('Loading tasks…')).toHaveCount(0);
+    const btn = p.getByTestId('drag-hint-action');
+    await expect(btn).toBeVisible();
+    for (let i = 0; i < 60; i++) {
+      await p.keyboard.press('Tab');
+      if (await btn.evaluate((el) => el === document.activeElement)) break;
+    }
+    await expect(btn).toBeFocused();
+    await p.keyboard.press('Enter');
+    await expect(p).toHaveURL(/sort=manual/);
+    await expect(p.getByTestId('drag-handle')).toHaveCount(2);
+    await expect(p.getByTestId('drag-hint')).toHaveCount(0);
+  });
+
+  test('AC24: at phone width the hint box does not overflow horizontally', async ({ kit, browser }) => {
+    const u = await kit.newUser('ac24h4');
+    await mk(u.page, 'milk long title', { tags: ['errand'] });
+    const pctx = await browser.newContext({ baseURL: BASE, storageState: await u.ctx.storageState(), viewport: { width: 375, height: 800 } });
+    const p = await pctx.newPage();
+    const check = async (url: string, name: string) => {
+      await p.goto(url);
+      await expect(p.getByText('Loading tasks…')).toHaveCount(0);
+      await expect(p.getByTestId('drag-hint')).toBeVisible();
+      const m = await p.evaluate(() => {
+        const box = document.querySelector('[data-testid="drag-hint"]')!.getBoundingClientRect();
+        const kids = Array.from(document.querySelector('[data-testid="drag-hint"]')!.querySelectorAll('*')).map((e) => e.getBoundingClientRect().right);
+        return { left: box.left, right: box.right, maxChild: Math.max(...kids), vw: document.documentElement.clientWidth, sw: document.documentElement.scrollWidth };
+      });
+      expect(m.left).toBeGreaterThanOrEqual(0);
+      expect(m.right).toBeLessThanOrEqual(m.vw + 0.5);
+      expect(m.maxChild).toBeLessThanOrEqual(m.right + 0.5);
+      expect(m.sw).toBeLessThanOrEqual(m.vw);
+      await p.screenshot({ path: `../test-results/drag-hint/${name}.png`, fullPage: true });
+    };
+    await check('/tasks?sort=title', 'phone-other-sort');
+    await check('/tasks?sort=manual&filter=active&tag=errand&q=milk', 'phone-filtered');
+    await pctx.close();
   });
 
   test('AC24: touch drag (CDP touch events on the grip) sends one PUT and the order survives a reload', async ({ kit, browser }) => {
@@ -790,7 +881,7 @@ test.describe('AC26 paging', () => {
     await expect.poll(() => failed).toBe(true);
     await expect(p.getByText('Loading tasks…')).toHaveCount(0);
     await expect(p.getByText('Showing 50 of 52')).toBeVisible(); // reloaded from the first page
-    expect((await uiIds(p)).length).toBe(50);
+    await expect.poll(async () => (await uiIds(p)).length).toBe(50); // rows are re-rendered after the reload lands
     await shot(p, 'ac26-invalid-cursor');
   });
 });

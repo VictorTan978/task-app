@@ -106,8 +106,24 @@
         }
       </nav>
 
-      @if (dragHintText(); as hint) {
-        <p class="tasks-hint" data-testid="drag-hint">{{ hint }}</p>
+      @if (dragHintInfo(); as hint) {
+        <div class="tasks-hint" data-testid="drag-hint">
+          <span class="tasks-hint__icon" aria-hidden="true">ⓘ</span>
+          <p class="tasks-hint__text" data-testid="drag-hint-text">
+            {{ hint.text }}
+            @if (hint.blockers.length > 0) {
+              <strong>{{ hint.blockers.join(' · ') }}</strong>
+            }
+          </p>
+          <button
+            type="button"
+            class="tasks-hint__action"
+            data-testid="drag-hint-action"
+            (click)="hint.kind === 'switch' ? useMyOrder() : clearFilters()"
+          >
+            {{ hint.actionLabel }}
+          </button>
+        </div>
       }
 
       @if (tagLabel(); as label) {

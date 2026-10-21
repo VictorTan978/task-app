@@ -48,11 +48,38 @@ describe('reorder.logic', () => {
 
     it('hints how to get handles back', () => {
       expect(dragHint(Q)).toBeNull();
-      expect(dragHint({ ...Q, sort: 'oldest' })).toBe(SWITCH_TO_MANUAL_HINT);
-      expect(SWITCH_TO_MANUAL_HINT).toBe('Switch to My order to drag');
-      expect(dragHint({ ...Q, filter: 'done' })).toBe(CLEAR_FILTERS_HINT);
-      expect(dragHint({ ...Q, tag: 'x' })).toBe(CLEAR_FILTERS_HINT);
-      expect(dragHint({ ...Q, q: 'x' })).toBe(CLEAR_FILTERS_HINT);
+      expect(dragHint({ ...Q, sort: 'oldest' })).toEqual({
+        kind: 'switch',
+        text: SWITCH_TO_MANUAL_HINT,
+        blockers: [],
+        actionLabel: 'Use My order',
+      });
+      expect(SWITCH_TO_MANUAL_HINT).toBe('Drag to reorder is only available in "My order".');
+      expect(CLEAR_FILTERS_HINT).toBe('To drag, show all tasks. Now filtered by:');
+    });
+
+    it('lists exactly the active blockers in My order', () => {
+      const clear = (q: Partial<TaskListQuery>, label: string | null = null) =>
+        dragHint({ ...Q, ...q }, label);
+      expect(clear({ filter: 'done' })).toMatchObject({
+        kind: 'clear',
+        text: CLEAR_FILTERS_HINT,
+        actionLabel: 'Clear filters',
+        blockers: ['Done tab'],
+      });
+      expect(clear({ filter: 'active' })!.blockers).toEqual(['Active tab']);
+      expect(clear({ filter: 'in_progress' })!.blockers).toEqual(['In progress tab']);
+      expect(clear({ tag: 'home' })!.blockers).toEqual(['tag "home"']);
+      expect(clear({ tag: 'home' }, 'Home')!.blockers).toEqual(['tag "Home"']);
+      expect(clear({ q: 'milk' })!.blockers).toEqual(['search "milk"']);
+      expect(clear({ filter: 'active', tag: 'home', q: 'milk' })!.blockers.join(' · ')).toBe(
+        'Active tab · tag "home" · search "milk"',
+      );
+      expect(clear({ tag: 'a', q: 'b' })!.blockers).toEqual(['tag "a"', 'search "b"']);
+    });
+
+    it('ignores filters when the sort is not My order', () => {
+      expect(dragHint({ ...Q, sort: 'newest', filter: 'done', q: 'x' })!.blockers).toEqual([]);
     });
   });
 
