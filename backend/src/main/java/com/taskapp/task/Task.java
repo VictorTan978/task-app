@@ -85,6 +85,14 @@ public class Task {
     @Column(name = "repeat_anchor")
     private LocalDate repeatAnchor;
 
+    /**
+     * "My order" sort key (V15), hidden from the API; null = never ordered. Not updatable here: it is written by the
+     * native UPDATEs of {@link TaskRepository} and {@link TaskOrderRepository} only (so a save of a stale entity can
+     * never write an old value back) and set by {@link #positionedAt} before the insert of a new task.
+     */
+    @Column(name = "position", updatable = false)
+    private Long position;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -101,6 +109,14 @@ public class Task {
     /** Who trashed it; null when not trashed or when that account was deleted (V14: ON DELETE SET NULL). */
     @Column(name = "deleted_by", insertable = false, updatable = false)
     private Long deletedBy;
+
+    /** Distance between neighbouring "My order" positions (V15); a drop takes the middle of the gap. */
+    static final long POSITION_STEP = 1024;
+
+    /** The position above everything in a list whose lowest position is {@code lowest} (empty: no task has one). */
+    static long above(java.util.Optional<Long> lowest) {
+        return lowest.orElse(0L) - POSITION_STEP;
+    }
 
     protected Task() {
     }
@@ -189,6 +205,16 @@ public class Task {
 
     public Long getId() {
         return id;
+    }
+
+    /** The "My order" key, or null. Only for the order logic; never part of a response. */
+    Long getPosition() {
+        return position;
+    }
+
+    /** Sets the position of a task about to be inserted, or records one already written by an UPDATE. */
+    void positionedAt(Long position) {
+        this.position = position;
     }
 
     /** The user who added the task; null when their account was deleted. */

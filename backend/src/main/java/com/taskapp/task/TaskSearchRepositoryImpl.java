@@ -48,16 +48,80 @@ class TaskSearchRepositoryImpl implements TaskSearchRepository {
         if (after != null) {
             sql.append(" AND ").append(after(keys, params));
         }
-        sql.append(" ORDER BY ");
-        for (int i = 0; i < keys.size(); i++) {
-            sql.append(i == 0 ? "" : ", ").append(keys.get(i).sql()).append(keys.get(i).ascending() ? "" : " DESC");
-        }
+        orderBy(sql, keys);
         sql.append(" LIMIT ").append(limit);
         Query query = em.createNativeQuery(sql.toString(), Task.class);
         params.forEach(query::setParameter);
         @SuppressWarnings("unchecked")
         List<Task> tasks = query.getResultList();
         return tasks;
+    }
+
+    private static void orderBy(StringBuilder sql, List<Key> keys) {
+        sql.append(" ORDER BY ");
+        for (int i = 0; i < keys.size(); i++) {
+            sql.append(i == 0 ? "" : ", ").append(keys.get(i).sql()).append(keys.get(i).ascending() ? "" : " DESC");
+        }
+    }
+
+    /** One group (not done / done) of a list, in "My order": the same keys as {@link #findPage} with {@code manual}. */
+    private static TaskSearchCriteria group(long listId, boolean done) {
+        return new TaskSearchCriteria(listId, done ? TaskFilter.DONE : TaskFilter.ACTIVE, TaskSort.MANUAL, null, null);
+    }
+
+    @Override
+    public List<GroupRow> manualGroup(long listId, boolean done) {
+        TaskSearchCriteria criteria = group(listId, done);
+        Map<String, Object> params = new LinkedHashMap<>();
+        StringBuilder sql = new StringBuilder("SELECT t.id, t.position FROM tasks t");
+        appendFromAndWhere(sql, criteria, params);
+        orderBy(sql, keys(criteria, null));
+        Query query = em.createNativeQuery(sql.toString());
+        params.forEach(query::setParameter);
+        List<GroupRow> rows = new ArrayList<>();
+        for (Object row : query.getResultList()) {
+            Object[] columns = (Object[]) row;
+            rows.add(new GroupRow(((Number) columns[0]).longValue(),
+                    columns[1] == null ? null : ((Number) columns[1]).longValue()));
+        }
+        return rows;
+    }
+
+    @Override
+    public void lockGroup(long listId, boolean done) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        StringBuilder sql = new StringBuilder("SELECT t.id FROM tasks t");
+        appendFromAndWhere(sql, group(listId, done), params);
+        sql.append(" ORDER BY t.id FOR UPDATE");
+        Query query = em.createNativeQuery(sql.toString());
+        params.forEach(query::setParameter);
+        query.getResultList();
+    }
+
+    /** Ids per UPDATE statement of {@link #assignPositions}. */
+    private static final int ASSIGN_CHUNK = 200;
+
+    @Override
+    public void assignPositions(List<Long> orderedIds, long step) {
+        em.flush();
+        for (int from = 0; from < orderedIds.size(); from += ASSIGN_CHUNK) {
+            List<Long> chunk = orderedIds.subList(from, Math.min(orderedIds.size(), from + ASSIGN_CHUNK));
+            StringBuilder sql = new StringBuilder("UPDATE tasks SET position = CASE id");
+            for (int i = 0; i < chunk.size(); i++) {
+                sql.append(" WHEN ?").append(2 * i + 1).append(" THEN ?").append(2 * i + 2);
+            }
+            sql.append(" END WHERE id IN (");
+            for (int i = 0; i < chunk.size(); i++) {
+                sql.append(i == 0 ? "" : ", ").append('?').append(2 * chunk.size() + i + 1);
+            }
+            Query query = em.createNativeQuery(sql.append(')').toString());
+            for (int i = 0; i < chunk.size(); i++) {
+                query.setParameter(2 * i + 1, chunk.get(i));
+                query.setParameter(2 * i + 2, (from + i + 1) * step);
+                query.setParameter(2 * chunk.size() + i + 1, chunk.get(i));
+            }
+            query.executeUpdate();
+        }
     }
 
     @Override
@@ -113,6 +177,11 @@ class TaskSearchRepositoryImpl implements TaskSearchRepository {
             }
             case PRIORITY -> keys.add(new Key(PRIORITY_RANK, true, after == null ? null : rank(after.priority())));
             case TITLE -> keys.add(new Key("t.title", true, after == null ? null : after.title()));
+            case MANUAL -> {
+                // Positioned tasks first; inside the unpositioned part every position is NULL: nothing to compare.
+                keys.add(new Key("(t.position IS NULL)", true, after == null ? null : after.position() == null ? 1 : 0));
+                keys.add(new Key("t.position", true, after == null ? null : after.position()));
+            }
         }
         keys.add(new Key("t.created_at", !newestTies, after == null ? null : after.createdAt()));
         keys.add(new Key("t.id", !newestTies, after == null ? null : after.id()));

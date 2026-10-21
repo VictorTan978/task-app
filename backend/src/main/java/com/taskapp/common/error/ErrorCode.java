@@ -77,6 +77,12 @@ public final class ErrorCode {
     public static final String STATUS_CONFLICT = "STATUS_CONFLICT";
     /** {@code cursor} of the task list: unreadable or issued for another filter/sort/tag/search (0.11.0). */
     public static final String INVALID_CURSOR = "INVALID_CURSOR";
+    /** {@code afterId} of {@code PUT /api/tasks/{id}/position}: the task itself (0.18.0). */
+    public static final String SELF = "SELF";
+    /** {@code afterId} of {@code PUT /api/tasks/{id}/position}: a task of another of my lists (0.18.0). */
+    public static final String OTHER_LIST = "OTHER_LIST";
+    /** {@code afterId} of {@code PUT /api/tasks/{id}/position}: a task of the other group, done vs not done (0.18.0). */
+    public static final String OTHER_GROUP = "OTHER_GROUP";
 
     /** {@code dueTime} / {@code reminder} sent without a {@code dueDate} (0.14.0). */
     public static final String REQUIRES_DUE_DATE = "REQUIRES_DUE_DATE";

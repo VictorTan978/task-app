@@ -33,6 +33,7 @@ import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.SetTaskDoneRequest;
 import com.taskapp.task.dto.TaskPage;
+import com.taskapp.task.dto.TaskPositionRequest;
 import com.taskapp.task.dto.TaskResponse;
 import com.taskapp.task.dto.TaskResult;
 import com.taskapp.task.dto.UndoCompleteRequest;
@@ -127,6 +128,14 @@ public class TaskController {
             @Valid @RequestBody SetTaskDoneRequest body) {
         checkDescriptionLength(body);
         return taskService.patch(user.id(), id, body);
+    }
+
+    /** {@code PUT /api/tasks/{id}/position} (0.18.0): "My order", right after {@code afterId} or at the top. */
+    @PutMapping("/{id}/position")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void setPosition(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable("id") long id,
+            @Valid @RequestBody TaskPositionRequest body) {
+        taskService.reposition(user.id(), id, body.afterId());
     }
 
     /**

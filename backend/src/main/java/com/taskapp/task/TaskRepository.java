@@ -51,6 +51,26 @@ public interface TaskRepository extends JpaRepository<Task, Long>, TaskSearchRep
     @Query("select t from Task t where t.id = :id and t.listId = :listId and t.deletedAt is null")
     Optional<Task> findByIdAndListId(@Param("id") long id, @Param("listId") long listId);
 
+    /** The live task in this list, read without a lock (the anchor of a {@code sort=manual} cursor). */
+    @Query("select t from Task t where t.id = :id and t.listId = :listId and t.deletedAt is null")
+    Optional<Task> findLiveInList(@Param("id") long id, @Param("listId") long listId);
+
+    /**
+     * The lowest "My order" position of the list's live tasks (both groups); empty when none has one. A plain read
+     * (no lock): concurrent creates may read the same value and tie, which the order tolerates (newest first).
+     */
+    @Query(value = "SELECT MIN(position) FROM tasks WHERE list_id = :listId AND deleted_at IS NULL",
+            nativeQuery = true)
+    Optional<Long> minLivePosition(@Param("listId") long listId);
+
+    /**
+     * Writes one task's "My order" position ({@code updated_at} untouched). The entity's column is not updatable, so
+     * this is the only way; the persistence context is not cleared (bulk calls hold their locked entities).
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "UPDATE tasks SET position = :position WHERE id = :id", nativeQuery = true)
+    int setPosition(@Param("id") long id, @Param("position") long position);
+
     /** Like {@link #findByIdAndListId} but for a task in the trash (restore, delete forever). */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Task t where t.id = :id and t.listId = :listId and t.deletedAt is not null")

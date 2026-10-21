@@ -458,6 +458,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case "InvalidRole" -> ErrorCode.INVALID_ROLE;
             case "Duplicate" -> ErrorCode.DUPLICATE;
             case "MixedLists" -> ErrorCode.MIXED_LISTS;
+            case "Self" -> ErrorCode.SELF;
+            case "OtherList" -> ErrorCode.OTHER_LIST;
+            case "OtherGroup" -> ErrorCode.OTHER_GROUP;
             default -> ErrorCode.VALIDATION_FAILED;
         };
     }

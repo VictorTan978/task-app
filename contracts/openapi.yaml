@@ -2622,9 +2622,9 @@ paths:
         (`ADD_TAG` or `MOVE`; no `failedIds`). Nothing is changed on any error.
 
         0.18.0, "My order": `COMPLETE`, `REOPEN` and `SET_STATUS` keep each task's position (a
-        repeat copy created by `COMPLETE` goes to the top of its group); `MOVE` puts each moved
-        task at the top of the target list (one after the other in request order, so the last
-        id of the request ends up first); `DELETE` keeps the position (restore keeps it too).
+        repeat copy created by `COMPLETE` goes to the top of its group); `MOVE` puts the moved
+        tasks at the top of the target list in request order (the first id of the request
+        ends up first, the last one of them last); `DELETE` keeps the position (restore keeps it too).
       operationId: bulkTasks
       tags: [tasks]
       security:

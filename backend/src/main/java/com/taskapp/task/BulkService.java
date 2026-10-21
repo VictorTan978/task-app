@@ -107,9 +107,16 @@ public class BulkService {
                     throw new BulkTooManyTagsException(tooMany);
                 }
             }
+            List<Long> moving = action != BulkAction.MOVE ? List.of()
+                    : ids.stream().filter(id -> !byId.get(id).getListId().equals(parsed.listId())).toList();
             List<Applied> applied = new ArrayList<>();
             for (long id : ids) {
                 applied.add(applyAction(userId, byId.get(id), parsed, names.getOrDefault(id, List.of()), plan));
+            }
+            // "My order" (0.18.0): each move put its task on top, so the request order came out reversed. Put the moved
+            // tasks on top again, last id first: the first id of the request ends up first.
+            for (int i = moving.size() - 1; i >= 0; i--) {
+                tasks.putOnTop(byId.get(moving.get(i)), parsed.listId());
             }
             return new BulkResult(ids.size(), tasks.results(userId, applied));
         });
