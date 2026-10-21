@@ -1,0 +1,66 @@
+# Render Blueprint: backend (Docker web service) + frontend (static site).
+# See "Deploy to Render" in backend/README.md. No real values live here: every sync:false variable is
+# asked for in the Render dashboard when the Blueprint is created.
+services:
+  - type: web
+    name: taskapp-backend
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      # The app listens on 8080 (server.port); tell Render so it routes to it.
+      - key: PORT
+        value: "8080"
+      # Database (external MySQL over SSL). DB_USERNAME = restricted app user, DB_MIGRATION_* = Flyway user.
+      - key: DB_URL
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_MIGRATION_USERNAME
+        sync: false
+      - key: DB_MIGRATION_PASSWORD
+        sync: false
+      # Outgoing email (SMTP provider).
+      - key: MAIL_HOST
+        sync: false
+      - key: MAIL_PORT
+        sync: false
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      # URL of the static site below (https://...onrender.com or your custom domain), no trailing slash.
+      - key: APP_BASE_URL
+        sync: false
+      # Optional: email of the account to make super admin at startup (leave empty to skip).
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        sync: false
+      # Optional: Sign in with Google. Set both or neither.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+  - type: web
+    name: taskapp-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist/frontend/browser
+    routes:
+      # The browser calls relative /api/..., so it sees one origin (the session cookie is SameSite=Lax).
+      # REPLACE the destination with your real backend URL (shown in the Render dashboard).
+      - type: rewrite
+        source: /api/*
+        destination: https://taskapp-backend.onrender.com/api/*
+      # Angular router: every other path serves index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html

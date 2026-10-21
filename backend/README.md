@@ -94,3 +94,73 @@ the text). Notifications older than 90 days are deleted hourly. A crash during a
 Reminder times are computed in each member's own time zone (`users.time_zone`, UTC until it is set); the due time is a
 wall-clock value, so 09:30 is 09:30 for every member. The tests never start the timer (`app.reminders.enabled=false`
 in the test settings) and call `ReminderProcessor.runOnce()` with a fixed clock.
+
+## Deploy to Render
+
+Layout: the backend runs as a Render **Docker web service** (`backend/Dockerfile`), the frontend as a Render
+**Static Site**, the database is an **external MySQL 8** (Aiven, TiDB Serverless, ...) reached over SSL. The
+Blueprint is `render.yaml` at the repository root (New > Blueprint in the Render dashboard; Render asks for every
+variable marked `sync: false`). Never commit real values.
+
+The static site rewrites `/api/*` to the backend, so the browser sees a single origin. This matters because the
+session cookie is `SameSite=Lax` and `onrender.com` is a public suffix (two `*.onrender.com` services are
+different sites). In `render.yaml`, replace `https://taskapp-backend.onrender.com` in the `/api/*` rewrite with
+your backend's real URL.
+
+### Environment variables (backend)
+
+| Variable | Required | Value |
+|---|---|---|
+| `DB_URL` | yes | `jdbc:mysql://<host>:<port>/taskapp?sslMode=REQUIRED&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true` (keep the time zone parameters) |
+| `DB_USERNAME` | yes | the restricted app user (`taskapp_app`, see SQL below) |
+| `DB_PASSWORD` | yes | its password |
+| `DB_MIGRATION_USERNAME` | yes | the migration user (`taskapp`), used by Flyway at startup |
+| `DB_MIGRATION_PASSWORD` | yes | its password |
+| `MAIL_HOST` | yes | SMTP host of your provider |
+| `MAIL_PORT` | no | default `587` (STARTTLS) |
+| `MAIL_USERNAME`, `MAIL_PASSWORD` | no, but providers need them | SMTP login |
+| `MAIL_FROM` | yes | sender, e.g. `Task App <no-reply@example.com>`; must be allowed by your provider |
+| `APP_BASE_URL` | yes | the **static site** URL, e.g. `https://taskapp-frontend.onrender.com` (must be `https://`; emailed links point here) |
+| `ADMIN_BOOTSTRAP_EMAIL` | no | account to make super admin (see above) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no | set both or neither |
+| `PORT` | set by `render.yaml` | `8080`, the port the app listens on |
+
+`REQUIRE_HTTPS` stays at its default (`true`): Render terminates TLS and sends `X-Forwarded-Proto`, which the app
+trusts from Render's private network. `GET /api/health` is exempt from the HTTPS redirect, so Render's health check
+works.
+
+### Create the database and the two users
+
+Create an empty database `taskapp` at the provider, then run this as the provider's admin user (it mirrors
+`docker/mysql-init/01-app-user.sh`; pick your own passwords). Some providers (e.g. Aiven) only allow one admin
+user or restrict `GRANT`; in that case create the users through the provider's console with the same rights.
+
+```sql
+CREATE DATABASE IF NOT EXISTS taskapp CHARACTER SET utf8mb4;
+
+-- Flyway user: DDL, runs the migrations at every backend start
+CREATE USER IF NOT EXISTS 'taskapp'@'%' IDENTIFIED BY '<migration-password>';
+GRANT ALL PRIVILEGES ON taskapp.* TO 'taskapp'@'%';
+
+-- App user: data only
+CREATE USER IF NOT EXISTS 'taskapp_app'@'%' IDENTIFIED BY '<app-password>';
+GRANT SELECT, INSERT, UPDATE, DELETE ON taskapp.* TO 'taskapp_app'@'%';
+```
+
+Flyway creates the tables on the first start. Check that the provider accepts connections from Render (no IP
+allow-list, or allow Render's outbound IPs).
+
+### Google sign-in
+
+Register this redirect URI at Google: `<APP_BASE_URL>/api/auth/oauth2/callback/google`, e.g.
+`https://taskapp-frontend.onrender.com/api/auth/oauth2/callback/google` (the static site URL, not the backend URL).
+
+### Caveats of the free tier
+
+- A free web service **sleeps after about 15 minutes without requests**; the next request waits ~1 minute for a
+  cold start.
+- While it sleeps, **reminders do not fire** (the scheduler runs inside the app); a reminder 1 hour or more late
+  is dropped (see Reminders).
+- Sessions and rate-limit counters are **in memory**: every restart or wake-up signs everyone out and resets the
+  limits.
+- 512 MB RAM: the image uses `-XX:MaxRAMPercentage=75`.
