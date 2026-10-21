@@ -1,6 +1,6 @@
 # Feature: Undo, trash, bulk actions, drag and drop (T5)
 
-**Status:** APPROVED 2026-10-21. **T5a DONE** 2026-10-21 (AC1–AC17 PASS, merged to `main`). **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
+**Status:** APPROVED 2026-10-21. **T5a DONE** 2026-10-21 (AC1–AC17 PASS, merged to `main`).  **T5b** in progress on `feature/t5b-bulk`. **Depends on:** `specs/tasks.md`, `specs/tasks-priority-status-tags.md`, `specs/tasks-search-sort-pagination.md`, `specs/sharing-team-lists.md`, `specs/due-times-reminders.md` (all DONE, on `main`).
 
 **Approving this spec does not approve the gates.** Each migration (V14, V15), the change to `DELETE /api/tasks/{id}`, and any new dependency (`@angular/cdk`) gets its own approval question at build time.
 
@@ -164,3 +164,4 @@ _Filled in by the PM during the build._
 | 2026-10-21 | `Notification.taskTrashed` (required boolean); `taskId`/`listId` kept while trashed | AC8 | PM |
 | 2026-10-21 | Edit + move in one save toasts "Moved to <list>"; toast closes on path change only (not query changes); Trash page has "Back to tasks" | Frontend plan | PM |
 | 2026-10-21 | T5a verified: AC1–AC17 PASS; AC5 purge via backend `TrashIntegrationTest` (30 days can't be waited in e2e) | tester report; e2e 414 passed / 22 skipped / 436 | tester |
+| 2026-10-21 | Raise the initial-bundle warning budget from 500 kB to 520 kB (error stays at 1 MB), done in T5b | Bundle at 499.93 kB; T5b would cross it | User |
