@@ -3,6 +3,12 @@ import { RouterLink } from '@angular/router';
 import { formatDue, isDone, isOverdue, PRIORITY_LABELS, repeatSummary } from '../tasks.logic';
 import { RepeatRule, Task } from '../tasks.models';
 
+/** A tick of the selection checkbox; `shift` extends the selection from the last one. */
+export interface RowSelect {
+  checked: boolean;
+  shift: boolean;
+}
+
 @Component({
   selector: 'app-task-row',
   imports: [RouterLink],
@@ -18,11 +24,15 @@ export class TaskRow {
   readonly busy = input(false);
   /** Show "Added by …" (the list has 2 or more members). */
   readonly showAddedBy = input(false);
+  /** Selection mode: the row shows a "Select" checkbox instead of the Done one. */
+  readonly selecting = input(false);
+  readonly selected = input(false);
 
   /** The requested new done state (the page sends status `DONE` / `TODO`). */
   readonly doneChange = output<boolean>();
   readonly edit = output<void>();
   readonly remove = output<void>();
+  readonly selectChange = output<RowSelect>();
 
   protected readonly done = computed(() => isDone(this.task()));
   protected readonly inProgress = computed(() => this.task().status === 'IN_PROGRESS');
@@ -57,7 +67,7 @@ export class TaskRow {
     );
   });
 
-  private readonly checkbox = viewChild.required<ElementRef<HTMLInputElement>>('checkbox');
+  private readonly checkbox = viewChild<ElementRef<HTMLInputElement>>('checkbox');
 
   constructor() {
     // The list only changes once the server confirms. When no request is running, keep the
@@ -65,7 +75,10 @@ export class TaskRow {
     effect(() => {
       const done = this.done();
       if (!this.busy()) {
-        this.checkbox().nativeElement.checked = done;
+        const box = this.checkbox();
+        if (box) {
+          box.nativeElement.checked = done;
+        }
       }
     });
   }
@@ -76,5 +89,21 @@ export class TaskRow {
 
   protected onToggle(event: Event): void {
     this.doneChange.emit((event.target as HTMLInputElement).checked);
+  }
+
+  protected onSelect(event: Event): void {
+    this.selectChange.emit({
+      checked: (event.target as HTMLInputElement).checked,
+      shift: (event as MouseEvent).shiftKey === true,
+    });
+  }
+
+  /** Selection mode: clicking the title selects (or unselects) instead of opening the editor. */
+  protected onTitle(event: MouseEvent): void {
+    if (this.selecting()) {
+      this.selectChange.emit({ checked: !this.selected(), shift: event.shiftKey });
+    } else {
+      this.edit.emit();
+    }
   }
 }

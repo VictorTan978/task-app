@@ -1,0 +1,238 @@
+<div class="bulk-bar" role="region" aria-label="Bulk actions" data-testid="bulk-bar">
+  <div class="bulk-bar__head">
+    <p class="bulk-bar__count" role="status" aria-live="polite" data-testid="bulk-count">
+      {{ count() }} selected
+    </p>
+    <button
+      type="button"
+      class="btn btn--secondary btn--small"
+      data-testid="bulk-select-all"
+      [disabled]="busy()"
+      (click)="selectAll.emit()"
+    >
+      Select all loaded
+    </button>
+    <button
+      type="button"
+      class="btn btn--secondary btn--small"
+      data-testid="bulk-cancel"
+      [disabled]="busy()"
+      (click)="cancelled.emit()"
+    >
+      Cancel
+    </button>
+    <button
+      type="button"
+      class="btn btn--secondary btn--small bulk-bar__more"
+      data-testid="bulk-more"
+      aria-haspopup="true"
+      [attr.aria-expanded]="moreOpen()"
+      [disabled]="busy()"
+      (click)="toggleMore()"
+    >
+      More
+    </button>
+  </div>
+  @if (atMax()) {
+    <p class="bulk-bar__limit" data-testid="bulk-limit">At most 200 tasks can be selected.</p>
+  }
+  @if (busy()) {
+    <p class="bulk-bar__busy" role="status" data-testid="bulk-busy">
+      <span class="spinner" aria-hidden="true"></span> Working…
+    </p>
+  }
+  <div
+    class="bulk-bar__actions"
+    [class.bulk-bar__actions--open]="moreOpen()"
+    [attr.aria-busy]="busy()"
+  >
+    <button
+      type="button"
+      class="btn btn--secondary btn--small"
+      data-testid="bulk-complete"
+      [disabled]="disabled()"
+      (click)="emit('COMPLETE')"
+    >
+      Complete
+    </button>
+    <button
+      type="button"
+      class="btn btn--secondary btn--small"
+      data-testid="bulk-reopen"
+      [disabled]="disabled()"
+      (click)="emit('REOPEN')"
+    >
+      Reopen
+    </button>
+
+    <div class="bulk-bar__menu">
+      <button
+        type="button"
+        class="btn btn--secondary btn--small"
+        data-testid="bulk-status"
+        aria-haspopup="true"
+        [attr.aria-expanded]="menu() === 'status'"
+        [disabled]="disabled()"
+        (click)="toggleMenu('status')"
+      >
+        Set status
+      </button>
+      @if (menu() === 'status') {
+        <ul class="bulk-bar__panel" aria-label="Set status">
+          @for (s of statuses; track s.value) {
+            <li>
+              <button
+                type="button"
+                class="bulk-bar__choice"
+                [attr.data-testid]="'bulk-status-' + s.value"
+                (click)="emit('SET_STATUS', s.value)"
+              >
+                {{ s.label }}
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <div class="bulk-bar__menu">
+      <button
+        type="button"
+        class="btn btn--secondary btn--small"
+        data-testid="bulk-priority"
+        aria-haspopup="true"
+        [attr.aria-expanded]="menu() === 'priority'"
+        [disabled]="disabled()"
+        (click)="toggleMenu('priority')"
+      >
+        Set priority
+      </button>
+      @if (menu() === 'priority') {
+        <ul class="bulk-bar__panel" aria-label="Set priority">
+          @for (p of priorities; track p.value) {
+            <li>
+              <button
+                type="button"
+                class="bulk-bar__choice"
+                [attr.data-testid]="'bulk-priority-' + p.value"
+                (click)="emit('SET_PRIORITY', p.value)"
+              >
+                {{ p.label }}
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <div class="bulk-bar__menu">
+      <button
+        type="button"
+        class="btn btn--secondary btn--small"
+        data-testid="bulk-add-tag"
+        aria-haspopup="true"
+        [attr.aria-expanded]="menu() === 'addTag'"
+        [disabled]="disabled()"
+        (click)="toggleMenu('addTag')"
+      >
+        Add tag
+      </button>
+      @if (menu() === 'addTag') {
+        <form class="bulk-bar__panel bulk-bar__tag-form" (submit)="addTag($event)">
+          <label for="bulk-tag-name">Tag name</label>
+          <input
+            id="bulk-tag-name"
+            type="text"
+            autocomplete="off"
+            data-testid="bulk-tag-input"
+            [attr.maxlength]="tagMax"
+            [value]="tagText()"
+            (input)="tagText.set($any($event.target).value)"
+          />
+          <button
+            type="submit"
+            class="btn btn--primary btn--small"
+            data-testid="bulk-tag-apply"
+            [disabled]="tagText().trim() === ''"
+          >
+            Add
+          </button>
+        </form>
+      }
+    </div>
+
+    <div class="bulk-bar__menu">
+      <button
+        type="button"
+        class="btn btn--secondary btn--small"
+        data-testid="bulk-remove-tag"
+        aria-haspopup="true"
+        [attr.aria-expanded]="menu() === 'removeTag'"
+        [disabled]="disabled()"
+        (click)="toggleMenu('removeTag')"
+      >
+        Remove tag
+      </button>
+      @if (menu() === 'removeTag') {
+        <ul class="bulk-bar__panel" aria-label="Remove tag">
+          @for (tag of tags(); track tag) {
+            <li>
+              <button
+                type="button"
+                class="bulk-bar__choice"
+                data-testid="bulk-remove-tag-choice"
+                (click)="emit('REMOVE_TAG', tag)"
+              >
+                {{ tag }}
+              </button>
+            </li>
+          } @empty {
+            <li class="bulk-bar__none">The selected tasks have no tags</li>
+          }
+        </ul>
+      }
+    </div>
+
+    <div class="bulk-bar__menu">
+      <button
+        type="button"
+        class="btn btn--secondary btn--small"
+        data-testid="bulk-move"
+        aria-haspopup="true"
+        [attr.aria-expanded]="menu() === 'move'"
+        [disabled]="disabled()"
+        (click)="toggleMenu('move')"
+      >
+        Move to list
+      </button>
+      @if (menu() === 'move') {
+        <ul class="bulk-bar__panel" aria-label="Move to list">
+          @for (list of lists(); track list.id) {
+            <li>
+              <button
+                type="button"
+                class="bulk-bar__choice"
+                data-testid="bulk-move-choice"
+                (click)="emit('MOVE', list.id)"
+              >
+                {{ list.name }}
+              </button>
+            </li>
+          } @empty {
+            <li class="bulk-bar__none">You have no other list</li>
+          }
+        </ul>
+      }
+    </div>
+
+    <button
+      type="button"
+      class="btn btn--danger btn--small"
+      data-testid="bulk-delete"
+      [disabled]="disabled()"
+      (click)="emit('DELETE')"
+    >
+      Delete
+    </button>
+  </div>
+</div>

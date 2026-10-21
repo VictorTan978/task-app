@@ -1,4 +1,4 @@
-/** Models matching the task schemas in `contracts/openapi.yaml` (v0.16.0) exactly. */
+/** Models matching the task schemas in `contracts/openapi.yaml` (v0.17.0) exactly. */
 import { Problem } from '../../core/auth/auth.models';
 
 /** `Priority`: `NONE` is the default (no badge). */
@@ -125,7 +125,8 @@ export interface UndoCompleteRequest {
 }
 
 /** What happened to the copy a completion created. */
-export type NextTaskOutcome = 'DELETED' | 'KEPT' | 'GONE';
+/** `NONE` (0.17.0): a bulk undo item without `nextTaskId`, a plain reopen. */
+export type NextTaskOutcome = 'DELETED' | 'KEPT' | 'GONE' | 'NONE';
 
 /** `UndoCompleteResult` (0.16.0): the reopened task plus what happened to the copy. */
 export type UndoCompleteResult = Task & { nextTaskOutcome: NextTaskOutcome };
@@ -196,3 +197,86 @@ export type TaskProblem = Omit<Problem, 'errors'> & { errors?: TaskFieldError[] 
 
 /** `Problem` from `GET /api/tasks`. */
 export type TaskListProblem = Omit<Problem, 'errors'> & { errors?: TaskListFieldError[] };
+
+/** `BulkAction` (0.17.0). */
+export type BulkAction =
+  | 'COMPLETE'
+  | 'REOPEN'
+  | 'SET_STATUS'
+  | 'SET_PRIORITY'
+  | 'ADD_TAG'
+  | 'REMOVE_TAG'
+  | 'MOVE'
+  | 'DELETE';
+
+/** `BulkActionRequest`: `value` is a status, a priority, a tag name or the target list id. */
+export interface BulkActionRequest {
+  /** 1-200, unique, all in one list. */
+  ids: number[];
+  action: BulkAction;
+  value?: string | number;
+}
+
+/** `BulkResult`: the tasks in request order (`[]` for `DELETE`), each with its `nextTask`. */
+export interface BulkResult {
+  count: number;
+  tasks: TaskResult[];
+}
+
+export interface BulkPatchItem {
+  id: number;
+  patch: SetTaskDoneRequest;
+}
+
+/** `BulkPatchRequest`: 1-200 items of one list. */
+export interface BulkPatchRequest {
+  items: BulkPatchItem[];
+}
+
+/** `BulkUndoCompleteItem`: without `nextTaskId` the task is a plain reopen to `status`. */
+export interface BulkUndoCompleteItem {
+  id: number;
+  nextTaskId?: number;
+  status?: 'TODO' | 'IN_PROGRESS';
+}
+
+export interface BulkUndoCompleteRequest {
+  items: BulkUndoCompleteItem[];
+}
+
+/** `BulkUndoCompleteResult`: one result per item, in request order. */
+export interface BulkUndoCompleteResult {
+  results: UndoCompleteResult[];
+}
+
+/** `RestoreTasksRequest` / `RestoreTasksResult` of `POST /api/trash/restore`. */
+export interface RestoreTasksRequest {
+  ids: number[];
+}
+
+export interface RestoreTasksResult {
+  tasks: Task[];
+}
+
+/** Codes of a bulk `FieldError` (field `ids`, `items`, `value` or `tags`). */
+export type BulkFieldCode =
+  | 'REQUIRED'
+  | 'OUT_OF_RANGE'
+  | 'DUPLICATE'
+  | 'MIXED_LISTS'
+  | 'TOO_MANY'
+  | 'TAG_LIMIT'
+  | 'TOO_LONG'
+  | 'INVALID_CHARACTERS';
+
+export interface BulkFieldError {
+  field: string;
+  code: BulkFieldCode | string;
+  message: string;
+}
+
+/** `Problem` of a bulk call: `LIST_NOT_FOUND` is a code here, `failedIds` lists the culprits. */
+export type BulkProblem = Omit<Problem, 'errors' | 'code'> & {
+  code: Problem['code'] | 'LIST_NOT_FOUND';
+  errors?: BulkFieldError[];
+};

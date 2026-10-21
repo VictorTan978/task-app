@@ -4,9 +4,17 @@
  * to any other field survives. Loaded on first use (`import()`), to keep it out of the initial
  * bundle.
  */
-import { RepeatRule, SetTaskDoneRequest, Task, TaskResult } from './tasks.models';
+import {
+  BulkAction,
+  BulkPatchItem,
+  BulkUndoCompleteItem,
+  RepeatRule,
+  SetTaskDoneRequest,
+  Task,
+  TaskResult,
+} from './tasks.models';
 import { TaskListState } from './task-list';
-import { UndoPlan } from './undo.messages';
+import { BulkUndoPlan, UndoPlan } from './undo.messages';
 
 export const TRASHED_MESSAGE = 'Task moved to trash';
 export const UNDO_LABEL = 'Undo';
@@ -112,4 +120,91 @@ export function reinstate(state: TaskListState, id: number): TaskListState {
   const deleted = new Set(state.deleted);
   deleted.delete(id);
   return { ...state, deleted };
+}
+
+/** Toast text after a bulk action: "12 tasks completed". `listName` is the target of a move. */
+export function bulkMessage(
+  action: BulkAction,
+  count: number,
+  value: string | number | undefined,
+  listName: string | null,
+): string {
+  const tasks = count === 1 ? '1 task' : `${count} tasks`;
+  switch (action) {
+    case 'COMPLETE':
+      return `${tasks} completed`;
+    case 'REOPEN':
+      return `${tasks} reopened`;
+    case 'SET_STATUS':
+      return `Status set on ${tasks}`;
+    case 'SET_PRIORITY':
+      return `Priority set on ${tasks}`;
+    case 'ADD_TAG':
+      return `Tag '${String(value)}' added to ${tasks}`;
+    case 'REMOVE_TAG':
+      return `Tag '${String(value)}' removed from ${tasks}`;
+    case 'MOVE':
+      return `${tasks} moved to ${listName ?? 'another list'}`;
+    case 'DELETE':
+      return `${tasks} moved to trash`;
+  }
+}
+
+/**
+ * Plan for undoing a bulk action in ONE request (contract 0.17.0, "Undo of a batch"), from the
+ * tasks as they were (`before`) and as the server returned them (`after`). Only tasks the action
+ * really changed take part; null if there are none.
+ */
+export function planBulkUndo(
+  action: BulkAction,
+  value: string | number | undefined,
+  before: readonly Task[],
+  after: readonly TaskResult[],
+): BulkUndoPlan | null {
+  if (action === 'DELETE') {
+    return before.length === 0 ? null : { kind: 'bulk-restore', ids: before.map((t) => t.id) };
+  }
+  const now = new Map(after.map((t) => [t.id, t]));
+  const pairs = before.flatMap((old) => {
+    const current = now.get(old.id);
+    return current ? [{ old, current }] : [];
+  });
+  const none = (plan: BulkUndoPlan | null, empty: boolean): BulkUndoPlan | null =>
+    empty ? null : plan;
+
+  if (action === 'COMPLETE' || (action === 'SET_STATUS' && value === 'DONE')) {
+    const items: BulkUndoCompleteItem[] = pairs
+      .filter(({ old }) => old.status !== 'DONE')
+      .map(({ old, current }) => ({
+        id: old.id,
+        ...(current.nextTask ? { nextTaskId: current.nextTask.id } : {}),
+        status: old.status === 'IN_PROGRESS' ? 'IN_PROGRESS' : 'TODO',
+      }));
+    return none({ kind: 'bulk-complete', items }, items.length === 0);
+  }
+  if (action === 'ADD_TAG' || action === 'REMOVE_TAG') {
+    const adding = action === 'ADD_TAG';
+    const ids = pairs
+      .filter(({ old, current }) =>
+        adding ? current.tags.length > old.tags.length : current.tags.length < old.tags.length,
+      )
+      .map(({ old }) => old.id);
+    return none(
+      { kind: 'bulk-tag', action: adding ? 'REMOVE_TAG' : 'ADD_TAG', ids, tag: String(value) },
+      ids.length === 0,
+    );
+  }
+  const items: BulkPatchItem[] = pairs.flatMap(({ old, current }) => {
+    const patch: SetTaskDoneRequest = {};
+    if (action === 'SET_PRIORITY' && old.priority !== current.priority) {
+      patch.priority = old.priority;
+    } else if ((action === 'REOPEN' || action === 'SET_STATUS') && old.status !== current.status) {
+      patch.status = old.status;
+    } else if (action === 'MOVE' && old.listId !== current.listId) {
+      patch.listId = old.listId;
+      patch.tags = [...old.tags];
+    }
+    return isEmptyPatch(patch) ? [] : [{ id: old.id, patch }];
+  });
+  return none({ kind: 'bulk-patch', items }, items.length === 0);
 }

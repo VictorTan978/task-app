@@ -3,6 +3,8 @@ import { inject, Injectable } from '@angular/core';
 import { map, Observable } from 'rxjs';
 import { TASKS_API } from './tasks-api';
 import {
+  BulkActionRequest,
+  BulkResult,
   CreateTaskRequest,
   ReplaceTaskRequest,
   SetTaskDoneRequest,
@@ -69,6 +71,11 @@ export class TasksService {
   /** Moves the task to the trash (0.16.0; still 204). */
   delete(id: number): Observable<void> {
     return this.http.delete<unknown>(TASKS_API.one(id)).pipe(map(() => undefined));
+  }
+
+  /** One action on 1-200 tasks of one list, all or nothing (0.17.0). */
+  bulk(request: BulkActionRequest): Observable<BulkResult> {
+    return this.http.post<BulkResult>(TASKS_API.bulk, request);
   }
 
   /** The tags of one of my lists, for suggestions. `listId` null leaves `list` out ("My tasks"). */
