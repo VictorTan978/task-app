@@ -87,6 +87,11 @@ public final class ErrorCode {
     /** {@code timeZone}: not an IANA region id (0.14.0). */
     public static final String INVALID_TIME_ZONE = "INVALID_TIME_ZONE";
 
+    /** {@code ids} / {@code items} of the bulk calls: the tasks are not all in the same list (0.17.0). */
+    public static final String MIXED_LISTS = "MIXED_LISTS";
+    /** {@code ids} / {@code items} of the bulk calls: the same task twice (0.17.0). */
+    public static final String DUPLICATE = "DUPLICATE";
+
     private ErrorCode() {
     }
 }

@@ -6,6 +6,7 @@ import java.util.HashMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.BindingResult;
 import org.springframework.validation.MapBindingResult;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.taskapp.auth.InvalidFieldsException;
 import com.taskapp.security.AuthenticatedUser;
+import com.taskapp.task.dto.BulkActionRequest;
+import com.taskapp.task.dto.BulkPatchItem;
+import com.taskapp.task.dto.BulkPatchRequest;
+import com.taskapp.task.dto.BulkResult;
+import com.taskapp.task.dto.BulkUndoCompleteItem;
+import com.taskapp.task.dto.BulkUndoCompleteRequest;
+import com.taskapp.task.dto.BulkUndoCompleteResult;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.SetTaskDoneRequest;
@@ -39,9 +47,11 @@ import jakarta.validation.Valid;
 public class TaskController {
 
     private final TaskService taskService;
+    private final BulkService bulkService;
 
-    public TaskController(TaskService taskService) {
+    public TaskController(TaskService taskService, BulkService bulkService) {
         this.taskService = taskService;
+        this.bulkService = bulkService;
     }
 
     /**
@@ -62,6 +72,43 @@ public class TaskController {
             @Valid @RequestBody CreateTaskRequest body) {
         TaskResponse task = taskService.create(user.id(), body);
         return ResponseEntity.created(URI.create("/api/tasks/" + task.id())).body(task);
+    }
+
+    /** {@code POST /api/tasks/bulk} (0.17.0): one action on 1-200 tasks of one list. */
+    @PostMapping("/bulk")
+    public BulkResult bulk(@AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody BulkActionRequest body) {
+        BindingResult errors = BulkRequests.errors();
+        BulkRequests.ids(errors, "ids", body.ids());
+        BulkRequests.Parsed parsed = BulkRequests.action(errors, body);
+        BulkRequests.throwIfAny(errors);
+        return bulkService.bulk(user.id(), body.ids(), parsed);
+    }
+
+    /** {@code POST /api/tasks/bulk-patch} (0.17.0): a PATCH body per task, 1-200 tasks of one list. */
+    @PostMapping("/bulk-patch")
+    public BulkResult bulkPatch(@AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody BulkPatchRequest body) {
+        BindingResult errors = BulkRequests.errors();
+        BulkRequests.ids(errors, "items", body.items().stream().map(BulkPatchItem::id).toList());
+        for (int i = 0; i < body.items().size(); i++) {
+            BulkRequests.patchDescription(errors, i, body.items().get(i).patch());
+        }
+        BulkRequests.throwIfAny(errors);
+        return bulkService.bulkPatch(user.id(), body.items());
+    }
+
+    /** {@code POST /api/tasks/bulk-undo-complete} (0.17.0): {@code undo-complete} for 1-200 tasks. */
+    @PostMapping("/bulk-undo-complete")
+    public BulkUndoCompleteResult bulkUndoComplete(@AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody BulkUndoCompleteRequest body) {
+        BindingResult errors = BulkRequests.errors();
+        BulkRequests.ids(errors, "items", body.items().stream().map(BulkUndoCompleteItem::id).toList());
+        for (int i = 0; i < body.items().size(); i++) {
+            BulkRequests.undoItem(errors, i, body.items().get(i));
+        }
+        BulkRequests.throwIfAny(errors);
+        return bulkService.bulkUndoComplete(user.id(), body.items());
     }
 
     @GetMapping("/{id}")

@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -208,7 +209,7 @@ public class TaskService {
      * ({@code dueTime} and the null-means-unchanged fields are already "unchanged" in a {@link ReplaceTaskRequest}).
      * A time, reminder offset or rule needs a due date after the change: else 400 {@code REQUIRES_DUE_DATE}.
      */
-    private static ReplaceTaskRequest merge(Task task, SetTaskDoneRequest patch) {
+    static ReplaceTaskRequest merge(Task task, SetTaskDoneRequest patch) {
         LocalDate dueDate = patch.dueDate() == null ? task.getDueDate() : patch.dueDate().value();
         if (dueDate == null) {
             MapBindingResult errors = new MapBindingResult(new HashMap<>(), "setTaskDoneRequest");
@@ -238,29 +239,46 @@ public class TaskService {
      */
     private TaskResult update(long userId, long id, Long requestedListId, boolean exclusive,
             Function<Task, ReplaceTaskRequest> build) {
-        return writeLocked(userId, id, requestedListId, exclusive, false, (task, lists) -> {
-            ReplaceTaskRequest request = build.apply(task);
-            Spawn spawn = applyFields(task, request);
-            saveOrNotFound(task);
-            reminders.afterTaskSaved(task, userId, request.reminder());
-            if (!exclusive) {
-                return result(userId, task, tagService.namesOf(task.getListId(), task.getId()), spawn);
-            }
-            TaskList source = lists.source();
-            TaskList target = lists.target();
-            if (target == null) {
-                List<String> tags = request.tags() == null ? tagService.namesOf(source.getId(), task.getId())
-                        : tagService.replaceTags(source.getOwnerId(), source.getId(), task.getId(), request.tags());
-                return result(userId, task, tags, spawn);
-            }
-            if (taskRepository.moveToList(task.getId(), source.getId(), target.getId()) == 0) {
-                // Not reachable: the source list's lock keeps the task in it.
-                throw new TaskNotFoundException();
-            }
-            task.movedTo(target.getId());
-            return result(userId, task, tagService.moveTags(target.getOwnerId(), source.getId(), target.getId(),
-                    task.getId(), request.tags()), spawn);
-        });
+        return writeLocked(userId, id, requestedListId, exclusive, false, (task, lists) ->
+                toResult(userId, applyUpdate(userId, task, lists, build.apply(task), exclusive, false)));
+    }
+
+    /**
+     * What one write did, before any response is built: the saved task, its tag names ({@code null} = not read yet,
+     * the bulk calls read them for all tasks in one query) and the copy of a completed repeating task (or null).
+     */
+    record Applied(Task task, List<String> tags, Task next) {
+    }
+
+    /**
+     * The body of {@code PUT} / {@code PATCH}, run on the locked {@code task} (also by the bulk calls, task by task, in
+     * one transaction): applies {@code request}, saves, re-arms reminders, replaces the tags or moves the task, then
+     * creates the next task of a completed repeating one. {@code batch}: do not read the tag names of a task whose
+     * tags did not change (the caller reads them for all tasks at once).
+     */
+    Applied applyUpdate(long userId, Task task, Located lists, ReplaceTaskRequest request, boolean exclusive,
+            boolean batch) {
+        Spawn spawn = applyFields(task, request);
+        saveOrNotFound(task);
+        reminders.afterTaskSaved(task, userId, request.reminder());
+        if (!exclusive) {
+            return applied(userId, task, batch ? null : tagService.namesOf(task.getListId(), task.getId()), spawn);
+        }
+        TaskList source = lists.source();
+        TaskList target = lists.target();
+        if (target == null) {
+            List<String> tags = request.tags() == null
+                    ? (batch ? null : tagService.namesOf(source.getId(), task.getId()))
+                    : tagService.replaceTags(source.getOwnerId(), source.getId(), task.getId(), request.tags());
+            return applied(userId, task, tags, spawn);
+        }
+        if (taskRepository.moveToList(task.getId(), source.getId(), target.getId()) == 0) {
+            // Not reachable: the source list's lock keeps the task in it.
+            throw new TaskNotFoundException();
+        }
+        task.movedTo(target.getId());
+        return applied(userId, task, tagService.moveTags(target.getOwnerId(), source.getId(), target.getId(),
+                task.getId(), request.tags()), spawn);
     }
 
     /** The rule (and its anchor) a completed task handed over; the next task is created from it. */
@@ -268,16 +286,21 @@ public class TaskService {
     }
 
     /**
-     * The saved task's response and, when {@code spawn} is set, the next task: created now, after every other change
-     * of this call (tags, move), so it has the post-update values and lives in the task's final list.
+     * The write's outcome and, when {@code spawn} is set, the next task: created now, after every other change of this
+     * call (tags, move), so it has the post-update values and lives in the task's final list.
      */
-    private TaskResult result(long userId, Task task, List<String> tags, Spawn spawn) {
-        TaskResponse response = respond(userId, task, tags);
-        if (spawn == null) {
-            return TaskResult.of(response);
-        }
-        Task next = recurrence.createNext(userId, task, spawn.rule(), spawn.anchor(), now());
-        return new TaskResult(response, respond(userId, next, tagService.namesOf(next.getListId(), next.getId())));
+    private Applied applied(long userId, Task task, List<String> tags, Spawn spawn) {
+        Task next = spawn == null ? null
+                : recurrence.createNext(userId, task, spawn.rule(), spawn.anchor(), now());
+        return new Applied(task, tags, next);
+    }
+
+    /** One write's response (single-task calls). */
+    private TaskResult toResult(long userId, Applied applied) {
+        TaskResponse response = respond(userId, applied.task(), applied.tags());
+        Task next = applied.next();
+        return next == null ? TaskResult.of(response)
+                : new TaskResult(response, respond(userId, next, tagService.namesOf(next.getListId(), next.getId())));
     }
 
     /**
@@ -350,13 +373,17 @@ public class TaskService {
      * SHARE like a PUT without tags (see the class comment).
      */
     public TaskResult setStatus(long userId, long id, TaskStatus status, Boolean done) {
-        return writeLocked(userId, id, null, false, false, (task, lists) -> {
-            boolean wasDone = task.getStatus() == TaskStatus.DONE;
-            task.changeStatus(TaskStatus.resolve(task.getStatus(), status, done), now());
-            Spawn spawn = spawnIfCompleted(task, wasDone);
-            saveOrNotFound(task);
-            return result(userId, task, tagService.namesOf(task.getListId(), task.getId()), spawn);
-        });
+        return writeLocked(userId, id, null, false, false, (task, lists) ->
+                toResult(userId, applyStatus(userId, task, status, done, false)));
+    }
+
+    /** The body of the status-only {@code PATCH}, run on the locked task (also by the bulk calls). */
+    Applied applyStatus(long userId, Task task, TaskStatus status, Boolean done, boolean batch) {
+        boolean wasDone = task.getStatus() == TaskStatus.DONE;
+        task.changeStatus(TaskStatus.resolve(task.getStatus(), status, done), now());
+        Spawn spawn = spawnIfCompleted(task, wasDone);
+        saveOrNotFound(task);
+        return applied(userId, task, batch ? null : tagService.namesOf(task.getListId(), task.getId()), spawn);
     }
 
     /**
@@ -447,8 +474,24 @@ public class TaskService {
      */
     public UndoCompleteResult undoComplete(long userId, long id, long nextTaskId, TaskStatus status) {
         return writeLocked(userId, id, null, true, false, (task, lists) -> {
-            UndoCompleteResult.Outcome outcome = UndoCompleteResult.Outcome.GONE;
-            if (nextTaskId == task.getId()) {
+            UndoApplied done = applyUndoComplete(userId, task, nextTaskId, status, false);
+            return new UndoCompleteResult(respond(userId, task, done.applied().tags()), done.outcome());
+        });
+    }
+
+    /** What an undo-complete did to one task, before the response is built. */
+    record UndoApplied(Applied applied, UndoCompleteResult.Outcome outcome) {
+    }
+
+    /**
+     * The body of {@code undo-complete}, run on the locked task (also by the bulk call). {@code nextTaskId} null (bulk
+     * only): a plain reopen, there is no copy to look at, the outcome is {@code NONE}.
+     */
+    UndoApplied applyUndoComplete(long userId, Task task, Long nextTaskId, TaskStatus status, boolean batch) {
+        UndoCompleteResult.Outcome outcome = UndoCompleteResult.Outcome.NONE;
+        if (nextTaskId != null) {
+            outcome = UndoCompleteResult.Outcome.GONE;
+            if (nextTaskId == task.getId().longValue()) {
                 outcome = UndoCompleteResult.Outcome.KEPT;
             } else {
                 Optional<Task> copy = taskRepository.findByIdAndListId(nextTaskId, task.getListId());
@@ -469,12 +512,12 @@ public class TaskService {
                     outcome = UndoCompleteResult.Outcome.KEPT;
                 }
             }
-            task.changeStatus(status == null ? TaskStatus.TODO : status, now());
-            saveOrNotFound(task);
-            reminders.afterTaskSaved(task, userId, null);
-            return new UndoCompleteResult(
-                    respond(userId, task, tagService.namesOf(task.getListId(), task.getId())), outcome);
-        });
+        }
+        task.changeStatus(status == null ? TaskStatus.TODO : status, now());
+        saveOrNotFound(task);
+        reminders.afterTaskSaved(task, userId, null);
+        return new UndoApplied(new Applied(task, batch ? null : tagService.namesOf(task.getListId(), task.getId()),
+                null), outcome);
     }
 
     /**
@@ -559,7 +602,7 @@ public class TaskService {
     }
 
     /** The list {@link #locate} found the task in, and the move target (null = no move). */
-    private record Located(TaskList source, TaskList target) {
+    record Located(TaskList source, TaskList target) {
     }
 
     private TaskResponse withTags(long userId, Task task) {
@@ -574,6 +617,50 @@ public class TaskService {
         Long adder = task.getOwnerId();
         String name = adder == null ? null : displayNames(List.of(adder)).get(adder);
         return TaskResponse.from(task, tags, name, reminders.mine(userId, List.of(task.getId())).get(task.getId()));
+    }
+
+    /**
+     * Responses for these tasks with a fixed number of queries (bulk calls): the tag names of tasks whose {@code known}
+     * entry is absent in one query per list, the adders' display names in one, the caller's reminders in one. In the
+     * order of {@code tasks}.
+     */
+    List<TaskResponse> responses(long userId, List<Task> tasks, Map<Long, List<String>> known) {
+        Map<Long, List<Task>> missing = new java.util.LinkedHashMap<>();
+        for (Task task : tasks) {
+            if (!known.containsKey(task.getId())) {
+                missing.computeIfAbsent(task.getListId(), id -> new java.util.ArrayList<>()).add(task);
+            }
+        }
+        Map<Long, List<String>> tags = new HashMap<>(known);
+        missing.forEach((listId, group) -> tags.putAll(
+                tagService.namesByTask(listId, group.stream().map(Task::getId).toList())));
+        List<Long> ids = tasks.stream().map(Task::getId).toList();
+        Map<Long, String> names = displayNames(tasks.stream().map(Task::getOwnerId).toList());
+        Map<Long, ReminderService.Mine> mine = reminders.mine(userId, ids);
+        return tasks.stream().map(task -> TaskResponse.from(task, tags.getOrDefault(task.getId(), List.of()),
+                names.get(task.getOwnerId()), mine.get(task.getId()))).toList();
+    }
+
+    /** {@link TaskResult}s of these writes in order, with the responses built by {@link #responses}. */
+    List<TaskResult> results(long userId, List<Applied> applied) {
+        List<Task> all = new ArrayList<>();
+        Map<Long, List<String>> known = new HashMap<>();
+        for (Applied a : applied) {
+            all.add(a.task());
+            if (a.tags() != null) {
+                known.put(a.task().getId(), a.tags());
+            }
+            if (a.next() != null) {
+                all.add(a.next());
+            }
+        }
+        Map<Long, TaskResponse> byId = new HashMap<>();
+        List<TaskResponse> built = responses(userId, all, known);
+        for (int i = 0; i < all.size(); i++) {
+            byId.put(all.get(i).getId(), built.get(i));
+        }
+        return applied.stream().map(a -> new TaskResult(byId.get(a.task().getId()),
+                a.next() == null ? null : byId.get(a.next().getId()))).toList();
     }
 
     /** Display name per user id, one query; null ids (deleted adders) and deleted accounts are absent. */

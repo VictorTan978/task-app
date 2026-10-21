@@ -55,6 +55,9 @@ class TaskDueTimeControllerTest {
     @MockitoBean
     private TaskService taskService;
 
+    @MockitoBean
+    private BulkService bulkService;
+
     private static RequestPostProcessor signedIn() {
         var principal = new AuthenticatedUser(OWNER, "alice@example.com", "Alice");
         return signedInSession(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()));

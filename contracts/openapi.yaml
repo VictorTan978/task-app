@@ -50,7 +50,7 @@ info:
       |---|---|
       | `DELETE` | `POST /api/trash/restore` with the ids |
       | `COMPLETE` / `REOPEN` / `SET_STATUS` / `SET_PRIORITY` | `bulk-patch`, per task `{status}` or `{priority}` = old value (last write wins on that field only) |
-      | `COMPLETE` / `SET_STATUS DONE` that created copies | `bulk-undo-complete` for the repeating tasks (the `nextTask.id` of each), `bulk-patch` for the others |
+      | `COMPLETE` / `SET_STATUS DONE` | one `bulk-undo-complete` call with an item per task that was **not** `DONE` before: `{id, nextTaskId: tasks[i].nextTask.id, status: old status}` for the repeating ones, `{id, status: old status}` (no `nextTaskId`: a plain reopen) for the others. Tasks that were already `DONE` are left out |
       | `ADD_TAG` | `bulk` `REMOVE_TAG` on the ids that did **not** have the tag |
       | `REMOVE_TAG` | `bulk` `ADD_TAG` on the ids that had it |
       | `MOVE` | `bulk-patch`, per task `{listId: oldList, tags: oldNames}` |
@@ -2674,8 +2674,8 @@ paths:
         New in 0.17.0, see "Bulk actions". Used mainly to undo a bulk action. Each item is
         `{ id, patch }`; `patch` is exactly the body of `PATCH /api/tasks/{id}` (any subset of
         its fields, same meaning, validation and side effects: move rules, tag replacement,
-        `nextTask` when it completes a repeating task, `updatedAt` set when something
-        changes). 1-200 items, unique `id`s, all tasks in one list. The items are applied in
+        `nextTask` when it completes a repeating task, `updatedAt` set to now as `PATCH`
+        does). 1-200 items, unique `id`s, all tasks in one list. The items are applied in
         request order inside one transaction (the order only matters for the 200-tag limit).
 
         Response: `BulkResult` with `tasks` in request order.
@@ -2735,9 +2735,14 @@ paths:
       summary: Undo the completion of many repeating tasks
       description: |
         New in 0.17.0. `POST /api/tasks/{id}/undo-complete` for 1-200 items
-        `{ id, nextTaskId, status? }` in one transaction, each with the rules and the outcome
+        `{ id, nextTaskId?, status? }` in one transaction, each with the rules and the outcome
         (`DELETED` / `KEPT` / `GONE`) described there. A missing copy is never an error. Tasks
         may be in different lists (all lists I am a member of). Unique `id`s.
+
+        **`nextTaskId` is optional per item** (so undoing a bulk `COMPLETE` over repeating and
+        non-repeating tasks is one atomic call): without it the item is a plain reopen, the task
+        gets `status` (default `TODO`) and nothing else is touched (no copy, no rule change), and
+        its `nextTaskOutcome` is `NONE`. `NONE` is only ever returned by this endpoint.
 
         Response: `results`, one `UndoCompleteResult` per item **in request order**.
 
@@ -6150,15 +6155,24 @@ components:
           description: Unique `id`s.
 
     BulkUndoCompleteItem:
-      allOf:
-        - $ref: '#/components/schemas/UndoCompleteRequest'
-        - type: object
-          required: [id]
-          properties:
-            id:
-              type: integer
-              format: int64
-              description: The reopened task (the `{id}` of `undo-complete`).
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The reopened task (the `{id}` of `undo-complete`).
+        nextTaskId:
+          type: integer
+          format: int64
+          description: |
+            `TaskResult.nextTask.id` of the completion being undone. Optional: missing = plain
+            reopen, outcome `NONE`. Below 1 = 400 `items` / `OUT_OF_RANGE`.
+        status:
+          type: string
+          enum: [TODO, IN_PROGRESS]
+          default: TODO
+          description: The status the task had before it was completed.
 
     BulkUndoCompleteRequest:
       type: object
@@ -6232,12 +6246,13 @@ components:
           properties:
             nextTaskOutcome:
               type: string
-              enum: [DELETED, KEPT, GONE]
+              enum: [DELETED, KEPT, GONE, NONE]
               description: |
                 `DELETED`: the untouched copy was deleted for good and the rule is back on the
                 task. `KEPT`: the copy was changed (or trashed, moved...) and was left alone; the
                 task has no rule. `GONE`: the copy no longer exists (or is not in my lists); the
-                task has no rule.
+                task has no rule. `NONE` (0.17.0, `bulk-undo-complete` items without `nextTaskId`
+                only): no copy was named, the task was just reopened.
 
     TaskPage:
       type: object
