@@ -15,10 +15,11 @@ const WORK: TaskList = { id: 9, name: 'Work', personal: false, role: 'OWNER', me
 
 @Component({
   imports: [ListPicker],
-  template: `<app-list-picker [activeId]="activeId()" />`,
+  template: `<app-list-picker [activeId]="activeId()" [trashActive]="trashActive()" />`,
 })
 class Host {
   readonly activeId = signal<number | null>(3);
+  readonly trashActive = signal(false);
 }
 
 function problem(status: number, code: string, errors?: unknown[]) {
@@ -61,7 +62,7 @@ describe('ListPicker', () => {
 
   const stable = () => fixture.whenStable();
   const q = <T extends Element = HTMLInputElement>(sel: string) => el.querySelector<T>(sel);
-  const links = () => Array.from(el.querySelectorAll<HTMLAnchorElement>('.list-picker__link'));
+  const links = () => Array.from(el.querySelectorAll<HTMLAnchorElement>('nav[aria-label=Lists] a'));
   const button = (name: string) =>
     Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.trim() === name)!;
 
@@ -110,10 +111,44 @@ describe('ListPicker', () => {
       'My tasks',
       'Home',
       'Work',
+      'Trash',
     ]);
     select.value = '8';
     select.dispatchEvent(new Event('change'));
     expect(router.navigateByUrl).toHaveBeenCalledWith('/lists/8');
+  });
+
+  describe('Trash entry', () => {
+    const trashLink = () => q<HTMLAnchorElement>('a[href="/trash"]');
+
+    it('is a link to /trash under the lists (not among the lists), not active on a list page', async () => {
+      await loadLists();
+      expect(links().map((a) => a.getAttribute('href'))).not.toContain('/trash');
+      expect(trashLink()?.getAttribute('href')).toBe('/trash');
+      expect(trashLink()?.textContent).toContain('Trash');
+      expect(trashLink()?.getAttribute('aria-current')).toBeNull();
+    });
+
+    it('the phone select has a Trash option that opens /trash', async () => {
+      await loadLists();
+      const select = q<HTMLSelectElement>('#list-picker-select')!;
+      select.value = 'trash';
+      select.dispatchEvent(new Event('change'));
+      expect(router.navigateByUrl).toHaveBeenCalledWith('/trash');
+    });
+
+    it('on the Trash page the link is current and the phone select shows Trash', async () => {
+      fixture.componentInstance.trashActive.set(true);
+      fixture.componentInstance.activeId.set(null);
+      await loadLists();
+      expect(trashLink()?.getAttribute('aria-current')).toBe('page');
+      expect(links().every((a) => a.getAttribute('aria-current') === null)).toBe(true);
+      const select = q<HTMLSelectElement>('#list-picker-select')!;
+      expect(select.selectedOptions[0].textContent?.trim()).toBe('Trash');
+      // Choosing Trash again does nothing.
+      select.dispatchEvent(new Event('change'));
+      expect(router.navigateByUrl).not.toHaveBeenCalled();
+    });
   });
 
   it('phone select shows a placeholder when the open list is unknown', async () => {
@@ -239,6 +274,6 @@ describe('ListPicker', () => {
     expect(teamLink.textContent?.replace(/\s+/g, ' ').trim()).toBe('Team 3, 3 members');
     expect(teamLink.querySelector('[aria-hidden=true]')?.textContent).toBe('3');
     const options = Array.from(el.querySelectorAll('option')).map((o) => o.textContent?.trim());
-    expect(options).toEqual(['My tasks', 'Home', 'Team (3 members)']);
+    expect(options).toEqual(['My tasks', 'Home', 'Team (3 members)', 'Trash']);
   });
 });

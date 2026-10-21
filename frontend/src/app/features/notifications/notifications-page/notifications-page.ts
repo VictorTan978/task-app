@@ -1,16 +1,20 @@
-import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, signal, WritableSignal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ListsStore } from '../../lists/lists.store';
-import { isUnauthenticated } from '../../tasks/task-form';
+import { isNotFound, isUnauthenticated } from '../../tasks/task-form';
+import { TrashService } from '../../trash/trash.service';
 import {
   isAvailable,
+  isTrashed,
   notificationLink,
   notificationText,
   NOTIFICATIONS_ACTION_ERROR,
   NOTIFICATIONS_EMPTY,
   NOTIFICATIONS_LOAD_ERROR,
   NOTIFICATIONS_MORE_ERROR,
+  RESTORE_ERROR,
+  TASK_IN_TRASH,
   TASK_UNAVAILABLE,
 } from '../notifications.logic';
 import { AppNotification } from '../notifications.models';
@@ -25,6 +29,7 @@ import { NotificationsStore } from '../notifications.store';
 export class NotificationsPage {
   private readonly api = inject(NotificationsService);
   private readonly store = inject(NotificationsStore);
+  private readonly trash = inject(TrashService);
   private readonly lists = inject(ListsStore);
   private readonly router = inject(Router);
   private loadSub: Subscription | null = null;
@@ -50,6 +55,12 @@ export class NotificationsPage {
   protected readonly actionErrorText = NOTIFICATIONS_ACTION_ERROR;
   protected readonly emptyText = NOTIFICATIONS_EMPTY;
   protected readonly unavailableText = TASK_UNAVAILABLE;
+  protected readonly trashedText = TASK_IN_TRASH;
+  protected readonly restoreErrorText = RESTORE_ERROR;
+  /** Restore failed for these notifications' tasks (retry with the button). */
+  protected readonly restoreFailed = signal<ReadonlySet<number>>(new Set());
+  /** Notifications whose Restore is running. */
+  protected readonly restoring = signal<ReadonlySet<number>>(new Set());
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -174,12 +185,67 @@ export class NotificationsPage {
     });
   }
 
+  protected trashed(n: AppNotification): boolean {
+    return isTrashed(n);
+  }
+
+  protected isRestoring(id: number): boolean {
+    return this.restoring().has(id);
+  }
+
+  /** Restores the trashed task; every notification of that task stops saying it is in the trash. */
+  protected restore(n: AppNotification): void {
+    const taskId = n.taskId;
+    if (taskId === null || this.restoring().has(n.id)) {
+      return;
+    }
+    this.setIn(this.restoreFailed, n.id, false);
+    this.setIn(this.restoring, n.id, true);
+    this.trash.restore(taskId).subscribe({
+      next: () => {
+        this.setIn(this.restoring, n.id, false);
+        this.items.update((items) =>
+          items.map((i) => (i.taskId === taskId ? { ...i, taskTrashed: false } : i)),
+        );
+      },
+      error: (error: unknown) => {
+        this.setIn(this.restoring, n.id, false);
+        if (isUnauthenticated(error)) {
+          return;
+        }
+        if (isNotFound(error)) {
+          // Deleted for good, or no longer in my lists.
+          this.items.update((items) =>
+            items.map((i) =>
+              i.taskId === taskId ? { ...i, taskId: null, listId: null, taskTrashed: false } : i,
+            ),
+          );
+          return;
+        }
+        this.setIn(this.restoreFailed, n.id, true);
+      },
+    });
+  }
+
+  private setIn(target: WritableSignal<ReadonlySet<number>>, id: number, on: boolean): void {
+    target.update((set) => {
+      const next = new Set(set);
+      if (on) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }
+
   protected isBusy(id: number): boolean {
     return this.busy().has(id);
   }
 
   private navigate(n: AppNotification): void {
-    if (n.listId === null) {
+    // A trashed task can't be opened: the row offers Restore instead.
+    if (n.listId === null || n.taskTrashed) {
       return;
     }
     const personal = this.lists.personal()?.id ?? null;

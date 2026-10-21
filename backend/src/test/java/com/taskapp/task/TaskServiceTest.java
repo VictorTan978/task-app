@@ -612,11 +612,26 @@ class TaskServiceTest {
     }
 
     @Test
-    void deleteLocksRemovesTheTaskAndThenUnusedTags() {
-        Task task = stored(12L, TaskStatus.TODO, Priority.NONE);
-        when(tagService.tagIdsOf(12L)).thenReturn(List.of(5L, 7L));
+    void deleteMovesTheTaskToTheTrashAndKeepsItsTags() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(repository.trash(eq(12L), eq(OWNER), any(Instant.class))).thenReturn(1);
 
         service.delete(OWNER, 12L);
+
+        verify(repository).trash(12L, OWNER, NOW.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        verify(repository, never()).delete(any());
+        verify(tagService, never()).deleteUnused(anyLong(), any());
+        verify(listService, never()).lockList(anyLong());
+    }
+
+    @Test
+    void deleteForeverLocksRemovesTheTrashedTaskAndThenUnusedTags() {
+        Task task = existing(12L);
+        when(repository.findTrashedAccessible(12L, OWNER)).thenReturn(Optional.of(task));
+        when(repository.findTrashedByIdAndListId(12L, MY_TASKS)).thenReturn(Optional.of(task));
+        when(tagService.tagIdsOf(12L)).thenReturn(List.of(5L, 7L));
+
+        service.deleteForever(OWNER, 12L);
 
         InOrder order = inOrder(listService, tagService, repository);
         order.verify(listService).shareUsers(eq(OWNER), anyList());
@@ -625,6 +640,15 @@ class TaskServiceTest {
         order.verify(repository).delete(task);
         order.verify(repository).flush();
         order.verify(tagService).deleteUnused(MY_TASKS, List.of(5L, 7L));
+    }
+
+    @Test
+    void deleteForeverOfALiveTaskIsNotFound() {
+        stored(12L, TaskStatus.TODO, Priority.NONE);
+        when(repository.findTrashedAccessible(12L, OWNER)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deleteForever(OWNER, 12L)).isInstanceOf(TaskNotFoundException.class);
+        verify(repository, never()).delete(any());
     }
 
     @Test

@@ -533,7 +533,10 @@ class TaskIntegrationTest {
         alice.put("/api/tasks/" + first, tagsBody("first", "[]"));
         assertThat(tagNames(alice.get("/api/tags"))).containsExactly("Deep Work", "Errands");
         // Deleting the last task using a tag deletes it.
+        // Trashed, it still uses them (0.16.0); deleted for good, they go.
         assertThat(alice.delete("/api/tasks/" + second).status()).isEqualTo(204);
+        assertThat(tagNames(alice.get("/api/tags"))).containsExactly("Deep Work", "Errands");
+        assertThat(alice.delete("/api/trash/" + second).status()).isEqualTo(204);
         assertThat(alice.get("/api/tags").json()).isEmpty();
         assertThat(dbCount("select count(*) from tags t join users u on u.id = t.owner_id"
                 + " where u.email like 'alice-%' and t.id not in (select tag_id from task_tags)")).isZero();
@@ -646,6 +649,7 @@ class TaskIntegrationTest {
 
         // Alice removing her "work" deletes only hers.
         alice.delete("/api/tasks/" + alices);
+        alice.delete("/api/trash/" + alices);
         assertThat(alice.get("/api/tags").json()).isEmpty();
         assertThat(tagNames(bob.get("/api/tags"))).containsExactly("Bob only", "Work");
     }

@@ -629,7 +629,7 @@ test.describe('T3a Switching lists (AC5-AC7)', () => {
     await gotoList(page, 'my');
     await expect(phoneSelect(page)).toBeVisible();
     await expect(picker(page)).toBeHidden();
-    await expect(phoneSelect(page).locator('option')).toHaveText(['My tasks', 'Home', 'Work']);
+    await expect(phoneSelect(page).locator('option')).toHaveText(['My tasks', 'Home', 'Work', 'Trash']); // T5a: the last entry opens /trash
     // dropdown is above the add box
     const sel = (await phoneSelect(page).boundingBox())!;
     const add = (await page.getByLabel('New task').boundingBox())!;

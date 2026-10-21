@@ -256,15 +256,17 @@ public class MembershipRepository {
 
     /**
      * Every list an account deletion touches: the lists the user is a member of (their own included), the lists
-     * holding tasks they added, and the lists with an invitation to their email. Ascending. Plain read.
+     * holding tasks they added or trashed (trashed ones included: the cascade sets {@code deleted_by} NULL there),
+     * and the lists with an invitation to their email. Ascending. Plain read.
      */
     public List<Long> listsTouchedBy(long userId, String email) {
         return jdbc.sql("""
                 SELECT list_id FROM list_members WHERE user_id = ?
                 UNION SELECT list_id FROM tasks WHERE owner_id = ?
+                UNION SELECT list_id FROM tasks WHERE deleted_by = ?
                 UNION SELECT list_id FROM list_invitations WHERE email = ?
                 ORDER BY list_id""")
-                .params(userId, userId, email)
+                .params(userId, userId, userId, email)
                 .query(Long.class)
                 .list();
     }

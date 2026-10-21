@@ -1,10 +1,12 @@
 package com.taskapp.task;
 
 import java.net.URI;
+import java.util.HashMap;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.MapBindingResult;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.taskapp.auth.InvalidFieldsException;
 import com.taskapp.security.AuthenticatedUser;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
@@ -24,6 +27,8 @@ import com.taskapp.task.dto.SetTaskDoneRequest;
 import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
 import com.taskapp.task.dto.TaskResult;
+import com.taskapp.task.dto.UndoCompleteRequest;
+import com.taskapp.task.dto.UndoCompleteResult;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -73,7 +78,33 @@ public class TaskController {
     @PatchMapping("/{id}")
     public TaskResult setDone(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable("id") long id,
             @Valid @RequestBody SetTaskDoneRequest body) {
-        return taskService.setStatus(user.id(), id, body.status(), body.done());
+        checkDescriptionLength(body);
+        return taskService.patch(user.id(), id, body);
+    }
+
+    /**
+     * {@code POST /api/tasks/{id}/undo-complete} (0.16.0). {@code status} {@code DONE} is 400 {@code status} /
+     * {@code OUT_OF_RANGE} (a reopen cannot end in DONE).
+     */
+    @PostMapping("/{id}/undo-complete")
+    public UndoCompleteResult undoComplete(@AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable("id") long id, @Valid @RequestBody UndoCompleteRequest body) {
+        if (body.status() == TaskStatus.DONE) {
+            MapBindingResult errors = new MapBindingResult(new HashMap<>(), "undoCompleteRequest");
+            errors.rejectValue("status", "Min", "Status must be TODO or IN_PROGRESS");
+            throw new InvalidFieldsException(errors);
+        }
+        return taskService.undoComplete(user.id(), id, body.nextTaskId(), body.status());
+    }
+
+    /** The description's length after stripping (a {@link TextUpdate} cannot carry a bean validation constraint). */
+    private static void checkDescriptionLength(SetTaskDoneRequest body) {
+        if (body.description() != null && body.description().value() != null
+                && body.description().value().length() > 2000) {
+            MapBindingResult errors = new MapBindingResult(new HashMap<>(), "setTaskDoneRequest");
+            errors.rejectValue("description", "Size", "Description must be 2,000 characters or fewer");
+            throw new InvalidFieldsException(errors);
+        }
     }
 
     @DeleteMapping("/{id}")

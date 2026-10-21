@@ -34,7 +34,8 @@ public class NotificationService {
     private static final String SELECT = """
             SELECT n.id, n.type, n.read_at IS NOT NULL AS is_read, n.created_at, n.late, n.title, n.due_date,
                    n.due_time, IF(m.user_id IS NULL, NULL, t.id) AS task_id,
-                   IF(m.user_id IS NULL, NULL, t.list_id) AS list_id
+                   IF(m.user_id IS NULL, NULL, t.list_id) AS list_id,
+                   IF(m.user_id IS NULL, FALSE, t.deleted_at IS NOT NULL) AS task_trashed
             FROM notifications n
             LEFT JOIN tasks t ON t.id = n.task_id
             LEFT JOIN list_members m ON m.list_id = t.list_id AND m.user_id = n.user_id
@@ -45,7 +46,7 @@ public class NotificationService {
             ReminderTimes.fromDb(rs.getObject("created_at", LocalDateTime.class)), rs.getBoolean("late"),
             rs.getString("title"), rs.getObject("due_date", LocalDate.class),
             rs.getObject("due_time", LocalTime.class), (Long) rs.getObject("task_id"),
-            (Long) rs.getObject("list_id"));
+            (Long) rs.getObject("list_id"), rs.getBoolean("task_trashed"));
 
     private final JdbcTemplate jdbc;
     private final Clock clock;

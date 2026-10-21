@@ -91,6 +91,17 @@ public class Task {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /**
+     * When the task was moved to the trash (V14), null = not trashed. Read only here: {@link TaskRepository#trash} and
+     * {@link TaskRepository#restore} write it, so a save of the entity can never undo (or redo) a trashing.
+     */
+    @Column(name = "deleted_at", insertable = false, updatable = false)
+    private Instant deletedAt;
+
+    /** Who trashed it; null when not trashed or when that account was deleted (V14: ON DELETE SET NULL). */
+    @Column(name = "deleted_by", insertable = false, updatable = false)
+    private Long deletedBy;
+
     protected Task() {
     }
 
@@ -228,5 +239,17 @@ public class Task {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public Instant getDeletedAt() {
+        return deletedAt;
+    }
+
+    public Long getDeletedBy() {
+        return deletedBy;
+    }
+
+    public boolean isTrashed() {
+        return deletedAt != null;
     }
 }

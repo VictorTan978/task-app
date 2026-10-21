@@ -75,7 +75,7 @@ class TaskSearchRepositoryImpl implements TaskSearchRepository {
             sql.append(" JOIN task_tags tt ON tt.task_id = t.id AND tt.tag_id = :tagId");
             params.put("tagId", criteria.tagId());
         }
-        sql.append(" WHERE t.list_id = :listId");
+        sql.append(" WHERE t.list_id = :listId AND t.deleted_at IS NULL");
         params.put("listId", criteria.listId());
         switch (criteria.filter()) {
             case ALL -> {

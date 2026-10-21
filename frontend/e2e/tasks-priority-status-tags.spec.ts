@@ -221,7 +221,7 @@ async function order(page: Page): Promise<string[]> {
 async function gotoTasks(page: Page, query = '') {
   await page.goto(`/tasks${query}`);
   await expect(page.getByRole('heading', { name: 'My tasks' })).toBeVisible();
-  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(page.locator('[role=status]:not(.toast-region):visible')).toHaveCount(0); // T5a: the toast region is always in the shell
 }
 function nav(page: Page): Locator {
   return page.locator('nav[aria-label="Filter tasks"]');
@@ -954,6 +954,12 @@ test.describe('T1 Tags', () => {
     await row(page, 'Has old 2').getByRole('button', { name: 'Delete' }).click();
     await page.getByRole('dialog', { name: "Delete 'Has old 2'?" }).getByRole('button', { name: 'Delete' }).click();
     await expect(row(page, 'Has old 2')).toHaveCount(0);
+    // T5a: a trashed task still uses its tags; they go when it is deleted for good
+    expect(await listTags(page)).toEqual(['Gone', 'Keep']);
+    const trashed = (await (await api(page, 'GET', '/api/trash')).json()).items.find(
+      (x: { title: string }) => x.title === 'Has old 2',
+    );
+    expect((await api(page, 'DELETE', `/api/trash/${trashed.id}`)).status()).toBe(204);
     expect(await listTags(page)).toEqual(['Keep']);
 
     await openEdit(page, 'Other');
@@ -1098,7 +1104,8 @@ test.describe('T1 Compatibility', () => {
     expect(await patch({ status: 'IN_PROGRESS' })).toMatchObject({ status: 'IN_PROGRESS', done: false });
     expect(await patch({ done: false })).toMatchObject({ status: 'IN_PROGRESS', done: false });
     expect(await patch({ done: true, status: 'DONE' })).toMatchObject({ status: 'DONE', done: true });
-    expect(await patch({ status: 'TODO', priority: 'LOW', tags: ['x'] })).toMatchObject({ status: 'TODO', priority: 'HIGH', tags: [] });
+    // 0.16.0: PATCH takes any subset of the task fields (was: priority and tags were ignored)
+    expect(await patch({ status: 'TODO', priority: 'LOW', tags: ['x'] })).toMatchObject({ status: 'TODO', priority: 'LOW', tags: ['x'] });
     const pc = await expectProblem(await api(page, 'PATCH', `/api/tasks/${t.id}`, { done: true, status: 'TODO' }), 400, 'VALIDATION_FAILED');
     expect(pc.errors).toEqual([{ field: 'status', code: 'STATUS_CONFLICT', message: "Status and done don't match" }]);
     const pr = await expectProblem(await api(page, 'PATCH', `/api/tasks/${t.id}`, {}), 400, 'VALIDATION_FAILED');

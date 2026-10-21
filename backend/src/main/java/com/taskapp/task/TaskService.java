@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -24,13 +25,16 @@ import org.springframework.validation.MapBindingResult;
 import com.taskapp.auth.InvalidFieldsException;
 import com.taskapp.reminder.ReminderOffset;
 import com.taskapp.reminder.ReminderService;
+import com.taskapp.task.validation.RequiresDueDate;
 import com.taskapp.task.validation.ValidReminderValue;
 import com.taskapp.task.dto.CreateTaskRequest;
 import com.taskapp.task.dto.RepeatInput;
+import com.taskapp.task.dto.SetTaskDoneRequest;
 import com.taskapp.task.dto.ReplaceTaskRequest;
 import com.taskapp.task.dto.TaskPage;
 import com.taskapp.task.dto.TaskResponse;
 import com.taskapp.task.dto.TaskResult;
+import com.taskapp.task.dto.UndoCompleteResult;
 
 /**
  * All operations take the user id from the session. A task is the user's when they are a member of its list (0.13.0;
@@ -181,18 +185,67 @@ public class TaskService {
      * task moved meanwhile, and run again if it lost a deadlock ({@link DeadlockRetry}).
      */
     public TaskResult replace(long userId, long id, ReplaceTaskRequest request) {
-        if (request.tags() == null && request.listId() == null) {
-            return writeLocked(userId, id, null, false, (task, lists) -> {
-                Spawn spawn = applyFields(task, request);
-                saveOrNotFound(task);
-                reminders.afterTaskSaved(task, userId, request.reminder());
-                return result(userId, task, tagService.namesOf(task.getListId(), task.getId()), spawn);
-            });
+        return update(userId, id, request.listId(), request.tags() != null || request.listId() != null,
+                task -> request);
+    }
+
+    /**
+     * {@code PATCH} with any subset of the fields (contract 0.16.0). A body with only {@code done} / {@code status}
+     * takes the lighter {@link #setStatus} path (unchanged since 0.15.0). Anything else is merged with the task's
+     * current values into the request {@code PUT} would take, inside the lock, and then goes through exactly the
+     * same code as {@code PUT}: same rules, same side effects (move, tags, reminder, recurrence).
+     */
+    public TaskResult patch(long userId, long id, SetTaskDoneRequest patch) {
+        if (patch.onlyStatus()) {
+            return setStatus(userId, id, patch.status(), patch.done());
         }
-        return writeLocked(userId, id, request.listId(), true, (task, lists) -> {
+        return update(userId, id, patch.listId(), patch.tags() != null || patch.listId() != null,
+                task -> merge(task, patch));
+    }
+
+    /**
+     * The {@code PUT} request equal to {@code patch} applied to {@code task}: fields not sent keep the task's value
+     * ({@code dueTime} and the null-means-unchanged fields are already "unchanged" in a {@link ReplaceTaskRequest}).
+     * A time, reminder offset or rule needs a due date after the change: else 400 {@code REQUIRES_DUE_DATE}.
+     */
+    private static ReplaceTaskRequest merge(Task task, SetTaskDoneRequest patch) {
+        LocalDate dueDate = patch.dueDate() == null ? task.getDueDate() : patch.dueDate().value();
+        if (dueDate == null) {
+            MapBindingResult errors = new MapBindingResult(new HashMap<>(), "setTaskDoneRequest");
+            if (patch.dueTime() != null && patch.dueTime().value() != null) {
+                errors.rejectValue("dueTime", "RequiresDueDate", RequiresDueDate.TIME_MESSAGE);
+            }
+            if (ReminderOffset.parse(patch.reminder()).isPresent()) {
+                errors.rejectValue("reminder", "RequiresDueDate", RequiresDueDate.REMINDER_MESSAGE);
+            }
+            if (patch.repeat() != null && patch.repeat().isRule()) {
+                errors.rejectValue("repeat", "RequiresDueDate", RequiresDueDate.REPEAT_MESSAGE);
+            }
+            if (errors.hasErrors()) {
+                throw new InvalidFieldsException(errors);
+            }
+        }
+        return new ReplaceTaskRequest(patch.title() == null ? task.getTitle() : patch.title(),
+                patch.description() == null ? task.getDescription() : patch.description().value(), dueDate,
+                patch.dueTime(), patch.priority(), patch.status(), patch.done(), patch.tags(), patch.listId(),
+                patch.reminder(), patch.repeat());
+    }
+
+    /**
+     * The write behind {@code PUT} and {@code PATCH}: {@code request} is built from the locked task. Locked as in the
+     * class comment: the list FOR SHARE when {@code exclusive} is false (no tags, no move), FOR UPDATE (both lists on a
+     * move) when true; restarted if the task moved meanwhile, and run again if it lost a deadlock.
+     */
+    private TaskResult update(long userId, long id, Long requestedListId, boolean exclusive,
+            Function<Task, ReplaceTaskRequest> build) {
+        return writeLocked(userId, id, requestedListId, exclusive, false, (task, lists) -> {
+            ReplaceTaskRequest request = build.apply(task);
             Spawn spawn = applyFields(task, request);
             saveOrNotFound(task);
             reminders.afterTaskSaved(task, userId, request.reminder());
+            if (!exclusive) {
+                return result(userId, task, tagService.namesOf(task.getListId(), task.getId()), spawn);
+            }
             TaskList source = lists.source();
             TaskList target = lists.target();
             if (target == null) {
@@ -297,7 +350,7 @@ public class TaskService {
      * SHARE like a PUT without tags (see the class comment).
      */
     public TaskResult setStatus(long userId, long id, TaskStatus status, Boolean done) {
-        return writeLocked(userId, id, null, false, (task, lists) -> {
+        return writeLocked(userId, id, null, false, false, (task, lists) -> {
             boolean wasDone = task.getStatus() == TaskStatus.DONE;
             task.changeStatus(TaskStatus.resolve(task.getStatus(), status, done), now());
             Spawn spawn = spawnIfCompleted(task, wasDone);
@@ -321,16 +374,106 @@ public class TaskService {
     }
 
     /**
-     * The task's task_tags rows go with it (ON DELETE CASCADE); tags of its list it was the last user of are deleted
-     * too. Locked like a tag write (see the class comment).
+     * {@code DELETE /api/tasks/{id}} (0.16.0): moves the task to the trash. Nothing else changes: tags (still in use),
+     * reminders, {@code updated_at}. The list is locked FOR SHARE like a field-only write.
      */
     public void delete(long userId, long id) {
-        writeLocked(userId, id, null, true, (task, lists) -> {
-            List<Long> tagIds = tagService.tagIdsOf(task.getId());
-            taskRepository.delete(task);
-            taskRepository.flush();
-            tagService.deleteUnused(task.getListId(), tagIds);
+        writeLocked(userId, id, null, false, false, (task, lists) -> {
+            if (taskRepository.trash(task.getId(), userId, now()) == 0) {
+                throw new TaskNotFoundException();
+            }
             return Boolean.TRUE;
+        });
+    }
+
+    /**
+     * {@code POST /api/trash/{id}/restore}: back into its list as it was ({@code updated_at} untouched). Reminders are
+     * re-armed like on a reopen: one whose fire time is still ahead is active again, an older one never fires.
+     */
+    public TaskResponse restore(long userId, long id) {
+        return writeLocked(userId, id, null, false, true, (task, lists) -> {
+            if (taskRepository.restore(task.getId()) == 0) {
+                throw new TaskNotFoundException();
+            }
+            Task restored = taskRepository.findById(task.getId()).orElseThrow(TaskNotFoundException::new);
+            reminders.afterRestore(restored);
+            return respond(userId, restored, tagService.namesOf(restored.getListId(), restored.getId()));
+        });
+    }
+
+    /**
+     * {@code DELETE /api/trash/{id}}: deletes a trashed task for good. Its task_tags rows go with it (ON DELETE
+     * CASCADE); tags of its list that no remaining task (trashed or not) uses are deleted too. Locked like a tag write.
+     */
+    public void deleteForever(long userId, long id) {
+        writeLocked(userId, id, null, true, true, (task, lists) -> {
+            removeForGood(task);
+            return Boolean.TRUE;
+        });
+    }
+
+    private void removeForGood(Task task) {
+        List<Long> tagIds = tagService.tagIdsOf(task.getId());
+        taskRepository.delete(task);
+        taskRepository.flush();
+        tagService.deleteUnused(task.getListId(), tagIds);
+    }
+
+    /**
+     * The purge of one task trashed before {@code cutoff} (no user: the list owner's and the list's rows are locked in
+     * the usual order, the task row last). False when it is gone, restored or trashed again since.
+     */
+    boolean purge(long taskId, long listId, Instant cutoff) {
+        Optional<Long> owner = listService.ownerOf(listId);
+        if (owner.isEmpty()) {
+            return false;
+        }
+        return Boolean.TRUE.equals(DeadlockRetry.run(() -> transaction.execute(status -> {
+            if (!listService.shareUsers(owner.get(), List.of()) || !listService.lockList(listId)) {
+                return false;
+            }
+            Optional<Task> task = taskRepository.findTrashedByIdAndListId(taskId, listId)
+                    .filter(t -> t.getDeletedAt().isBefore(cutoff));
+            task.ifPresent(this::removeForGood);
+            return task.isPresent();
+        })));
+    }
+
+    /**
+     * {@code POST /api/tasks/{id}/undo-complete} (0.16.0, AC11): reopens {@code id} (status {@code TODO} unless
+     * {@code status} says {@code IN_PROGRESS}) and decides about the copy {@code nextTaskId}, atomically with the list
+     * locked FOR UPDATE. An untouched copy (same list, live, a rule, {@code TODO}, {@code updated_at} = {@code
+     * created_at}) is deleted and its rule moves back to the task; any other copy that exists is kept; none is GONE.
+     */
+    public UndoCompleteResult undoComplete(long userId, long id, long nextTaskId, TaskStatus status) {
+        return writeLocked(userId, id, null, true, false, (task, lists) -> {
+            UndoCompleteResult.Outcome outcome = UndoCompleteResult.Outcome.GONE;
+            if (nextTaskId == task.getId()) {
+                outcome = UndoCompleteResult.Outcome.KEPT;
+            } else {
+                Optional<Task> copy = taskRepository.findByIdAndListId(nextTaskId, task.getListId());
+                if (copy.isPresent()) {
+                    Task next = copy.get();
+                    boolean untouched = next.getRepeat() != null && next.getStatus() == TaskStatus.TODO
+                            && next.getCreatedAt().equals(next.getUpdatedAt());
+                    if (untouched) {
+                        task.setRepeat(next.getRepeat(), next.getRepeatAnchor());
+                        removeForGood(next);
+                        outcome = UndoCompleteResult.Outcome.DELETED;
+                    } else {
+                        outcome = UndoCompleteResult.Outcome.KEPT;
+                    }
+                } else if (taskRepository.findTrashedByIdAndListId(nextTaskId, task.getListId()).isPresent()
+                        || taskRepository.findAccessible(nextTaskId, userId).isPresent()
+                        || taskRepository.findTrashedAccessible(nextTaskId, userId).isPresent()) {
+                    outcome = UndoCompleteResult.Outcome.KEPT;
+                }
+            }
+            task.changeStatus(status == null ? TaskStatus.TODO : status, now());
+            saveOrNotFound(task);
+            reminders.afterTaskSaved(task, userId, null);
+            return new UndoCompleteResult(
+                    respond(userId, task, tagService.namesOf(task.getListId(), task.getId())), outcome);
         });
     }
 
@@ -338,7 +481,7 @@ public class TaskService {
      * Runs {@code work} on the task with its list locked: FOR UPDATE when {@code exclusive} (tag writes, moves,
      * deletes; then also the move target, if {@code requestedListId} is another of the user's lists, which
      * {@code work} gets as {@link Located#target()}), else FOR SHARE (field-only writes, which never wait for each
-     * other).
+     * other). {@code trashed}: the task must be in the trash (restore, delete forever), else it must not be.
      * <ol>
      * <li>A short read: the task must be in a list the user is a member of (else 404 {@code NOT_FOUND}); a requested
      * list other than the task's must be one they are a member of (else 404 {@code LIST_NOT_FOUND}).</li>
@@ -350,12 +493,12 @@ public class TaskService {
      * or no longer theirs, is {@code LIST_NOT_FOUND}.</li>
      * </ol>
      */
-    private <T> T writeLocked(long userId, long taskId, Long requestedListId, boolean exclusive,
+    private <T> T writeLocked(long userId, long taskId, Long requestedListId, boolean exclusive, boolean trashed,
             BiFunction<Task, Located, T> work) {
         for (int attempt = 1;; attempt++) {
-            Located located = transaction.execute(status -> locate(userId, taskId, requestedListId));
+            Located located = transaction.execute(status -> locate(userId, taskId, requestedListId, trashed));
             Optional<T> result = DeadlockRetry.run(() -> transaction.execute(status -> {
-                Optional<T> done = lockedOnce(userId, taskId, located, exclusive, work);
+                Optional<T> done = lockedOnce(userId, taskId, located, exclusive, trashed, work);
                 if (done.isEmpty()) {
                     status.setRollbackOnly();
                 }
@@ -370,8 +513,9 @@ public class TaskService {
         }
     }
 
-    private Located locate(long userId, long taskId, Long requestedListId) {
-        long sourceId = find(userId, taskId).getListId();
+    private Located locate(long userId, long taskId, Long requestedListId, boolean trashed) {
+        long sourceId = (trashed ? taskRepository.findTrashedAccessible(taskId, userId).orElseThrow(TaskNotFoundException::new)
+                : find(userId, taskId)).getListId();
         // Its list deleted in between: the task went with it (404 NOT_FOUND, not LIST_NOT_FOUND).
         TaskList source = listService.findMember(userId, sourceId).orElseThrow(TaskNotFoundException::new);
         TaskList target = requestedListId == null || requestedListId == sourceId ? null
@@ -379,7 +523,7 @@ public class TaskService {
         return new Located(source, target);
     }
 
-    private <T> Optional<T> lockedOnce(long userId, long taskId, Located located, boolean exclusive,
+    private <T> Optional<T> lockedOnce(long userId, long taskId, Located located, boolean exclusive, boolean trashed,
             BiFunction<Task, Located, T> work) {
         long source = located.source().getId();
         TaskList target = located.target();
@@ -402,7 +546,9 @@ public class TaskService {
             sourceThere = listService.lockList(source);
         }
         boolean member = sourceThere && listService.shareMember(source, userId);
-        Optional<Task> task = member ? taskRepository.findByIdAndListId(taskId, source) : Optional.empty();
+        Optional<Task> task = !member ? Optional.empty()
+                : trashed ? taskRepository.findTrashedByIdAndListId(taskId, source)
+                        : taskRepository.findByIdAndListId(taskId, source);
         if (task.isEmpty()) {
             return Optional.empty();
         }

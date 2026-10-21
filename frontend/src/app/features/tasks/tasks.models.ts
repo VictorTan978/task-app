@@ -1,4 +1,4 @@
-/** Models matching the task schemas in `contracts/openapi.yaml` (v0.15.0) exactly. */
+/** Models matching the task schemas in `contracts/openapi.yaml` (v0.16.0) exactly. */
 import { Problem } from '../../core/auth/auth.models';
 
 /** `Priority`: `NONE` is the default (no badge). */
@@ -95,11 +95,40 @@ export interface ReplaceTaskRequest {
 /** Body of `PUT` and `PATCH /api/tasks/{id}` (0.15.0): the task plus the copy a completion created. */
 export type TaskResult = Task & { nextTask: Task | null };
 
-/** `PATCH /api/tasks/{id}`: at least one of `done` and `status`. The UI sends `status`. */
+/**
+ * `PATCH /api/tasks/{id}` (0.16.0): any subset of the task's fields. A missing field is
+ * unchanged; `null` clears only `description`, `dueDate` and `dueTime` (elsewhere it means
+ * unchanged), `reminder: 'NONE'` and `repeat: 'NEVER'` clear those, `tags: []` clears the tags.
+ * At least one known field is required. The checkbox sends `status`; undo sends only the fields
+ * the undone action changed.
+ */
 export interface SetTaskDoneRequest {
+  title?: string;
+  description?: string | null;
+  dueDate?: string | null;
+  dueTime?: string | null;
+  priority?: Priority | null;
+  tags?: string[] | null;
+  reminder?: Reminder | 'NONE' | null;
+  repeat?: RepeatRule | 'NEVER' | null;
+  listId?: number | null;
   done?: boolean | null;
   status?: TaskStatus | null;
 }
+
+/** `UndoCompleteRequest` (0.16.0): body of `POST /api/tasks/{id}/undo-complete`. */
+export interface UndoCompleteRequest {
+  /** `TaskResult.nextTask.id` of the completion being undone. */
+  nextTaskId: number;
+  /** The status the task had before it was completed; the server defaults to `TODO`. */
+  status?: 'TODO' | 'IN_PROGRESS';
+}
+
+/** What happened to the copy a completion created. */
+export type NextTaskOutcome = 'DELETED' | 'KEPT' | 'GONE';
+
+/** `UndoCompleteResult` (0.16.0): the reopened task plus what happened to the copy. */
+export type UndoCompleteResult = Task & { nextTaskOutcome: NextTaskOutcome };
 
 /** An item of `GET /api/tags`. */
 export interface Tag {

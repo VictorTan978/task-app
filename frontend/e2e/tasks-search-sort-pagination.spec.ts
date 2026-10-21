@@ -261,7 +261,15 @@ const IS_LIST = (u: URL) => u.pathname === '/api/tasks';
 function qp(r: Request): Record<string, string> {
   return Object.fromEntries(new URL(r.url()).searchParams.entries());
 }
+/** T5a: the undo toast (8 s, bottom centre) can cover "Load more" and the last rows. */
+async function closeToast(page: Page) {
+  const close = page.getByRole('status').getByRole('button', { name: 'Close' });
+  // the toast of a tick / edit appears after a lazy import(), so give it a moment
+  await close.waitFor({ state: 'visible', timeout: 400 }).catch(() => undefined);
+  if (await close.isVisible()) await close.click();
+}
 async function loadMore(page: Page) {
+  await closeToast(page);
   const resp = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/tasks' && new URL(r.url()).searchParams.has('cursor'));
   await loadMoreBtn(page).click();
   await resp;

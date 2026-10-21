@@ -4,6 +4,7 @@ import {
   DestroyRef,
   ElementRef,
   inject,
+  Injector,
   signal,
   viewChild,
 } from '@angular/core';
@@ -15,6 +16,7 @@ import { ListHeader } from '../../lists/list-header/list-header';
 import { ListPicker } from '../../lists/list-picker/list-picker';
 import { isListNotFound, LIST_NOT_FOUND_MESSAGE } from '../../lists/lists.logic';
 import { ListsStore } from '../../lists/lists.store';
+import { ToastService } from '../../../shared/toast/toast.service';
 import { ConfirmDeleteDialog } from '../confirm-delete-dialog/confirm-delete-dialog';
 import { AddFailure, TaskAddForm } from '../task-add-form/task-add-form';
 import { TaskEditDialog } from '../task-edit-dialog/task-edit-dialog';
@@ -53,6 +55,7 @@ import {
 } from '../tasks.logic';
 import { Task, TaskFilter, TaskListQuery, TaskResult, TaskSort } from '../tasks.models';
 import { TasksService } from '../tasks.service';
+import { UndoPlan } from '../undo.messages';
 import {
   ListRef,
   listParam,
@@ -62,6 +65,9 @@ import {
   sameListRef,
   samePageRoute,
 } from './page-route';
+
+type UndoLogic = typeof import('../undo.logic');
+type UndoFailure = import('../task-undo').UndoFailure;
 
 /** Delay between the last keystroke in the search box and the search. */
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -123,6 +129,11 @@ export class TasksPage {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly toast = inject(ToastService);
+  private readonly injector = inject(Injector);
+  /** Bumped by every new undo offer; a late-loading older one is dropped. */
+  private undoOffer = 0;
+  private undoSub: Subscription | null = null;
   private loadSub: Subscription | null = null;
   private moreSub: Subscription | null = null;
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -248,6 +259,7 @@ export class TasksPage {
     this.destroyRef.onDestroy(() => {
       this.loadSub?.unsubscribe();
       this.moreSub?.unsubscribe();
+      this.undoSub?.unsubscribe();
       this.cancelSearchTimer();
       if (this.addedTimer !== null) {
         clearTimeout(this.addedTimer);
@@ -472,6 +484,10 @@ export class TasksPage {
           this.setBusy(task.id, false);
           this.applyOrMoveOut(updated);
           this.applyNext(updated.nextTask);
+          this.offerUndo(
+            (m) => (done ? m.COMPLETED_MESSAGE : m.REOPENED_MESSAGE),
+            (m) => m.planUndo(task, updated),
+          );
         },
         error: (error: unknown) => {
           if (generation !== this.generation) {
@@ -506,18 +522,86 @@ export class TasksPage {
     const keepOpen =
       before !== null && before.listId === task.listId && reminderJustPassed(before, task);
     this.editing.set(keepOpen ? task : null);
-    if (before !== null && before.listId !== task.listId) {
+    const moved = before !== null && before.listId !== task.listId;
+    if (moved) {
       // Moved to another list: it leaves this view.
       this.list.update((state) => moveOut(state, task.id));
-      return;
+    } else {
+      this.applyOrMoveOut(task);
+      this.applyNext(task.nextTask);
     }
-    this.applyOrMoveOut(task);
-    this.applyNext(task.nextTask);
+    if (before !== null) {
+      const list = this.lists.byId().get(task.listId)?.name ?? null;
+      this.offerUndo(
+        (m) => (moved ? m.movedMessage(list) : m.UPDATED_MESSAGE),
+        (m) => m.planUndo(before, task),
+      );
+    }
   }
 
   protected onDeleted(id: number): void {
     this.deleting.set(null);
     this.list.update((state) => removeTask(state, id));
+    this.offerUndo(
+      (m) => m.TRASHED_MESSAGE,
+      () => ({ kind: 'restore', id }),
+    );
+  }
+
+  /**
+   * The toast with "Undo" for a save or a tick. The undo code is loaded on first use (it stays
+   * out of the initial bundle); no plan (the save changed nothing) means no toast.
+   */
+  private offerUndo(
+    message: (logic: UndoLogic) => string,
+    plan: (logic: UndoLogic) => UndoPlan | null,
+  ): void {
+    const offer = ++this.undoOffer;
+    const generation = this.generation;
+    void import('../undo.logic').then((logic) => {
+      const found = plan(logic);
+      if (found !== null && offer === this.undoOffer) {
+        this.toast.show({
+          message: message(logic),
+          action: { label: logic.UNDO_LABEL, run: () => this.undo(found, generation) },
+        });
+      }
+    });
+  }
+
+  /** Undo: back to how it was before; the list is reloaded when it can't be applied. */
+  private undo(plan: UndoPlan, generation: number): void {
+    this.undoSub?.unsubscribe();
+    void Promise.all([import('../task-undo'), import('../undo.logic')]).then(
+      ([{ TaskUndo }, m]) => {
+        this.undoSub = this.injector
+          .get(TaskUndo)
+          .run(plan)
+          .subscribe({
+            next: (result) => {
+              if (generation !== this.generation) {
+                return;
+              }
+              this.list.update((state) => m.reinstate(state, result.task.id));
+              this.applyOrMoveOut(result.task);
+              if (result.removedId !== null) {
+                const removed = result.removedId;
+                this.list.update((state) => removeTask(state, removed));
+                this.nextNotice.set(null);
+              }
+              this.toast.show({ message: result.message });
+            },
+            error: (failure: UndoFailure) => {
+              if (failure.message !== null) {
+                this.toast.show({ message: failure.message });
+                if (generation === this.generation) {
+                  this.load(false);
+                }
+              }
+            },
+          });
+      },
+    );
   }
 
   /** 404 on toggle, edit or delete: the task is gone (deleted elsewhere). Restart the list. */

@@ -1,0 +1,145 @@
+<div class="trash-layout">
+  <aside class="trash-layout__side" aria-label="Your lists">
+    <app-list-picker [activeId]="null" [trashActive]="true" />
+  </aside>
+
+  <section class="trash-page trash-layout__main" aria-labelledby="trash-heading">
+    <a class="trash-page__back" routerLink="/tasks" data-testid="trash-back">← Back to tasks</a>
+
+    <div class="trash-page__head">
+      <h1 id="trash-heading">Trash</h1>
+      <button
+        type="button"
+        class="btn btn--secondary"
+        data-testid="empty-trash"
+        [disabled]="!loaded() || items().length === 0"
+        (click)="askEmpty()"
+      >
+        Empty trash
+      </button>
+    </div>
+
+    <p class="trash-page__hint">
+      Deleted tasks stay here for 30 days, then they are deleted for good.
+    </p>
+
+    <div class="trash-page__filter">
+      <label for="trash-list-filter">List</label>
+      <select id="trash-list-filter" data-testid="trash-filter" (change)="onFilterChange($event)">
+        <option value="" [selected]="filterId() === null">All lists</option>
+        @for (l of listOptions(); track l.id) {
+          <option [value]="l.id" [selected]="filterId() === l.id">{{ l.name }}</option>
+        }
+      </select>
+    </div>
+
+    @if (rowError(); as message) {
+      <p class="notice notice--error" role="alert" data-testid="trash-row-error">{{ message }}</p>
+    }
+    @if (note(); as message) {
+      <p class="notice notice--info" role="status" data-testid="trash-note">{{ message }}</p>
+    }
+
+    @if (loading() && items().length === 0) {
+      <p class="trash-page__status" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        Loading the trash…
+      </p>
+    }
+
+    @if (loadFailed()) {
+      <div class="notice notice--error trash-page__error" role="alert" data-testid="trash-error">
+        <span>{{ loadError }}</span>
+        <button type="button" class="btn btn--secondary" [disabled]="loading()" (click)="load()">
+          Retry
+        </button>
+      </div>
+    }
+
+    @if (isEmpty() && !loadFailed()) {
+      <p class="trash-page__status trash-page__empty" data-testid="trash-empty">{{ emptyText }}</p>
+    } @else if (items().length > 0) {
+      <ul class="trash-list" aria-label="Trashed tasks">
+        @for (item of items(); track item.id) {
+          <li class="trash-row" data-testid="trash-row" [attr.aria-busy]="isBusy(item.id)">
+            <div class="trash-row__main">
+              <span class="trash-row__title" data-testid="trash-title">{{ item.title }}</span>
+              <span class="trash-row__meta">
+                <span class="trash-row__list" data-testid="trash-list">{{ listName(item) }}</span>
+                <span data-testid="trash-deleted">{{ deleted(item) }}</span>
+                <span data-testid="trash-left">{{ daysLeft(item) }}</span>
+              </span>
+            </div>
+            @if (isBusy(item.id)) {
+              <span class="spinner" aria-hidden="true"></span>
+            }
+            <div class="trash-row__actions">
+              <button
+                type="button"
+                class="btn btn--secondary btn--small"
+                data-testid="trash-restore"
+                [disabled]="isBusy(item.id)"
+                [attr.aria-label]="'Restore ' + item.title"
+                (click)="restore(item)"
+              >
+                Restore
+              </button>
+              <button
+                type="button"
+                class="btn btn--secondary btn--small"
+                data-testid="trash-delete"
+                [disabled]="isBusy(item.id)"
+                [attr.aria-label]="'Delete forever ' + item.title"
+                (click)="askDelete(item)"
+              >
+                Delete forever
+              </button>
+            </div>
+          </li>
+        }
+      </ul>
+
+      <div class="trash-footer">
+        @if (nextCursor() !== null) {
+          <p class="trash-footer__count" aria-live="polite">
+            Showing {{ items().length }} of {{ shownTotal() }}
+          </p>
+          @if (moreFailed()) {
+            <div class="notice notice--error trash-page__error" role="alert">
+              <span>{{ moreError }}</span>
+              <button type="button" class="btn btn--secondary" (click)="loadMore()">Retry</button>
+            </div>
+          } @else {
+            <button
+              type="button"
+              class="btn btn--secondary"
+              data-testid="trash-load-more"
+              [attr.aria-busy]="loadingMore()"
+              [disabled]="loadingMore()"
+              (click)="loadMore()"
+            >
+              @if (loadingMore()) {
+                <span class="spinner" aria-hidden="true"></span>
+              }
+              Load more
+            </button>
+          }
+        } @else {
+          <p class="trash-footer__count" aria-live="polite">{{ countText() }}</p>
+        }
+      </div>
+    }
+  </section>
+</div>
+
+@if (confirming()) {
+  <app-trash-confirm-dialog
+    [heading]="confirmHeading()"
+    [message]="confirmMessage()"
+    [confirmLabel]="confirmLabel()"
+    [pending]="confirmPending()"
+    [error]="confirmError()"
+    (confirmed)="confirm()"
+    (closed)="closeConfirm()"
+  />
+}

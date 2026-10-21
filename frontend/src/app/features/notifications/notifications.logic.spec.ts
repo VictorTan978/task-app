@@ -1,4 +1,4 @@
-import { isAvailable, notificationLink, notificationText } from './notifications.logic';
+import { isAvailable, isTrashed, notificationLink, notificationText } from './notifications.logic';
 import { AppNotification } from './notifications.models';
 
 const N: AppNotification = {
@@ -12,6 +12,7 @@ const N: AppNotification = {
   dueTime: '09:30',
   taskId: 4,
   listId: 9,
+  taskTrashed: false,
 };
 
 describe('notifications.logic', () => {
@@ -23,6 +24,14 @@ describe('notifications.logic', () => {
   it('is available only with both task and list', () => {
     expect(isAvailable(N)).toBe(true);
     expect(isAvailable({ ...N, taskId: null, listId: null })).toBe(false);
+  });
+
+  it('a trashed task is trashed, not available (it can be restored, not opened)', () => {
+    const trashed = { ...N, taskTrashed: true };
+    expect(isTrashed(trashed)).toBe(true);
+    expect(isAvailable(trashed)).toBe(false);
+    expect(isTrashed(N)).toBe(false);
+    expect(isTrashed({ ...trashed, taskId: null, listId: null })).toBe(false);
   });
 
   it('links my personal list to /tasks and others to /lists/<id>', () => {

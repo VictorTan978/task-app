@@ -4,6 +4,7 @@ import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { distinctUntilChanged, filter, map, skip, switchMap } from 'rxjs';
 import { TimeZoneSync } from '../../core/time/time-zone-sync';
 import { AuthService } from '../../core/auth/auth.service';
+import { ToastHost } from '../../shared/toast/toast-host';
 import { AppHeader } from '../app-header/app-header';
 import { VerifyEmailBanner } from '../verify-email-banner/verify-email-banner';
 
@@ -14,13 +15,14 @@ function pathOf(url: string): string {
 
 @Component({
   selector: 'app-shell-layout',
-  imports: [AppHeader, VerifyEmailBanner, RouterOutlet],
+  imports: [AppHeader, VerifyEmailBanner, RouterOutlet, ToastHost],
   template: `
     <app-header />
     <app-verify-email-banner />
     <main class="shell-main">
       <router-outlet />
     </main>
+    <app-toast-host />
   `,
   styles: `
     .shell-main {

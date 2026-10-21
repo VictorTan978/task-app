@@ -68,7 +68,29 @@
           <p class="field-hint notification__time">
             Received <time [attr.datetime]="n.createdAt">{{ received(n) }}</time>
           </p>
-          @if (!available(n)) {
+          @if (trashed(n)) {
+            <div class="notification__trashed" data-testid="notification-trashed">
+              <span class="field-hint">{{ trashedText }}</span>
+              <button
+                type="button"
+                class="btn btn--secondary"
+                data-testid="notification-restore"
+                [disabled]="isRestoring(n.id)"
+                [attr.aria-busy]="isRestoring(n.id)"
+                (click)="restore(n)"
+              >
+                @if (isRestoring(n.id)) {
+                  <span class="spinner" aria-hidden="true"></span>
+                }
+                Restore
+              </button>
+            </div>
+            @if (restoreFailed().has(n.id)) {
+              <p class="field-error" role="alert" data-testid="notification-restore-error">
+                {{ restoreErrorText }}
+              </p>
+            }
+          } @else if (!available(n)) {
             <p class="field-hint notification__gone" data-testid="notification-unavailable">
               {{ unavailableText }}
             </p>

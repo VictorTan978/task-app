@@ -389,7 +389,7 @@ class ReminderIntegrationTest {
         assertThat(page.get("nextCursor").isNull()).isTrue();
         JsonNode n = page.get("items").get(0);
         assertThat(fieldNames(n)).containsExactly("id", "type", "read", "createdAt", "late", "title", "dueDate",
-                "dueTime", "taskId", "listId");
+                "dueTime", "taskId", "listId", "taskTrashed");
         assertThat(n.get("type").asText()).isEqualTo("REMINDER");
         assertThat(n.get("read").asBoolean()).isFalse();
         assertThat(n.get("late").asBoolean()).isFalse();
@@ -490,7 +490,8 @@ class ReminderIntegrationTest {
         ana.patch("/api/tasks/" + reopened, "{\"done\":false}");
         long keep = sharedTimedTask(ana, bob, list, "Kept", "2026-10-21", "09:00");
 
-        assertThat(count("select count(*) from reminders where task_id = ?", deleted)).isZero();
+        // Trashed (0.16.0): its reminder is kept for a restore but never fires (checked below).
+        assertThat(count("select count(*) from reminders where task_id = ?", deleted)).isEqualTo(1);
         // Bob leaves the list (all his tasks there stop reminding him); Ana's own reminders stay.
         Resp leave = bob.post("/api/lists/" + list + "/leave", null);
         assertThat(leave.status()).as(leave.body()).isEqualTo(204);
@@ -750,6 +751,11 @@ class ReminderIntegrationTest {
         JsonNode edited = ana.get("/api/notifications").json().get("items");
         assertThat(titlesOf(edited)).contains("Original title");
         ana.delete("/api/tasks/" + gone);
+        // In the trash (0.16.0) the links stay, with taskTrashed set; deleted for good they go.
+        JsonNode trashed = byTitle(ana.get("/api/notifications").json().get("items"), "Original title");
+        assertThat(trashed.get("taskTrashed").asBoolean()).isTrue();
+        assertThat(trashed.get("taskId").asLong()).isEqualTo(gone);
+        ana.delete("/api/trash/" + gone);
         JsonNode after = ana.get("/api/notifications").json().get("items");
         JsonNode goneItem = byTitle(after, "Original title");
         assertThat(goneItem.get("taskId").isNull()).isTrue();
@@ -928,7 +934,9 @@ class ReminderIntegrationTest {
         }
         // Nothing failed (no 5xx: the Browser throws on one). Everything left is consistent.
         processor.runOnce();
-        assertThat(count("select count(*) from reminders where status = 'PENDING' and next_attempt_at <= ?",
+        // (Reminders of tasks in the trash are left alone until a restore, so they are not counted.)
+        assertThat(count("select count(*) from reminders where status = 'PENDING' and next_attempt_at <= ?"
+                + " and task_id not in (select id from tasks where deleted_at is not null)",
                 db(clock.instant()))).isZero();
         assertThat(count("select count(*) from (select task_id from notifications where user_id = ?"
                 + " and task_id is not null group by task_id having count(*) > 1) twice", ana.id)).isZero();

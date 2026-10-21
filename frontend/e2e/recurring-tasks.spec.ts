@@ -794,11 +794,15 @@ test.describe('AC33 validation and errors', () => {
     const p = await api(u.page, 'POST', '/api/tasks', { title: `p ${uid()}`, repeat: rule('DAILY') });
     console.log('POST with repeat ->', p.status());
     if (p.status() === 201) expect(((await p.json()) as Task).repeat).toBeNull();
-    // PATCH never changes repeat
+    // 0.16.0: PATCH takes `repeat` (was: never changed it). A done-only PATCH leaves it, repeat NEVER clears it.
     const t3 = await mk(u.page, { dueDate: '2031-05-05', repeat: rule('DAILY') });
+    const pt = await api(u.page, 'PATCH', `/api/tasks/${t3.id}`, { priority: 'LOW' });
+    expect(pt.status()).toBe(200);
+    expect((await get(u.page, t3.id)).repeat).toEqual(rule('DAILY'));
     const pr = await api(u.page, 'PATCH', `/api/tasks/${t3.id}`, { repeat: 'NEVER' });
     console.log('PATCH repeat ->', pr.status());
-    expect((await get(u.page, t3.id)).repeat).toEqual(rule('DAILY'));
+    expect(pr.status()).toBe(200);
+    expect((await get(u.page, t3.id)).repeat).toBeNull();
     // 404 / foreign task
     const other = await kit.newUser();
     expect((await api(other.page, 'PATCH', `/api/tasks/${t3.id}`, { done: true })).status()).toBe(404);

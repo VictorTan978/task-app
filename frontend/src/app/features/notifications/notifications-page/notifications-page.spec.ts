@@ -30,6 +30,7 @@ function n(id: number, overrides: Partial<AppNotification> = {}): AppNotificatio
     dueTime: '09:30',
     taskId: id,
     listId: 9,
+    taskTrashed: false,
     ...overrides,
   };
 }
@@ -151,6 +152,57 @@ describe('NotificationsPage', () => {
       .flush(n(1, { read: true, taskId: null, listId: null }));
     http.expectOne('/api/notifications/count').flush({ count: 0 });
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  describe('trashed task', () => {
+    const trashed = (id: number) => n(id, { taskTrashed: true });
+    const restoreBtn = (i: number) =>
+      items()[i].querySelector<HTMLButtonElement>('[data-testid=notification-restore]')!;
+
+    it('says "This task is in the trash" with a Restore button, and clicking opens nothing', async () => {
+      await init([trashed(1)]);
+      expect(items()[0].querySelector('[data-testid=notification-trashed]')?.textContent).toContain(
+        'This task is in the trash',
+      );
+      expect(restoreBtn(0)).not.toBeNull();
+      expect(items()[0].querySelector('[data-testid=notification-unavailable]')).toBeNull();
+
+      items()[0].querySelector('button')!.click();
+      http.expectOne('/api/notifications/1/read').flush(n(1, { read: true, taskTrashed: true }));
+      http.expectOne('/api/notifications/count').flush({ count: 0 });
+      await stable();
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('Restore posts to the trash and clears the note on every notification of that task', async () => {
+      await init([trashed(1), n(2, { taskId: 1, taskTrashed: true })]);
+      restoreBtn(0).click();
+      await stable();
+      expect(restoreBtn(0).disabled).toBe(true);
+      http.expectOne('/api/trash/1/restore').flush({ id: 1 });
+      await stable();
+      expect(el.querySelector('[data-testid=notification-trashed]')).toBeNull();
+    });
+
+    it('a 404 on Restore shows the task as no longer available', async () => {
+      await init([trashed(1)]);
+      restoreBtn(0).click();
+      http.expectOne('/api/trash/1/restore').flush(null, { status: 404, statusText: 'x' });
+      await stable();
+      expect(el.querySelector('[data-testid=notification-trashed]')).toBeNull();
+      expect(el.querySelector('[data-testid=notification-unavailable]')).not.toBeNull();
+    });
+
+    it('another failure keeps the button and shows an error', async () => {
+      await init([trashed(1)]);
+      restoreBtn(0).click();
+      http.expectOne('/api/trash/1/restore').flush(null, { status: 500, statusText: 'x' });
+      await stable();
+      expect(restoreBtn(0).disabled).toBe(false);
+      expect(el.querySelector('[data-testid=notification-restore-error]')?.textContent).toContain(
+        "Couldn't restore",
+      );
+    });
   });
 
   it('Mark all read marks every item and sets the count to 0', async () => {

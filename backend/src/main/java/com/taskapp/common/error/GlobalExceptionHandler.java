@@ -404,7 +404,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static String fieldCode(FieldError fe) {
         String constraint = fe.getCode() == null ? "" : fe.getCode();
         return switch (constraint) {
-            case "NotBlank", "NotNull", "NotEmpty", "TagsNotBlank", "DoneOrStatusRequired" -> ErrorCode.REQUIRED;
+            case "NotBlank", "NotNull", "NotEmpty", "TagsNotBlank", "NotBlankIfPresent", "DoneOrStatusRequired" -> ErrorCode.REQUIRED;
             case "TagsValidCharacters" -> ErrorCode.INVALID_CHARACTERS;
             case "TagsMaxLength" -> ErrorCode.TOO_LONG;
             case "TagsMaxCount" -> ErrorCode.TOO_MANY;

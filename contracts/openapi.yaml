@@ -1,8 +1,73 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.15.0
+  version: 0.16.0
   description: |
+    ## Changes in 0.16.0 (trash and undo, specs/undo-trash-dnd-bulk.md Part A / T5a)
+    **Behaviour change (approved):** `DELETE /api/tasks/{id}` no longer deletes for good: it moves
+    the task to the trash (still 204). See "Trash". Otherwise additive.
+    - New endpoints (tag `trash`): `GET /api/trash`, `POST /api/trash/{id}/restore`,
+      `DELETE /api/trash/{id}`, `POST /api/trash/empty`.
+    - New endpoint (tag `tasks`): `POST /api/tasks/{id}/undo-complete` (undo of completing a
+      repeating task).
+    - **`PATCH /api/tasks/{id}` accepts any subset of the task's fields** (additive; used for
+      undo, because `PUT` is a full replace and would revert a teammate's later edits to
+      fields the undone action never touched). Body fields: `title`, `description`, `dueDate`,
+      `dueTime`, `priority`, `status` (and `done`), `tags`, `reminder`, `repeat`, `listId`. A
+      **missing** field means unchanged. An explicit `null` clears the fields `PUT` can clear
+      (`description`, `dueDate`, `dueTime`); on every other field `null` is the same as
+      missing, as in `PUT` (`reminder: "NONE"` and `repeat: "NEVER"` are how those two are
+      cleared, as in `PUT`). Validation, error codes and side effects are exactly those of
+      `PUT`: move rules for `listId` (target membership, tag limit, tag recreation), tag
+      normalising, clearing `dueDate` also clears `dueTime`, the rule and every member's
+      reminder, recurrence copy when `status` becomes `DONE`, `updatedAt` set. A reminder
+      whose fire time is already past is accepted and kept with `myReminderPassed: true`.
+      `{done}`/`{status}`-only calls behave exactly as before. A body with none of the known
+      fields is still 400 `done` / `REQUIRED`. Answers `TaskResult`. Order of checks: as `PUT`
+      (400 > 404 > 200).
+    - New schemas `TrashItem`, `TrashPage`, `EmptyTrashResult`, `UndoCompleteRequest`,
+      `UndoCompleteResult`. `Notification` gains `taskTrashed` (boolean, always present).
+    - Trashed tasks disappear from every other endpoint: `GET /api/tasks` (page, `total`, `q`,
+      `tag`, `filter`), `GET` / `PUT` / `PATCH` / `DELETE /api/tasks/{id}` (404 `NOT_FOUND`) and
+      `TaskListDetails.taskCount`. They still count as using their tags (`GET /api/tags` may
+      list a tag whose only tasks are in the trash; the 200-tags-per-list limit counts it).
+    - No new error codes. `TrashPage` cursors are opaque and independent of the task list's
+      (a task-list cursor sent to `GET /api/trash`, or the reverse, gives `INVALID_CURSOR`).
+    - **One-off effects at deploy:** none visible. Every existing task is "not trashed".
+
+    ## Trash (0.16.0)
+    - **Soft delete.** `DELETE /api/tasks/{id}` marks the task deleted (when and by whom) and
+      keeps everything else: tags, priority, status, due date / time, repeat rule, `addedBy`,
+      `createdAt`, `updatedAt` (not touched by trashing or restoring), reminders. A task is
+      trashed for 30 days; then the server deletes it for good (checked hourly, so within an
+      hour after the 30 days). `purgeAt` = `deletedAt` + 30 days.
+    - **Who can see it.** The trash holds the trashed tasks of every list I am a member of.
+      Any member can restore, delete forever or empty (like deleting a task). Leaving a list or
+      being removed makes its trashed tasks vanish from my trash; any call on them is 404. A
+      deleted list takes its trashed tasks with it. If the person who deleted a task deletes
+      their account, the task stays in the trash with `deletedBy: null`.
+    - **While trashed**, a task: is not returned by any task endpoint (404 `NOT_FOUND` on
+      `GET` / `PUT` / `PATCH` / `DELETE /api/tasks/{id}`, so it cannot be edited, ticked or
+      moved); fires no reminder for anyone; creates no repeat copy; keeps its tags in use (they
+      are not auto-deleted until it is purged or deleted forever); keeps its notifications
+      (`Notification.taskTrashed: true`, `taskId` / `listId` still set while I am a member, so
+      the client can offer "Restore").
+    - **Restore** puts the task back in its original list exactly as it was. My reminder is
+      re-armed as when reopening a task: active again only if its fire time is still in the
+      future (else `myReminderPassed: true`). Other members' reminders are re-armed the same
+      way.
+    - **Delete forever / empty / purge** delete the task for good: its reminders and tag links
+      go, notifications keep `taskId: null`, and tags of its list that no remaining task
+      (trashed or not) uses are deleted.
+    - **Undo** is done by the client with existing calls: undo of delete = `POST
+      /api/trash/{id}/restore`; undo of tick, move or edit = `PATCH /api/tasks/{id}` with only
+      the fields that action changed, set back to their old values (so a teammate's later edit of
+      other fields is kept). There is no version check: last write wins, like every edit. The one exception is
+      undoing the completion of a repeating task: `POST /api/tasks/{id}/undo-complete`.
+    - **404, never 403.** A task that does not exist, is in a list I am not a member of, or (for
+      the `/api/trash/{id}` calls) is not in the trash, answers 404 `NOT_FOUND`, identical body.
+      A second restore or delete of the same task is therefore a 404.
+
     ## Changes in 0.15.0 (recurring tasks, specs/due-times-reminders.md Part B / T4b)
     Additive. Clients that never send `repeat` behave as before.
     - `Task` gains `repeat` (`RepeatRule` or `null`), always present. `PUT /api/tasks/{id}` gains
@@ -761,6 +826,8 @@ tags:
       members (see "Sharing").
   - name: invitations
     description: The signed-in user's own pending invitations to other people's lists (0.13.0).
+  - name: trash
+    description: Tasks I deleted, kept for 30 days before they are deleted for good (0.16.0, see "Trash").
   - name: notifications
     description: The signed-in user's own in-app notifications (reminders that fired, 0.14.0).
   - name: admin
@@ -2601,11 +2668,17 @@ paths:
         '404':
           $ref: '#/components/responses/TaskOrListNotFound'
     patch:
-      summary: Set a task's done state or status
+      summary: Change some fields of a task (done state, status, ...)
       description: |
+        0.16.0: accepts any subset of `title`, `description`, `dueDate`, `dueTime`, `priority`,
+        `status`, `done`, `tags`, `reminder`, `repeat`, `listId`, with the same rules and side
+        effects as `PUT` (see "Changes in 0.16.0"). Missing = unchanged; explicit `null` clears
+        `description`, `dueDate` and `dueTime`, and is "unchanged" for the other fields. The
+        text below is the done/status part.
+
         Sets `done` and/or `status` to the given value (it does not flip it), so repeating the
-        call is safe. Only `done` and `status` are read from the body; at least one is required
-        (neither → 400 `done` / `REQUIRED`). They combine exactly as in `PUT` (table there):
+        call is safe. at least one known body
+        field is required (none → 400 `done` / `REQUIRED`). They combine exactly as in `PUT` (table there):
         `done: true` → `DONE`; `done: false` turns `DONE` into `TODO` and leaves `TODO` /
         `IN_PROGRESS` as they are; `status` sets the status; both sent and disagreeing → 400
         `status` / `STATUS_CONFLICT`. `updatedAt` is set to now on every successful call, even if
@@ -2708,12 +2781,15 @@ paths:
         '403':
           $ref: '#/components/responses/CsrfInvalid'
         '404':
-          $ref: '#/components/responses/TaskNotFound'
+          $ref: '#/components/responses/TaskOrListNotFound'
     delete:
-      summary: Delete a task permanently
+      summary: Move a task to the trash
       description: |
-        Hard delete. Deleting a task that does not exist (or was already deleted, or whose list
-        was deleted) returns 404. Tags of its list that no task uses any more are deleted.
+        Changed in 0.16.0 (was: delete for good). Moves the task to the trash (see "Trash"); it
+        can be restored with `POST /api/trash/{id}/restore` for 30 days. Still 204 with no body.
+        A task that does not exist, is in a list I am not a member of, or is already in the
+        trash answers 404. Its tags stay (they still count as in use) and its reminders fire
+        nothing until it is restored.
       operationId: deleteTask
       tags: [tasks]
       security:
@@ -2730,6 +2806,262 @@ paths:
           $ref: '#/components/responses/CsrfInvalid'
         '404':
           $ref: '#/components/responses/TaskNotFound'
+
+  /api/tasks/{id}/undo-complete:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      summary: Undo the completion of a repeating task
+      description: |
+        New in 0.16.0. Undoes a `PUT` / `PATCH` that completed a repeating task and so created
+        a copy (`TaskResult.nextTask`). Done in one transaction (list locked like any task
+        write). `nextTaskId` is the `id` of that copy.
+
+        1. The task `{id}` is reopened: status `status` of the request (default `TODO`), `done`
+           false. Its other fields are untouched (last write wins).
+        2. The copy is looked at. It is **deleted for good** (not trashed; its tags are cleaned
+           up) only if all of these hold: it is in the same list as the task, is not trashed,
+           has a repeat rule and status `TODO`, and nobody changed it since it was created
+           (`updatedAt` equals `createdAt`; every edit, tick or move of the task sets
+           `updatedAt`). If so, **the server moves the repeat rule and its anchor back
+           to the task itself** (the copy's rule); the client sends nothing about the rule.
+        3. If the copy is there but does not meet that, it is **kept** and the task is reopened
+           **without** a rule.
+
+        `nextTaskOutcome` in the response says which happened:
+        - `DELETED`: copy deleted, rule restored on the task.
+        - `KEPT`: copy changed, trashed, moved or otherwise not an untouched copy; it is left
+          alone, the task is reopened without a rule. The UI shows "Undone: the next copy was
+          already changed, so it was kept".
+        - `GONE`: no such task in my lists (already deleted for good); the task is reopened
+          without a rule.
+        The task being already reopened by someone else is not an error: the call is idempotent
+        for the task and still decides the copy.
+
+        **Checks, in order:** 401 > 403 `CSRF_INVALID` > 400 `MALFORMED_REQUEST` (path id) >
+        400 `VALIDATION_FAILED` (body) > 404 `NOT_FOUND` (task `{id}` not in my lists, or
+        trashed) > 200. The copy never causes a 404: a missing one is `GONE`.
+      operationId: undoCompleteTask
+      tags: [tasks]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UndoCompleteRequest'
+            example:
+              nextTaskId: 15
+              status: TODO
+      responses:
+        '200':
+          description: The reopened task and what happened to the copy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UndoCompleteResult'
+              example:
+                id: 12
+                listId: 3
+                addedBy:
+                  displayName: Ana
+                title: Water plants
+                description: null
+                priority: NONE
+                status: TODO
+                tags: []
+                done: false
+                dueDate: '2026-10-10'
+                dueTime: null
+                repeat:
+                  frequency: DAILY
+                  weekdays: []
+                myReminder: null
+                myReminderPassed: false
+                createdAt: '2026-10-08T09:15:02.123456Z'
+                updatedAt: '2026-10-10T10:06:00.000123Z'
+                nextTaskOutcome: DELETED
+        '400':
+          description: |
+            `MALFORMED_REQUEST` (path id not an integer, or the body is not valid JSON), or
+            `VALIDATION_FAILED` with `nextTaskId` / `REQUIRED` (missing or null) or
+            `nextTaskId` / `OUT_OF_RANGE` (below 1), or `status` / `OUT_OF_RANGE` (`DONE`). A
+            `nextTaskId` that is not an integer, or a `status` that is not a task status, is
+            `MALFORMED_REQUEST`. A `nextTaskId` equal to `{id}` is not an error: that task is never
+            deleted, the outcome is `KEPT`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/TaskNotFound'
+
+  /api/trash:
+    get:
+      summary: List my trashed tasks (one page)
+      description: |
+        New in 0.16.0. Trashed tasks of **every list I am a member of**, or of one list
+        (`list`), as a `TrashPage`. Newest deleted first: `deletedAt` descending, then `id`
+        descending. At most 50 per page (fixed, no `limit`). Keyset paging like `GET
+        /api/tasks`: pass `nextCursor` back unchanged as `?cursor=` with the same `list`;
+        `nextCursor: null` on the last page. `total` = all trashed tasks matching `list`, counted
+        when the page was produced.
+
+        The list's name is not in the item: use `Task.listId` with `GET /api/lists`.
+
+        **Checks, in order:** 401 > `list` (404 `LIST_NOT_FOUND`, even if `cursor` is also
+        invalid) > `cursor` (400 `VALIDATION_FAILED`, `cursor` / `INVALID_CURSOR`).
+      operationId: listTrash
+      tags: [trash]
+      parameters:
+        - $ref: '#/components/parameters/TrashListQuery'
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque `nextCursor` of the previous page. Missing or empty = first page.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: One page, possibly empty
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrashPage'
+              example:
+                items:
+                  - id: 12
+                    listId: 3
+                    addedBy:
+                      displayName: Ana
+                    title: Water plants
+                    description: null
+                    priority: NONE
+                    status: TODO
+                    tags: []
+                    done: false
+                    dueDate: '2026-10-10'
+                    dueTime: null
+                    repeat: null
+                    myReminder: null
+                    myReminderPassed: false
+                    createdAt: '2026-10-08T09:15:02.123456Z'
+                    updatedAt: '2026-10-08T09:15:02.123456Z'
+                    deletedAt: '2026-10-19T08:00:00.000000Z'
+                    deletedBy:
+                      displayName: Ben
+                    purgeAt: '2026-11-18T08:00:00.000000Z'
+                total: 1
+                nextCursor: null
+        '400':
+          description: '`VALIDATION_FAILED` with `cursor` / `INVALID_CURSOR`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
+
+  /api/trash/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      summary: Restore a trashed task
+      description: |
+        New in 0.16.0. No body. Puts the task back in its original list as it was (see
+        "Trash"; this is also the undo of a delete). Any member of the list. Answers the `Task`
+        as `GET /api/tasks/{id}` would. 404 `NOT_FOUND` when the task is not trashed (so a
+        second restore is a 404), does not exist, or is in a list I am not a member of.
+
+        **Checks, in order:** 401 > 403 `CSRF_INVALID` > 400 `MALFORMED_REQUEST` > 404 > 200.
+      operationId: restoreTask
+      tags: [trash]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: The restored task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/MalformedTaskId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/TaskNotFound'
+
+  /api/trash/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    delete:
+      summary: Delete a trashed task forever
+      description: |
+        New in 0.16.0. Deletes the task for good (see "Trash"). Any member of the list. 404
+        `NOT_FOUND` when the task is not trashed (a task still in a list is not deletable here:
+        use `DELETE /api/tasks/{id}`), does not exist, or is in a list I am not a member of.
+      operationId: deleteTaskForever
+      tags: [trash]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Deleted for good. No body.
+        '400':
+          $ref: '#/components/responses/MalformedTaskId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/TaskNotFound'
+
+  /api/trash/empty:
+    post:
+      summary: Empty the trash
+      description: |
+        New in 0.16.0. Deletes for good every trashed task I can see, or only those of one list
+        when `list` is given. No body. Answers the number deleted; an empty trash is 200 with
+        `{ "deleted": 0 }`. Runs in batches inside one request; a task trashed or restored
+        meanwhile may or may not be included (never an error). Any member may empty a shared
+        list's trash.
+
+        **Checks, in order:** 401 > 403 `CSRF_INVALID` > `list` 404 `LIST_NOT_FOUND` > 200.
+      operationId: emptyTrash
+      tags: [trash]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/TrashListQuery'
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyTrashResult'
+              example:
+                deleted: 7
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/ListNotFound'
 
   /api/tags:
     get:
@@ -3966,6 +4298,17 @@ components:
         format: int64
         example: 41
 
+    TrashListQuery:
+      name: list
+      in: query
+      required: false
+      description: |
+        New in 0.16.0. Id of one of my lists. Unlike `ListQuery`, missing or empty means **all my
+        lists**. Anything else that is not the id of a list I am a member of is 404
+        `LIST_NOT_FOUND` (never 400), same rules as `ListQuery`. Repeated `list`: the first.
+      schema:
+        type: string
+      example: '8'
     ListQuery:
       name: list
       in: query
@@ -5236,6 +5579,99 @@ components:
           description: The stored spelling (the first one used in that list), already normalised.
           example: Work
 
+    TrashItem:
+      description: |
+        New in 0.16.0. A `Task` plus when and by whom it was trashed. `updatedAt` is the value
+        before trashing.
+      allOf:
+        - $ref: '#/components/schemas/Task'
+        - type: object
+          required: [deletedAt, deletedBy, purgeAt]
+          properties:
+            deletedAt:
+              type: string
+              format: date-time
+              description: When it was trashed, same format as `Task.createdAt`.
+              example: '2026-10-19T08:00:00.000000Z'
+            deletedBy:
+              type: object
+              nullable: true
+              required: [displayName]
+              description: |
+                Who trashed it (current display name), or `null` if that account was deleted.
+              properties:
+                displayName:
+                  type: string
+                  example: Ben
+            purgeAt:
+              type: string
+              format: date-time
+              description: '`deletedAt` + 30 days: when it will be deleted for good (within an hour after).'
+              example: '2026-11-18T08:00:00.000000Z'
+
+    TrashPage:
+      type: object
+      description: New in 0.16.0. One page of `GET /api/trash`.
+      required: [items, total, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/TrashItem'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Trashed tasks matching `list` on all pages, counted when this page was produced.
+          example: 7
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque; pass back as `?cursor=` with the same `list`. `null` on the last page.
+
+    EmptyTrashResult:
+      type: object
+      required: [deleted]
+      description: New in 0.16.0. Body of `POST /api/trash/empty`.
+      properties:
+        deleted:
+          type: integer
+          minimum: 0
+          example: 7
+
+    UndoCompleteRequest:
+      type: object
+      required: [nextTaskId]
+      description: New in 0.16.0. Body of `POST /api/tasks/{id}/undo-complete`.
+      properties:
+        nextTaskId:
+          type: integer
+          format: int64
+          description: '`TaskResult.nextTask.id` of the completion being undone.'
+          example: 15
+        status:
+          type: string
+          enum: [TODO, IN_PROGRESS]
+          default: TODO
+          description: The status the task had before it was completed.
+
+    UndoCompleteResult:
+      description: New in 0.16.0. The reopened task plus what happened to the copy.
+      allOf:
+        - $ref: '#/components/schemas/Task'
+        - type: object
+          required: [nextTaskOutcome]
+          properties:
+            nextTaskOutcome:
+              type: string
+              enum: [DELETED, KEPT, GONE]
+              description: |
+                `DELETED`: the untouched copy was deleted for good and the rule is back on the
+                task. `KEPT`: the copy was changed (or trashed, moved...) and was left alone; the
+                task has no rule. `GONE`: the copy no longer exists (or is not in my lists); the
+                task has no rule.
+
     TaskPage:
       type: object
       description: New in 0.11.0. One page of `GET /api/tasks`.
@@ -5444,7 +5880,7 @@ components:
 
     Notification:
       type: object
-      required: [id, type, read, createdAt, late, title, dueDate, dueTime, taskId, listId]
+      required: [id, type, read, createdAt, late, title, dueDate, dueTime, taskId, listId, taskTrashed]
       description: |
         New in 0.14.0. One in-app notification of mine. `title`, `dueDate` and `dueTime` are a
         snapshot taken when it fired: they do not change if the task is edited, and they stay
@@ -5498,6 +5934,15 @@ components:
             The id of the list the task is in now (to open it: the frontend maps "My tasks" to
             `/tasks`), or `null` together with `taskId`.
           example: 3
+        taskTrashed:
+          type: boolean
+          description: |
+            New in 0.16.0, always present. `true` when the task is in the trash. `taskId` and
+            `listId` are then still set (while I am a member of the list), so the client can show
+            "This task is in the trash" with a Restore button (`POST /api/trash/{taskId}/restore`)
+            instead of opening it. Restoring makes it `false` again; once the task is deleted for
+            good it is `false` with `taskId: null`.
+          example: false
 
     NotificationPage:
       type: object
@@ -5888,10 +6333,63 @@ components:
     SetTaskDoneRequest:
       type: object
       description: |
-        At least one of `done` and `status` (neither, or both null → `done` / `REQUIRED`). Both
-        sent → they must agree (`status` / `STATUS_CONFLICT`). Name kept for compatibility; it
-        also sets the status since 0.10.0.
+        Body of `PATCH /api/tasks/{id}`. Any subset of the properties below; at least one
+        non-null one, else `done` / `REQUIRED`. Both `done` and `status` sent → they must agree
+        (`status` / `STATUS_CONFLICT`). 0.16.0: now every `ReplaceTaskRequest` field except
+        that `title` is optional; fields have the same meaning and validation as in
+        `ReplaceTaskRequest`, except that a missing field is unchanged for all of them and
+        `null` clears `description`, `dueDate` and `dueTime` (and is "unchanged" elsewhere).
+        Name kept for compatibility.
       properties:
+        title:
+          type: string
+          maxLength: 200
+          description: New in 0.16.0. As in `ReplaceTaskRequest`.
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: New in 0.16.0. `null` clears it.
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+          description: New in 0.16.0. `null` clears it (and so `dueTime`, `repeat` and every reminder).
+        dueTime:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: New in 0.16.0. `null` clears it.
+        priority:
+          allOf:
+            - $ref: '#/components/schemas/Priority'
+          nullable: true
+          description: New in 0.16.0.
+        tags:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: New in 0.16.0. The complete new tag list, as in `ReplaceTaskRequest`.
+        reminder:
+          type: string
+          nullable: true
+          enum: [AT_DUE, TEN_MINUTES, ONE_HOUR, ONE_DAY, ON_THE_DAY, NONE, null]
+          description: |
+            New in 0.16.0. MY reminder, as in `ReplaceTaskRequest` (`NONE` removes it). A fire
+            time already in the past is accepted (`myReminderPassed: true`).
+        repeat:
+          nullable: true
+          oneOf:
+            - $ref: '#/components/schemas/RepeatRule'
+            - type: string
+              enum: [NEVER]
+          description: New in 0.16.0. As in `ReplaceTaskRequest` (`NEVER` removes the rule).
+        listId:
+          type: integer
+          format: int64
+          nullable: true
+          description: New in 0.16.0. Moves the task, with the same rules as `PUT`.
         done:
           type: boolean
           nullable: true
@@ -5911,7 +6409,7 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat, nextTaskId]
           description: |
             Name of the request field (exactly as in the request body, or the query parameter).
             `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
@@ -5950,6 +6448,8 @@ components:
             - INVALID_TIME_ZONE: (new in 0.14.0, field `timeZone`) not an IANA region id
             - OUT_OF_RANGE also: (0.14.0, `limit` of `GET /api/notifications`) not an integer
               1-50
+            - OUT_OF_RANGE also: (0.16.0, `POST /api/tasks/{id}/undo-complete`) `nextTaskId` below 1,
+              or `status` `DONE`. `nextTaskId` is also a new `REQUIRED` field there.
             - INVALID_CURSOR also: (0.14.0, field `cursor` of `GET /api/notifications`) the
               cursor cannot be read
             - INVALID_CHARACTERS: (new in 0.10.0, field `tags`) a tag contains a comma or a

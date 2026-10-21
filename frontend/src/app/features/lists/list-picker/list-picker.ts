@@ -29,6 +29,9 @@ import { CreateListRequest, TaskList } from '../lists.models';
 import { ListsService } from '../lists.service';
 import { ListsStore } from '../lists.store';
 
+/** Value of the phone select's Trash option. */
+const TRASH_OPTION = 'trash';
+
 interface CreateError {
   message: string;
   /** Null when retrying can't help (the 50-list limit). */
@@ -60,6 +63,8 @@ export class ListPicker {
 
   /** Id of the open list (for "My tasks" on `/tasks` its real id), else null. */
   readonly activeId = input<number | null>(null);
+  /** The Trash page is open: its entry is highlighted. */
+  readonly trashActive = input(false);
 
   protected readonly lists = this.store.lists;
   protected readonly loaded = this.store.loaded;
@@ -69,7 +74,7 @@ export class ListPicker {
   /** The open list is in the picker (else the phone select shows a placeholder). */
   protected readonly activeKnown = computed(() => {
     const id = this.activeId();
-    return id !== null && this.store.byId().has(id);
+    return this.trashActive() || (id !== null && this.store.byId().has(id));
   });
 
   protected readonly creating = signal(false);
@@ -102,7 +107,14 @@ export class ListPicker {
 
   /** Phone `<select>`: open the chosen list. */
   protected onSelect(event: Event): void {
-    const id = Number((event.target as HTMLSelectElement).value);
+    const value = (event.target as HTMLSelectElement).value;
+    if (value === TRASH_OPTION) {
+      if (!this.trashActive()) {
+        void this.router.navigateByUrl('/trash');
+      }
+      return;
+    }
+    const id = Number(value);
     const list = this.store.byId().get(id);
     if (list && id !== this.activeId()) {
       void this.router.navigateByUrl(listLink(list));

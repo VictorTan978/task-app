@@ -64,7 +64,19 @@ class NotificationControllerTest {
                 .andExpect(content().json("""
                         {"items":[{"id":41,"type":"REMINDER","read":false,"createdAt":"2026-10-21T06:30:01.120Z",
                           "late":false,"title":"Buy milk","dueDate":"2026-10-21","dueTime":"09:30","taskId":12,
-                          "listId":3}],"nextCursor":"abc"}""", true));
+                          "listId":3,"taskTrashed":false}],"nextCursor":"abc"}""", true));
+    }
+
+    @Test
+    void aNotificationOfATrashedTaskKeepsItsLinksAndSaysSo() throws Exception {
+        var trashed = new NotificationResponse(43L, "REMINDER", false, Instant.parse("2026-10-21T06:30:01Z"), false,
+                "X", LocalDate.parse("2026-10-21"), null, 12L, 3L, true);
+        when(service.list(USER, null, null)).thenReturn(new NotificationPage(List.of(trashed), null));
+
+        mockMvc.perform(get("/api/notifications").with(signedIn()))
+                .andExpect(jsonPath("$.items[0].taskTrashed").value(true))
+                .andExpect(jsonPath("$.items[0].taskId").value(12))
+                .andExpect(jsonPath("$.items[0].listId").value(3));
     }
 
     @Test

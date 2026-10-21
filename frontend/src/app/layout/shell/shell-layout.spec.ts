@@ -68,6 +68,29 @@ describe('ShellLayout', () => {
     expect(el.querySelector('[data-testid=verify-email-banner]')).not.toBeNull();
     http.verify();
   });
+  it('renders the toast host (a polite status region) after the page', async () => {
+    TestBed.configureTestingModule({
+      imports: [ShellLayout],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: NotificationsStore, useValue: NOTIFICATIONS_STUB },
+      ],
+    });
+    const http = TestBed.inject(HttpTestingController);
+    TestBed.inject(AuthService).loadMe().subscribe();
+    http.expectOne('/api/auth/me').flush(BOB);
+    const fixture = TestBed.createComponent(ShellLayout);
+    http.expectOne('/api/invitations/count').flush({ count: 0 });
+    await fixture.whenStable();
+    const el: HTMLElement = fixture.nativeElement;
+    const host = el.querySelector('app-toast-host')!;
+    expect(host.querySelector('[role=status][aria-live=polite]')).not.toBeNull();
+    expect(host.previousElementSibling?.tagName.toLowerCase()).toBe('main');
+    http.verify();
+  });
+
   describe('refresh on navigation', () => {
     let http: HttpTestingController;
     let harness: RouterTestingHarness;
