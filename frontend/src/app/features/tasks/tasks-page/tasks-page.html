@@ -70,6 +70,16 @@
             </button>
           }
         </div>
+        @if (!selecting() && loaded() && tasks().length > 0) {
+          <button
+            type="button"
+            class="btn btn--secondary tasks-select"
+            data-testid="select-mode"
+            (click)="startSelecting()"
+          >
+            Select
+          </button>
+        }
         <div class="tasks-sort">
           <label for="task-sort">Sort</label>
           <select id="task-sort" (change)="onSortChange($event)">
@@ -116,7 +126,9 @@
         <div class="notice notice--error notice--action" role="alert">
           <span>{{ b.message }}</span>
           @if (b.retry; as retry) {
-            <button type="button" class="btn btn--secondary" (click)="retry()">Retry</button>
+            <button type="button" class="btn btn--secondary" (click)="retry()">
+              {{ b.retryLabel ?? 'Retry' }}
+            </button>
           }
         </div>
       }
@@ -129,6 +141,21 @@
         <p class="notice notice--info" role="status" data-testid="task-next-scheduled">
           {{ note }}
         </p>
+      }
+
+      @if (selecting()) {
+        @defer (on immediate) {
+          <app-bulk-bar
+            [count]="selectedTasks().length"
+            [busy]="bulkBusy()"
+            [atMax]="atBulkMax()"
+            [tags]="selectedTags()"
+            [lists]="moveTargets()"
+            (run)="onBulk($event)"
+            (selectAll)="selectAllLoaded()"
+            (cancelled)="exitSelection()"
+          />
+        }
       }
 
       @if (loading()) {
@@ -150,6 +177,9 @@
                     [time]="nowTime()"
                     [busy]="isBusy(task.id)"
                     [showAddedBy]="shared()"
+                    [selecting]="selecting()"
+                    [selected]="isSelected(task.id)"
+                    (selectChange)="onRowSelect(task, $event)"
                     (doneChange)="toggle(task, $event)"
                     (edit)="openEdit(task)"
                     (remove)="openDelete(task)"
@@ -213,4 +243,15 @@
     (closed)="deleting.set(null)"
     (notFound)="taskGone()"
   />
+}
+
+@if (confirmingBulkDelete()) {
+  @defer (on immediate) {
+    <app-bulk-delete-dialog
+      [count]="selectedTasks().length"
+      [pending]="bulkBusy()"
+      (confirmed)="confirmBulkDelete()"
+      (closed)="confirmingBulkDelete.set(false)"
+    />
+  }
 }

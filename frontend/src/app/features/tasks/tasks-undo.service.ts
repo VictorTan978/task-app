@@ -3,6 +3,10 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import { TASKS_API } from './tasks-api';
 import {
+  BulkPatchRequest,
+  BulkResult,
+  BulkUndoCompleteRequest,
+  BulkUndoCompleteResult,
   SetTaskDoneRequest,
   TaskResult,
   UndoCompleteRequest,
@@ -25,5 +29,15 @@ export class TasksUndoService {
   /** Undo of completing a repeating task; the server decides what happens to the copy. */
   undoComplete(id: number, request: UndoCompleteRequest): Observable<UndoCompleteResult> {
     return this.http.post<UndoCompleteResult>(`${TASKS_API.one(id)}/undo-complete`, request);
+  }
+
+  /** Undo of a batch: a different `PATCH` body per task, one list, all or nothing (0.17.0). */
+  bulkPatch(request: BulkPatchRequest): Observable<BulkResult> {
+    return this.http.post<BulkResult>(TASKS_API.bulkPatch, request);
+  }
+
+  /** Undo of a batch of completions, repeating or not, in one call (0.17.0). */
+  bulkUndoComplete(request: BulkUndoCompleteRequest): Observable<BulkUndoCompleteResult> {
+    return this.http.post<BulkUndoCompleteResult>(TASKS_API.bulkUndoComplete, request);
   }
 }

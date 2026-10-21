@@ -3,6 +3,7 @@ import {
   computed,
   DestroyRef,
   ElementRef,
+  HostListener,
   inject,
   Injector,
   signal,
@@ -17,6 +18,19 @@ import { ListPicker } from '../../lists/list-picker/list-picker';
 import { isListNotFound, LIST_NOT_FOUND_MESSAGE } from '../../lists/lists.logic';
 import { ListsStore } from '../../lists/lists.store';
 import { ToastService } from '../../../shared/toast/toast.service';
+import { BulkBar } from '../bulk-bar/bulk-bar';
+import { BulkDeleteDialog } from '../bulk-delete-dialog/bulk-delete-dialog';
+import {
+  addCapped,
+  BULK_ERROR,
+  BULK_MAX,
+  BulkListChoice,
+  bulkFailure,
+  BulkRequest,
+  RELOAD_LABEL,
+  rangeIds,
+  tagChoices,
+} from '../bulk.logic';
 import { ConfirmDeleteDialog } from '../confirm-delete-dialog/confirm-delete-dialog';
 import { AddFailure, TaskAddForm } from '../task-add-form/task-add-form';
 import { TaskEditDialog } from '../task-edit-dialog/task-edit-dialog';
@@ -44,7 +58,7 @@ import {
   TaskChange,
   TaskListState,
 } from '../task-list';
-import { TaskRow } from '../task-row/task-row';
+import { RowSelect, TaskRow } from '../task-row/task-row';
 import { findTag } from '../task-tags';
 import {
   formatDue,
@@ -53,9 +67,17 @@ import {
   reminderJustPassed,
   SEARCH_MAX,
 } from '../tasks.logic';
-import { Task, TaskFilter, TaskListQuery, TaskResult, TaskSort } from '../tasks.models';
+import {
+  BulkActionRequest,
+  BulkResult,
+  Task,
+  TaskFilter,
+  TaskListQuery,
+  TaskResult,
+  TaskSort,
+} from '../tasks.models';
 import { TasksService } from '../tasks.service';
-import { UndoPlan } from '../undo.messages';
+import { BulkUndoPlan, isBulkPlan, UndoPlan } from '../undo.messages';
 import {
   ListRef,
   listParam,
@@ -77,6 +99,8 @@ export const ADDED_NOTICE_MS = 4000;
 interface Banner {
   message: string;
   retry: (() => void) | null;
+  /** Text of the retry button; "Retry" when missing. */
+  retryLabel?: string;
 }
 
 interface FilterTab {
@@ -116,6 +140,8 @@ const DEFAULT_QUERY: TaskListQuery = { filter: 'all', tag: null, q: null, sort: 
     TaskRow,
     TaskEditDialog,
     ConfirmDeleteDialog,
+    BulkBar,
+    BulkDeleteDialog,
     ListPicker,
     ListHeader,
   ],
@@ -217,6 +243,29 @@ export class TasksPage {
   protected readonly editing = signal<Task | null>(null);
   protected readonly deleting = signal<Task | null>(null);
 
+  /** Selection mode (0.17.0 bulk actions): ids ticked among the loaded tasks. */
+  protected readonly selecting = signal(false);
+  private readonly selectedIds = signal<ReadonlySet<number>>(new Set());
+  /** Last ticked task, the start of a Shift+click range. */
+  private anchorId: number | null = null;
+  /** A bulk request is running: the bar is disabled. */
+  protected readonly bulkBusy = signal(false);
+  protected readonly confirmingBulkDelete = signal(false);
+  /** The selected tasks that are loaded, in list order. */
+  protected readonly selectedTasks = computed(() => {
+    const ids = this.selectedIds();
+    return this.tasks().filter((t) => ids.has(t.id));
+  });
+  protected readonly selectedTags = computed(() => tagChoices(this.selectedTasks()));
+  protected readonly atBulkMax = computed(() => this.selectedTasks().length >= BULK_MAX);
+  /** Lists a selected task can move to: all but the open one. */
+  protected readonly moveTargets = computed<BulkListChoice[]>(() =>
+    this.lists
+      .lists()
+      .filter((l) => l.id !== this.activeListId())
+      .map((l) => ({ id: l.id, name: l.name })),
+  );
+
   protected readonly emptyText = computed(() => {
     const { filter, tag, q } = this.listQuery();
     if (q !== null) {
@@ -268,6 +317,8 @@ export class TasksPage {
   }
 
   private onRoute({ list, query }: PageRoute): void {
+    // The list, filter, sort or search changed: the selection no longer matches what is shown.
+    this.exitSelection();
     if (!sameListRef(list, this.listRef())) {
       this.resetForList();
     }
@@ -301,6 +352,7 @@ export class TasksPage {
     this.busyIds.set(new Set());
     this.editing.set(null);
     this.deleting.set(null);
+    this.bulkBusy.set(false);
   }
 
   /** The open list is gone or not mine: show "List not found" and refetch the picker. */
@@ -554,53 +606,221 @@ export class TasksPage {
    */
   private offerUndo(
     message: (logic: UndoLogic) => string,
-    plan: (logic: UndoLogic) => UndoPlan | null,
+    plan: (logic: UndoLogic) => UndoPlan | BulkUndoPlan | null,
+    alwaysShow = false,
   ): void {
     const offer = ++this.undoOffer;
     const generation = this.generation;
     void import('../undo.logic').then((logic) => {
       const found = plan(logic);
-      if (found !== null && offer === this.undoOffer) {
+      if (offer !== this.undoOffer) {
+        return;
+      }
+      if (found !== null) {
         this.toast.show({
           message: message(logic),
           action: { label: logic.UNDO_LABEL, run: () => this.undo(found, generation) },
         });
+      } else if (alwaysShow) {
+        this.toast.show({ message: message(logic) });
       }
     });
   }
 
   /** Undo: back to how it was before; the list is reloaded when it can't be applied. */
-  private undo(plan: UndoPlan, generation: number): void {
+  private undo(plan: UndoPlan | BulkUndoPlan, generation: number): void {
     this.undoSub?.unsubscribe();
     void Promise.all([import('../task-undo'), import('../undo.logic')]).then(
       ([{ TaskUndo }, m]) => {
-        this.undoSub = this.injector
-          .get(TaskUndo)
-          .run(plan)
-          .subscribe({
-            next: (result) => {
-              if (generation !== this.generation) {
-                return;
+        const undo = this.injector.get(TaskUndo);
+        const run = isBulkPlan(plan)
+          ? undo.runBulk(plan)
+          : undo.run(plan).pipe(
+              map((r) => ({
+                tasks: [r.task],
+                removedIds: r.removedId === null ? [] : [r.removedId],
+                message: r.message,
+              })),
+            );
+        this.undoSub = run.subscribe({
+          next: (result) => {
+            if (generation !== this.generation) {
+              return;
+            }
+            for (const task of result.tasks) {
+              this.list.update((state) => m.reinstate(state, task.id));
+              this.applyOrMoveOut(task);
+              // Undoing a reopen completes the task again; a repeating one makes a new copy.
+              this.applyNext((task as Partial<TaskResult>).nextTask ?? null);
+            }
+            for (const removed of result.removedIds) {
+              this.list.update((state) => removeTask(state, removed));
+            }
+            if (result.removedIds.length > 0) {
+              this.nextNotice.set(null);
+            }
+            this.toast.show({ message: result.message });
+          },
+          error: (failure: UndoFailure) => {
+            if (failure.message !== null) {
+              this.toast.show({ message: failure.message });
+              if (generation === this.generation) {
+                this.load(false);
               }
-              this.list.update((state) => m.reinstate(state, result.task.id));
-              this.applyOrMoveOut(result.task);
-              if (result.removedId !== null) {
-                const removed = result.removedId;
-                this.list.update((state) => removeTask(state, removed));
-                this.nextNotice.set(null);
-              }
-              this.toast.show({ message: result.message });
-            },
-            error: (failure: UndoFailure) => {
-              if (failure.message !== null) {
-                this.toast.show({ message: failure.message });
-                if (generation === this.generation) {
-                  this.load(false);
-                }
-              }
-            },
-          });
+            }
+          },
+        });
       },
+    );
+  }
+
+  // ----- Bulk actions (0.17.0) -----
+
+  protected startSelecting(): void {
+    this.selecting.set(true);
+  }
+
+  /** Leaves selection mode and forgets the selection. */
+  protected exitSelection(): void {
+    this.selecting.set(false);
+    this.selectedIds.set(new Set());
+    this.anchorId = null;
+    this.confirmingBulkDelete.set(false);
+  }
+
+  protected isSelected(id: number): boolean {
+    return this.selectedIds().has(id);
+  }
+
+  /** A row checkbox (or title click in selection mode); Shift extends from the last one. */
+  protected onRowSelect(task: Task, { checked, shift }: RowSelect): void {
+    if (this.bulkBusy()) {
+      return;
+    }
+    this.selecting.set(true);
+    const ids =
+      shift && this.anchorId !== null ? rangeIds(this.tasks(), this.anchorId, task.id) : [task.id];
+    this.selectedIds.update((current) => {
+      if (checked) {
+        return addCapped(current, ids);
+      }
+      const next = new Set(current);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    this.anchorId = task.id;
+  }
+
+  /** Every loaded task (never unloaded pages), up to 200. */
+  protected selectAllLoaded(): void {
+    this.selectedIds.set(
+      addCapped(
+        new Set(),
+        this.tasks().map((t) => t.id),
+      ),
+    );
+  }
+
+  @HostListener('document:keydown.escape')
+  protected onEscape(): void {
+    // Esc closes the innermost thing only: a dialog first, then selection mode.
+    const dialogOpen = this.editing() || this.deleting() || this.confirmingBulkDelete();
+    if (this.selecting() && !this.bulkBusy() && !dialogOpen) {
+      this.exitSelection();
+    }
+  }
+
+  protected onBulk(request: BulkRequest): void {
+    if (request.action === 'DELETE') {
+      this.confirmingBulkDelete.set(true);
+      return;
+    }
+    this.sendBulk(request);
+  }
+
+  protected confirmBulkDelete(): void {
+    this.sendBulk({ action: 'DELETE' });
+  }
+
+  /** One request for the whole selection; on success the list is updated and Undo offered. */
+  private sendBulk(request: BulkRequest): void {
+    const before = this.selectedTasks();
+    if (this.bulkBusy() || before.length === 0) {
+      return;
+    }
+    this.banner.set(null);
+    this.bulkBusy.set(true);
+    const generation = this.generation;
+    const body: BulkActionRequest = {
+      ids: before.map((t) => t.id),
+      action: request.action,
+      ...(request.value === undefined ? {} : { value: request.value }),
+    };
+    this.tasksApi
+      .bulk(body)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          if (generation !== this.generation) {
+            return;
+          }
+          this.bulkBusy.set(false);
+          this.applyBulk(request, before, result);
+          this.exitSelection();
+          const listName =
+            typeof request.value === 'number'
+              ? (this.lists.byId().get(request.value)?.name ?? null)
+              : null;
+          this.offerUndo(
+            (m) => m.bulkMessage(request.action, before.length, request.value, listName),
+            (m) => m.planBulkUndo(request.action, request.value, before, result.tasks),
+            true,
+          );
+        },
+        error: (error: unknown) => {
+          if (generation !== this.generation) {
+            return;
+          }
+          this.bulkBusy.set(false);
+          this.onBulkError(error, request);
+        },
+      });
+  }
+
+  private applyBulk(request: BulkRequest, before: readonly Task[], result: BulkResult): void {
+    if (request.action === 'DELETE' || request.action === 'MOVE') {
+      // Gone from this view (the trash, or another list; "My tasks" accepts any list id, so
+      // a move is removed by id rather than by `belongsHere`).
+      for (const task of before) {
+        this.list.update((state) =>
+          request.action === 'DELETE' ? removeTask(state, task.id) : moveOut(state, task.id),
+        );
+      }
+      return;
+    }
+    for (const task of result.tasks) {
+      this.applyOrMoveOut(task);
+      this.applyNext(task.nextTask);
+    }
+  }
+
+  /** All or nothing: nothing changed, the selection stays, the message says why. */
+  private onBulkError(error: unknown, request: BulkRequest): void {
+    const failure = bulkFailure(error);
+    if (failure.silent) {
+      return;
+    }
+    this.confirmingBulkDelete.set(false);
+    if (failure.refreshLists) {
+      this.lists.refresh();
+    }
+    this.banner.set(
+      failure.reload
+        ? { message: failure.message, retry: () => this.load(), retryLabel: RELOAD_LABEL }
+        : {
+            message: failure.message,
+            retry: failure.message === BULK_ERROR ? () => this.sendBulk(request) : null,
+          },
     );
   }
 

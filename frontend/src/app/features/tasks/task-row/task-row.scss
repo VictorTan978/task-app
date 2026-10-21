@@ -127,6 +127,10 @@
     color: var(--color-muted);
   }
 
+  &--selected {
+    background: var(--color-primary-soft, #eef4ff);
+  }
+
   &--done &__badge {
     opacity: 0.6;
   }

@@ -127,4 +127,6 @@ export interface Problem {
   instance?: string;
   code: ProblemCode;
   errors?: FieldError[];
+  /** Bulk endpoints only (0.17.0): the task ids that made the call fail, ascending. */
+  failedIds?: number[];
 }

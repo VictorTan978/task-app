@@ -58,6 +58,9 @@ class TrashControllerTest {
     @MockitoBean
     private TaskService tasks;
 
+    @MockitoBean
+    private BulkService bulkService;
+
     private static RequestPostProcessor signedIn() {
         var principal = new AuthenticatedUser(USER, "alice@example.com", "Alice");
         return signedInSession(UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of()));

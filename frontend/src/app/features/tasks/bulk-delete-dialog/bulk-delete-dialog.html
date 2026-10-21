@@ -1,0 +1,29 @@
+<dialog
+  #dialog
+  class="dialog dialog--narrow"
+  aria-labelledby="bulk-delete-heading"
+  data-testid="bulk-delete-dialog"
+  (cancel)="onCancel($event)"
+>
+  <h2 id="bulk-delete-heading" class="dialog__title">{{ title() }}</h2>
+  <p>They go to the trash, where you can restore them for 30 days.</p>
+
+  <div class="dialog__actions">
+    <button type="button" class="btn btn--secondary" [disabled]="pending()" (click)="cancel()">
+      Cancel
+    </button>
+    <button
+      type="button"
+      class="btn btn--danger"
+      data-testid="bulk-delete-confirm"
+      [disabled]="pending()"
+      [attr.aria-busy]="pending()"
+      (click)="confirm()"
+    >
+      @if (pending()) {
+        <span class="spinner" aria-hidden="true"></span>
+      }
+      Delete
+    </button>
+  </div>
+</dialog>

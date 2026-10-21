@@ -76,4 +76,50 @@ public interface TaskRepository extends JpaRepository<Task, Long>, TaskSearchRep
     @Query(value = "UPDATE tasks SET list_id = :toListId WHERE id = :id AND list_id = :fromListId"
             + " AND deleted_at IS NULL", nativeQuery = true)
     int moveToList(@Param("id") long id, @Param("fromListId") long fromListId, @Param("toListId") long toListId);
+
+    /** A task id and the list it is in (the first, unlocked read of a bulk call). */
+    interface IdList {
+        Long getId();
+
+        Long getListId();
+    }
+
+    /** Of these ids, the live tasks in lists {@code userId} is a member of (0.17.0, bulk). One query. */
+    @Query(value = """
+            SELECT t.id AS id, t.list_id AS listId
+            FROM tasks t JOIN list_members m ON m.list_id = t.list_id AND m.user_id = :userId
+            WHERE t.id IN (:ids) AND t.deleted_at IS NULL""", nativeQuery = true)
+    List<IdList> findAccessibleIds(@Param("ids") Collection<Long> ids, @Param("userId") long userId);
+
+    /** Like {@link #findAccessibleIds} but the trashed tasks (bulk restore). */
+    @Query(value = """
+            SELECT t.id AS id, t.list_id AS listId
+            FROM tasks t JOIN list_members m ON m.list_id = t.list_id AND m.user_id = :userId
+            WHERE t.id IN (:ids) AND t.deleted_at IS NOT NULL""", nativeQuery = true)
+    List<IdList> findTrashedAccessibleIds(@Param("ids") Collection<Long> ids, @Param("userId") long userId);
+
+    /**
+     * The live tasks of {@code ids} that are in one of {@code listIds}, read FOR UPDATE in ascending id (the last step
+     * of the lock order; one statement, so the rows are always locked in the same order by every bulk call).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Task t where t.id in :ids and t.listId in :listIds and t.deletedAt is null order by t.id")
+    List<Task> lockLive(@Param("ids") Collection<Long> ids, @Param("listIds") Collection<Long> listIds);
+
+    /** Like {@link #lockLive} for trashed tasks. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Task t where t.id in :ids and t.listId in :listIds and t.deletedAt is not null order by t.id")
+    List<Task> lockTrashed(@Param("ids") Collection<Long> ids, @Param("listIds") Collection<Long> listIds);
+
+    /** Moves these (locked) tasks to the trash in one statement. Returns how many changed. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = "UPDATE tasks SET deleted_at = :at, deleted_by = :by WHERE id IN (:ids) AND deleted_at IS NULL",
+            nativeQuery = true)
+    int trashAll(@Param("ids") Collection<Long> ids, @Param("by") long by, @Param("at") Instant at);
+
+    /** Takes these (locked) tasks out of the trash in one statement; {@code updated_at} is not touched. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = "UPDATE tasks SET deleted_at = NULL, deleted_by = NULL WHERE id IN (:ids) AND deleted_at IS NOT NULL",
+            nativeQuery = true)
+    int restoreAll(@Param("ids") Collection<Long> ids);
 }

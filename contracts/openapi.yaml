@@ -1,8 +1,65 @@
 openapi: 3.0.3
 info:
   title: Task App API
-  version: 0.16.0
+  version: 0.17.0
   description: |
+    ## Changes in 0.17.0 (bulk actions, specs/undo-trash-dnd-bulk.md Part B / T5b)
+    Additive. No migration. Tag `tasks` gains three endpoints, tag `trash` one:
+    - `POST /api/tasks/bulk`: one **action** (complete, reopen, set status, set priority, add or
+      remove one tag, move, delete) on 1-200 tasks of one list.
+    - `POST /api/tasks/bulk-patch`: a **different `PATCH` body per task** (1-200 items, one list).
+      This is what the client uses to **undo** a bulk action whose old values differ per task
+      (priorities, statuses, the tags a moved task had).
+    - `POST /api/tasks/bulk-undo-complete`: `undo-complete` for N `{id, nextTaskId, status}`.
+    - `POST /api/trash/restore`: restore N trashed tasks (undo of a bulk delete).
+    - All four are **all-or-nothing**: one transaction; if anything fails nothing changes. They
+      keep CSRF, sign-in and the 404-never-403 rule.
+    - `Problem` gains an optional `failedIds` (integer array) used by these endpoints so the
+      client can say "3 tasks are no longer available". New `FieldError` fields `ids`, `items`,
+      `action`, `value`; new codes `MIXED_LISTS` and `DUPLICATE`. No new `Problem.code`.
+    - New schemas `BulkActionRequest`, `BulkAction`, `BulkResult`, `BulkPatchRequest`,
+      `BulkPatchItem`, `BulkUndoCompleteRequest`, `BulkUndoCompleteItem`,
+      `BulkUndoCompleteResult`, `RestoreTasksRequest`, `RestoreTasksResult`.
+
+    ## Bulk actions (0.17.0)
+    - **Limits.** 1-200 `ids` (or `items`), no duplicates, otherwise 400. Bulk works on
+      tasks the client has loaded; there is no "everything matching a filter" form.
+    - **One list.** On `bulk` and `bulk-patch` every task must be in the same list at the time of
+      the call, else 400 `ids` (or `items`) / `MIXED_LISTS` (nothing changes). Checked after the
+      404 checks, so it never reveals anything about tasks the caller cannot see. `bulk-undo-complete`
+      and `trash/restore` accept tasks of several lists (the Trash page spans lists), all of
+      them lists the caller is a member of.
+    - **All-or-nothing.** Every task in the request is looked up first. Any task that does not
+      exist, is trashed, or is in a list the caller is not a member of makes the whole call 404
+      `NOT_FOUND` with `failedIds` = **all** such ids (ascending); the body is identical for
+      "gone" and "not yours". Later failures (below) also roll everything back.
+    - **Relative actions.** `ADD_TAG` / `REMOVE_TAG` add or remove one tag name and keep the
+      others (the name is normalised and matched ignoring case and accents, as in "Tags").
+      A task that already has the tag (`ADD_TAG`) or lacks it (`REMOVE_TAG`) is left alone.
+      `ADD_TAG` on a task that already has 10 tags is 400 `VALIDATION_FAILED` (`tags` /
+      `TOO_MANY`) with `failedIds` = those tasks. `MOVE` keeps each task's tag names, which are
+      recreated or reused in the target list (as in `PUT`); if the target list would end with more
+      than 200 tags: 400 `tags` / `TAG_LIMIT`, no `failedIds`.
+    - **Tasks already in the wanted state** (already `DONE` for `COMPLETE`, same priority, ...)
+      are returned unchanged: no `updatedAt` change, no repeat copy, no error.
+    - **Repeating tasks.** Completing (`COMPLETE`, or `SET_STATUS` `DONE`, or a patch that makes
+      a task `DONE`) creates one copy per repeating task exactly as a single completion does,
+      returned as that task's `nextTask`.
+    - **Undo of a batch** (client side, all with the endpoints above):
+      | Action | Undo call |
+      |---|---|
+      | `DELETE` | `POST /api/trash/restore` with the ids |
+      | `COMPLETE` / `REOPEN` / `SET_STATUS` / `SET_PRIORITY` | `bulk-patch`, per task `{status}` or `{priority}` = old value (last write wins on that field only) |
+      | `COMPLETE` / `SET_STATUS DONE` | one `bulk-undo-complete` call with an item per task that was **not** `DONE` before: `{id, nextTaskId: tasks[i].nextTask.id, status: old status}` for the repeating ones, `{id, status: old status}` (no `nextTaskId`: a plain reopen) for the others. Tasks that were already `DONE` are left out |
+      | `ADD_TAG` | `bulk` `REMOVE_TAG` on the ids that did **not** have the tag |
+      | `REMOVE_TAG` | `bulk` `ADD_TAG` on the ids that had it |
+      | `MOVE` | `bulk-patch`, per task `{listId: oldList, tags: oldNames}` |
+      A task that was deleted or lost in the meantime makes the undo a 404 (nothing is undone).
+    - **Locking** (informative): the caller's and the lists' owners' user rows FOR SHARE, then the
+      lists FOR UPDATE in ascending id (both the source and the target list on a move), then the
+      caller's membership rows, then the task rows `ORDER BY id` FOR UPDATE. The same global order as
+      single-task writes, so bulk and single calls cannot deadlock.
+
     ## Changes in 0.16.0 (trash and undo, specs/undo-trash-dnd-bulk.md Part A / T5a)
     **Behaviour change (approved):** `DELETE /api/tasks/{id}` no longer deletes for good: it moves
     the task to the trash (still 204). See "Trash". Otherwise additive.
@@ -2473,6 +2530,261 @@ paths:
         '404':
           $ref: '#/components/responses/ListNotFound'
 
+  /api/tasks/bulk:
+    post:
+      summary: Do one action on many tasks of one list
+      description: |
+        New in 0.17.0, see "Bulk actions". `ids`: 1-200 unique task ids, all in one list.
+        `action` and its `value`:
+        | `action` | `value` | Effect on each task |
+        |---|---|---|
+        | `COMPLETE` | none | status `DONE` (repeating tasks create their copy) |
+        | `REOPEN` | none | `DONE` becomes `TODO`; others unchanged |
+        | `SET_STATUS` | `TODO`, `IN_PROGRESS` or `DONE` | status = value |
+        | `SET_PRIORITY` | `NONE`, `LOW`, `MEDIUM` or `HIGH` | priority = value |
+        | `ADD_TAG` | a tag name | adds it, keeps the other tags |
+        | `REMOVE_TAG` | a tag name | removes it, keeps the other tags (unused tags are deleted) |
+        | `MOVE` | target list id (integer) | moves the task, keeps its tag names (the `PUT` move rules) |
+        | `DELETE` | none | moves the task to the trash (like `DELETE /api/tasks/{id}`) |
+
+        A `value` that is missing where one is needed is 400 `value` / `REQUIRED`; one of the
+        wrong type or not in the enum is `MALFORMED_REQUEST` (an unknown `action` too); a
+        `value` sent with an action that takes none is ignored. Tag names follow the "Tags"
+        rules (`value` / `INVALID_CHARACTERS`, `TOO_LONG` or `REQUIRED`).
+
+        Response: `count` = tasks in the request, `tasks` = the resulting tasks **in request
+        order** as `TaskResult` (each with its `nextTask`, `null` unless a repeating task was
+        completed). For `DELETE`, `tasks` is `[]` (they are in the trash).
+
+        **Checks, in order:** 401 > 403 `CSRF_INVALID` > 400 `MALFORMED_REQUEST` > 400
+        `VALIDATION_FAILED` (`ids`: `REQUIRED`, `OUT_OF_RANGE` for 0 or more than 200,
+        `DUPLICATE`; `value`; reported together) > 404 `NOT_FOUND` (+ `failedIds`) > 404
+        `LIST_NOT_FOUND` (`MOVE` target is not one of my lists) > 400 `ids` / `MIXED_LISTS` >
+        400 `tags` / `TOO_MANY` (+ `failedIds`, `ADD_TAG` only) > 400 `tags` / `TAG_LIMIT`
+        (`ADD_TAG` or `MOVE`; no `failedIds`). Nothing is changed on any error.
+      operationId: bulkTasks
+      tags: [tasks]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkActionRequest'
+            examples:
+              complete:
+                value:
+                  ids: [12, 13, 14]
+                  action: COMPLETE
+              priority:
+                value:
+                  ids: [12, 13]
+                  action: SET_PRIORITY
+                  value: HIGH
+              addTag:
+                value:
+                  ids: [12, 13]
+                  action: ADD_TAG
+                  value: Errands
+              move:
+                value:
+                  ids: [12, 13]
+                  action: MOVE
+                  value: 8
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+              example:
+                count: 2
+                tasks:
+                  - id: 12
+                    listId: 3
+                    addedBy:
+                      displayName: Ana
+                    title: Water plants
+                    description: null
+                    priority: NONE
+                    status: DONE
+                    tags: []
+                    done: true
+                    dueDate: '2026-10-10'
+                    dueTime: null
+                    repeat: null
+                    myReminder: null
+                    myReminderPassed: false
+                    createdAt: '2026-10-08T09:15:02.123456Z'
+                    updatedAt: '2026-10-10T10:05:00.000123Z'
+                    nextTask:
+                      id: 15
+                      listId: 3
+                      addedBy:
+                        displayName: Ana
+                      title: Water plants
+                      description: null
+                      priority: NONE
+                      status: TODO
+                      tags: []
+                      done: false
+                      dueDate: '2026-10-11'
+                      dueTime: null
+                      repeat:
+                        frequency: DAILY
+                        weekdays: []
+                      myReminder: null
+                      myReminderPassed: false
+                      createdAt: '2026-10-10T10:05:00.000123Z'
+                      updatedAt: '2026-10-10T10:05:00.000123Z'
+                  - id: 13
+                    listId: 3
+                    addedBy:
+                      displayName: Ana
+                    title: Buy milk
+                    description: null
+                    priority: NONE
+                    status: DONE
+                    tags: []
+                    done: true
+                    dueDate: null
+                    dueTime: null
+                    repeat: null
+                    myReminder: null
+                    myReminderPassed: false
+                    createdAt: '2026-10-08T09:15:02.123456Z'
+                    updatedAt: '2026-10-10T10:05:00.000123Z'
+                    nextTask: null
+        '400':
+          $ref: '#/components/responses/BulkValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/BulkNotFound'
+
+  /api/tasks/bulk-patch:
+    post:
+      summary: Change many tasks of one list, each with its own PATCH body
+      description: |
+        New in 0.17.0, see "Bulk actions". Used mainly to undo a bulk action. Each item is
+        `{ id, patch }`; `patch` is exactly the body of `PATCH /api/tasks/{id}` (any subset of
+        its fields, same meaning, validation and side effects: move rules, tag replacement,
+        `nextTask` when it completes a repeating task, `updatedAt` set to now as `PATCH`
+        does). 1-200 items, unique `id`s, all tasks in one list. The items are applied in
+        request order inside one transaction (the order only matters for the 200-tag limit).
+
+        Response: `BulkResult` with `tasks` in request order.
+
+        **Checks, in order:** 401 > 403 > 400 `MALFORMED_REQUEST` > 400 `VALIDATION_FAILED`
+        (`items`: `REQUIRED`, `OUT_OF_RANGE`, `DUPLICATE`; an invalid patch is reported as field
+        `items` with the underlying code, e.g. `STATUS_CONFLICT`, and a `message` that starts
+        with the 1-based item number) > 404 `NOT_FOUND` (+ `failedIds`) > 404 `LIST_NOT_FOUND`
+        (a `listId` in a patch) > 400 `items` / `MIXED_LISTS` > 400 `tags` / `TAG_LIMIT`. Nothing
+        is changed on any error.
+      operationId: bulkPatchTasks
+      tags: [tasks]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkPatchRequest'
+            examples:
+              undoPriority:
+                summary: Undo "set priority HIGH" on tasks that had different priorities
+                value:
+                  items:
+                    - id: 12
+                      patch: { priority: NONE }
+                    - id: 13
+                      patch: { priority: LOW }
+              undoMove:
+                summary: Undo a move (back to list 3, with each task's old tags)
+                value:
+                  items:
+                    - id: 12
+                      patch: { listId: 3, tags: [Home] }
+                    - id: 13
+                      patch: { listId: 3, tags: [] }
+      responses:
+        '200':
+          description: Done; `tasks` in request order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+        '400':
+          $ref: '#/components/responses/BulkValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/BulkNotFound'
+
+  /api/tasks/bulk-undo-complete:
+    post:
+      summary: Undo the completion of many repeating tasks
+      description: |
+        New in 0.17.0. `POST /api/tasks/{id}/undo-complete` for 1-200 items
+        `{ id, nextTaskId?, status? }` in one transaction, each with the rules and the outcome
+        (`DELETED` / `KEPT` / `GONE`) described there. A missing copy is never an error. Tasks
+        may be in different lists (all lists I am a member of). Unique `id`s.
+
+        **`nextTaskId` is optional per item** (so undoing a bulk `COMPLETE` over repeating and
+        non-repeating tasks is one atomic call): without it the item is a plain reopen, the task
+        gets `status` (default `TODO`) and nothing else is touched (no copy, no rule change), and
+        its `nextTaskOutcome` is `NONE`. `NONE` is only ever returned by this endpoint.
+
+        Response: `results`, one `UndoCompleteResult` per item **in request order**.
+
+        **Checks, in order:** 401 > 403 > 400 `MALFORMED_REQUEST` > 400 `VALIDATION_FAILED`
+        (`items`: `REQUIRED`, `OUT_OF_RANGE`, `DUPLICATE`; an item's `nextTaskId` /
+        `status` problem is reported as field `items` with the code of `undo-complete` and the
+        item number in `message`) > 404 `NOT_FOUND` (+ `failedIds`: tasks `id` not in my lists
+        or trashed; nothing is undone) > 200.
+      operationId: bulkUndoCompleteTasks
+      tags: [tasks]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkUndoCompleteRequest'
+            example:
+              items:
+                - id: 12
+                  nextTaskId: 15
+                  status: TODO
+                - id: 20
+                  nextTaskId: 21
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkUndoCompleteResult'
+        '400':
+          $ref: '#/components/responses/BulkValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/BulkNotFound'
+
   /api/tasks/{id}:
     parameters:
       - $ref: '#/components/parameters/TaskId'
@@ -2969,6 +3281,48 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '404':
           $ref: '#/components/responses/ListNotFound'
+
+  /api/trash/restore:
+    post:
+      summary: Restore many trashed tasks
+      description: |
+        New in 0.17.0. `POST /api/trash/{id}/restore` for 1-200 unique `ids`, in one
+        transaction, all-or-nothing. The tasks may be in different lists (any lists I am a
+        member of). This is the undo of a bulk delete. Response: `tasks` = the restored
+        `Task`s in request order.
+
+        **Checks, in order:** 401 > 403 `CSRF_INVALID` > 400 `MALFORMED_REQUEST` > 400
+        `VALIDATION_FAILED` (`ids`: `REQUIRED`, `OUT_OF_RANGE`, `DUPLICATE`) > 404 `NOT_FOUND`
+        with `failedIds` (ids that are not trashed, do not exist, or are in a list I am not a
+        member of) > 200.
+      operationId: restoreTasks
+      tags: [trash]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreTasksRequest'
+            example:
+              ids: [12, 13, 14]
+      responses:
+        '200':
+          description: The restored tasks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreTasksResult'
+        '400':
+          $ref: '#/components/responses/BulkValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/CsrfInvalid'
+        '404':
+          $ref: '#/components/responses/BulkNotFound'
 
   /api/trash/{id}/restore:
     parameters:
@@ -4715,6 +5069,93 @@ components:
                 detail: Malformed request body
                 instance: /api/tasks/12
                 code: MALFORMED_REQUEST
+    BulkValidationFailed:
+      description: |
+        New in 0.17.0. `MALFORMED_REQUEST` (invalid JSON, wrong type, unknown `action`, unknown
+        enum value; no `errors`), or `VALIDATION_FAILED` with `errors`:
+        - `ids` / `items`: `REQUIRED` (missing, null or empty), `OUT_OF_RANGE` ("Select 1 to 200
+          tasks", more than 200), `DUPLICATE` (the same id twice), `MIXED_LISTS` ("The tasks
+          are not all in the same list", after the 404 checks).
+        - `value`: `REQUIRED` (action needs one) or the tag rules (`INVALID_CHARACTERS`,
+          `TOO_LONG`).
+        - `tags` / `TOO_MANY` (`ADD_TAG`: a task already has 10 tags; `failedIds` lists them) and
+          `tags` / `TAG_LIMIT` (a list would have more than 200 tags; no `failedIds`).
+        - `items`: an item's own problem (invalid patch, `nextTaskId`), with the underlying
+          code and "Item N: ..." in `message`.
+        Nothing was changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            tooMany:
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/tasks/bulk
+                code: VALIDATION_FAILED
+                errors:
+                  - field: ids
+                    code: OUT_OF_RANGE
+                    message: Select 1 to 200 tasks
+            tagLimit:
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/tasks/bulk
+                code: VALIDATION_FAILED
+                errors:
+                  - field: tags
+                    code: TAG_LIMIT
+                    message: A list can have at most 200 tags
+            tenTags:
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Validation failed
+                instance: /api/tasks/bulk
+                code: VALIDATION_FAILED
+                errors:
+                  - field: tags
+                    code: TOO_MANY
+                    message: A task can have at most 10 tags
+                failedIds: [12, 14]
+    BulkNotFound:
+      description: |
+        New in 0.17.0. One of:
+        - `NOT_FOUND` (detail "Some tasks were not found"): at least one task in the request does
+          not exist, is trashed (not for `trash/restore`: there, one that is **not** trashed), or
+          is in a list I am not a member of. `failedIds` = every such id, ascending; identical
+          for "gone" and "not yours". Nothing was changed.
+        - `LIST_NOT_FOUND` (`POST /api/tasks/bulk` `MOVE`, `POST /api/tasks/bulk-patch`): the
+          target list is not one of my lists. No `failedIds`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            tasks:
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Some tasks were not found
+                instance: /api/tasks/bulk
+                code: NOT_FOUND
+                failedIds: [13, 40, 41]
+            list:
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: List not found
+                instance: /api/tasks/bulk
+                code: LIST_NOT_FOUND
     MalformedTaskId:
       description: The `{id}` path segment is not an integer
       content:
@@ -5640,6 +6081,146 @@ components:
           minimum: 0
           example: 7
 
+    BulkAction:
+      type: string
+      enum: [COMPLETE, REOPEN, SET_STATUS, SET_PRIORITY, ADD_TAG, REMOVE_TAG, MOVE, DELETE]
+      description: New in 0.17.0. See `POST /api/tasks/bulk`.
+
+    BulkActionRequest:
+      type: object
+      required: [ids, action]
+      description: New in 0.17.0. Body of `POST /api/tasks/bulk`.
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+          items:
+            type: integer
+            format: int64
+          example: [12, 13, 14]
+        action:
+          $ref: '#/components/schemas/BulkAction'
+        value:
+          description: |
+            `SET_STATUS`: a `Status`. `SET_PRIORITY`: a `Priority`. `ADD_TAG` / `REMOVE_TAG`: a tag
+            name (string). `MOVE`: the target list id (integer). Not used by the other actions.
+          oneOf:
+            - type: string
+            - type: integer
+              format: int64
+          example: HIGH
+
+    BulkResult:
+      type: object
+      required: [count, tasks]
+      description: |
+        New in 0.17.0. Result of `POST /api/tasks/bulk` and `POST /api/tasks/bulk-patch`. (AC22
+        said `{ tasks, nextTasks }`; each task's copy is `tasks[i].nextTask`, so the client
+        knows which copy belongs to which task.)
+      properties:
+        count:
+          type: integer
+          minimum: 1
+          maximum: 200
+          description: Number of tasks in the request (also for `DELETE`).
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskResult'
+          description: The tasks as they are now, in request order. `[]` for `DELETE`.
+
+    BulkPatchItem:
+      type: object
+      required: [id, patch]
+      properties:
+        id:
+          type: integer
+          format: int64
+        patch:
+          $ref: '#/components/schemas/SetTaskDoneRequest'
+
+    BulkPatchRequest:
+      type: object
+      required: [items]
+      description: New in 0.17.0. Body of `POST /api/tasks/bulk-patch`.
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/BulkPatchItem'
+          description: Unique `id`s.
+
+    BulkUndoCompleteItem:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The reopened task (the `{id}` of `undo-complete`).
+        nextTaskId:
+          type: integer
+          format: int64
+          description: |
+            `TaskResult.nextTask.id` of the completion being undone. Optional: missing = plain
+            reopen, outcome `NONE`. Below 1 = 400 `items` / `OUT_OF_RANGE`.
+        status:
+          type: string
+          enum: [TODO, IN_PROGRESS]
+          default: TODO
+          description: The status the task had before it was completed.
+
+    BulkUndoCompleteRequest:
+      type: object
+      required: [items]
+      description: New in 0.17.0. Body of `POST /api/tasks/bulk-undo-complete`.
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/BulkUndoCompleteItem'
+          description: Unique `id`s.
+
+    BulkUndoCompleteResult:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UndoCompleteResult'
+          description: One per item, in request order.
+
+    RestoreTasksRequest:
+      type: object
+      required: [ids]
+      description: New in 0.17.0. Body of `POST /api/trash/restore`.
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+          items:
+            type: integer
+            format: int64
+
+    RestoreTasksResult:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+          description: The restored tasks, in request order.
+
     UndoCompleteRequest:
       type: object
       required: [nextTaskId]
@@ -5665,12 +6246,13 @@ components:
           properties:
             nextTaskOutcome:
               type: string
-              enum: [DELETED, KEPT, GONE]
+              enum: [DELETED, KEPT, GONE, NONE]
               description: |
                 `DELETED`: the untouched copy was deleted for good and the rule is back on the
                 task. `KEPT`: the copy was changed (or trashed, moved...) and was left alone; the
                 task has no rule. `GONE`: the copy no longer exists (or is not in my lists); the
-                task has no rule.
+                task has no rule. `NONE` (0.17.0, `bulk-undo-complete` items without `nextTaskId`
+                only): no copy was named, the task was just reopened.
 
     TaskPage:
       type: object
@@ -6409,7 +6991,7 @@ components:
       properties:
         field:
           type: string
-          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat, nextTaskId]
+          enum: [displayName, email, password, currentPassword, newPassword, title, description, done, status, tags, q, page, size, role, cursor, name, dueTime, reminder, timeZone, enabled, limit, repeat, nextTaskId, ids, items, action, value]
           description: |
             Name of the request field (exactly as in the request body, or the query parameter).
             `status` and `tags` are new in 0.10.0; a `tags` error refers to the whole array,
@@ -6421,9 +7003,13 @@ components:
             0.14.0. `repeat` (`PUT /api/tasks/{id}`) is new in 0.15.0.
         code:
           type: string
-          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR, REQUIRES_DUE_DATE, INVALID_REMINDER, INVALID_TIME_ZONE, INVALID_REPEAT]
+          enum: [REQUIRED, INVALID_EMAIL, TOO_LONG, PASSWORD_LENGTH, EMAIL_TAKEN, DISPLAY_NAME_TAKEN, WRONG_PASSWORD, EMAIL_MISMATCH, OUT_OF_RANGE, INVALID_ROLE, INVALID_CHARACTERS, TOO_MANY, TAG_LIMIT, STATUS_CONFLICT, INVALID_CURSOR, REQUIRES_DUE_DATE, INVALID_REMINDER, INVALID_TIME_ZONE, INVALID_REPEAT, MIXED_LISTS, DUPLICATE]
           description: |
             Stable machine-readable reason.
+            - MIXED_LISTS / DUPLICATE: (new in 0.17.0, fields `ids` / `items` of the bulk
+              endpoints) the tasks are not all in the same list; the same id appears twice.
+              OUT_OF_RANGE also: `ids` / `items` empty or over 200. `TOO_MANY`, `TAG_LIMIT`,
+              `INVALID_CHARACTERS`, `TOO_LONG`, `REQUIRED` also apply to `value` (a tag name).
             - REQUIRED: missing, null, empty or blank (for `tags`: an element is; for `done` on
               PATCH: neither `done` nor `status` was sent)
             - INVALID_EMAIL: not a valid email address
@@ -6573,6 +7159,15 @@ components:
             has exactly one entry, and so has EMAIL_MISMATCH.
           items:
             $ref: '#/components/schemas/FieldError'
+        failedIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: |
+            New in 0.17.0. Only on the bulk endpoints (`/api/tasks/bulk*`, `/api/trash/restore`):
+            the task ids that made the call fail (404 `NOT_FOUND`: all unavailable ids; 400
+            `tags` / `TOO_MANY`: the tasks over the limit), ascending. Absent otherwise.
 
 security:
   - sessionCookie: []

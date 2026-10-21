@@ -53,6 +53,9 @@ import com.taskapp.task.OwnerCannotLeaveException;
 import com.taskapp.task.OwnerOnlyException;
 import com.taskapp.task.PersonalListException;
 import com.taskapp.task.SharingConflictException;
+import com.taskapp.task.BulkTasksNotFoundException;
+import com.taskapp.task.BulkTooManyTagsException;
+import com.taskapp.task.MalformedRequestException;
 import com.taskapp.task.TagLimitExceededException;
 import com.taskapp.task.TaskNotFoundException;
 
@@ -66,6 +69,8 @@ import jakarta.servlet.http.HttpServletRequest;
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    private static final java.util.regex.Pattern BULK_ITEM = java.util.regex.Pattern.compile("(items)\\[(\\d+)\\]\\..*");
 
     private static final String EMAIL_TAKEN_MESSAGE = "An account with this email already exists";
     private static final String DISPLAY_NAME_TAKEN_MESSAGE = "This display name is already taken";
@@ -241,6 +246,29 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 Problems.of(HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND, "Task not found"));
     }
 
+    /** Bulk calls (0.17.0): every unavailable id, ascending. */
+    @ExceptionHandler(BulkTasksNotFoundException.class)
+    ResponseEntity<ProblemDetail> handleBulkNotFound(BulkTasksNotFoundException ex) {
+        ProblemDetail problem = Problems.of(HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND, ex.getMessage());
+        problem.setProperty("failedIds", ex.failedIds());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
+    }
+
+    @ExceptionHandler(BulkTooManyTagsException.class)
+    ResponseEntity<ProblemDetail> handleBulkTooManyTags(BulkTooManyTagsException ex) {
+        ProblemDetail problem = Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED, "Validation failed",
+                List.of(new ApiFieldError("tags", ErrorCode.TOO_MANY, BulkTooManyTagsException.MESSAGE)));
+        problem.setProperty("failedIds", ex.failedIds());
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    /** A value of the wrong type for a bulk action: answered like an unreadable body. */
+    @ExceptionHandler(MalformedRequestException.class)
+    ResponseEntity<ProblemDetail> handleMalformedValue(MalformedRequestException ex) {
+        return ResponseEntity.badRequest().body(
+                Problems.of(HttpStatus.BAD_REQUEST, ErrorCode.MALFORMED_REQUEST, "Malformed request body"));
+    }
+
     /** Only reached when every other field was valid, so it is the only entry. Nothing was saved (rolled back). */
     @ExceptionHandler(TagLimitExceededException.class)
     ResponseEntity<ProblemDetail> handleTagLimit(TagLimitExceededException ex) {
@@ -350,8 +378,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static ProblemDetail validationFailed(BindingResult bindingResult) {
         Map<String, ApiFieldError> byField = new LinkedHashMap<>();
         for (FieldError fe : bindingResult.getFieldErrors()) {
-            ApiFieldError candidate = new ApiFieldError(fe.getField(), fieldCode(fe), fe.getDefaultMessage());
-            byField.merge(fe.getField(), candidate, (current, next) ->
+            String field = fe.getField();
+            String message = fe.getDefaultMessage();
+            java.util.regex.Matcher item = BULK_ITEM.matcher(field);
+            if (item.matches()) {
+                // Bulk calls (0.17.0): a problem inside item N is reported on "items" with the item number.
+                field = item.group(1);
+                message = "Item " + (Integer.parseInt(item.group(2)) + 1) + ": " + message;
+            }
+            ApiFieldError candidate = new ApiFieldError(field, fieldCode(fe), message);
+            byField.merge(field, candidate, (current, next) ->
                     priority(next.code()) < priority(current.code()) ? next : current);
         }
         List<ApiFieldError> errors = byField.values().stream()
@@ -420,6 +456,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case "Size" -> ErrorCode.TOO_LONG;
             case "Min", "Max" -> ErrorCode.OUT_OF_RANGE;
             case "InvalidRole" -> ErrorCode.INVALID_ROLE;
+            case "Duplicate" -> ErrorCode.DUPLICATE;
+            case "MixedLists" -> ErrorCode.MIXED_LISTS;
             default -> ErrorCode.VALIDATION_FAILED;
         };
     }

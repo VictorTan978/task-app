@@ -333,4 +333,52 @@ class TaskRepositoryTest {
         assertThat(jdbc.queryForObject("select count(*) from task_tags", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from tags where owner_id = ?", Integer.class, bob)).isEqualTo(1);
     }
+
+    // ---- bulk queries (contract 0.17.0) ----
+
+    @Test
+    void bulkLookupFindsLiveTasksOfMyListsOnly() {
+        Task mine = task(alice, "Mine", false, T0);
+        Task trashed = task(alice, "Trashed", false, T0);
+        Task theirs = task(bob, "Theirs", false, T0);
+        repository.trashAll(List.of(trashed.getId()), alice, T0);
+
+        assertThat(repository.findAccessibleIds(List.of(mine.getId(), trashed.getId(), theirs.getId(), 99_999L), alice))
+                .extracting(TaskRepository.IdList::getId, TaskRepository.IdList::getListId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(mine.getId(), aliceList));
+        assertThat(repository.findTrashedAccessibleIds(List.of(mine.getId(), trashed.getId(), theirs.getId()), alice))
+                .extracting(TaskRepository.IdList::getId).containsExactly(trashed.getId());
+    }
+
+    @Test
+    void lockLiveReturnsTheRowsInAscendingIdAndSkipsOtherListsAndTrashed() {
+        Task a = task(alice, "A", false, T0);
+        Task b = task(alice, "B", false, T0);
+        Task c = task(alice, "C", false, T0);
+        Task other = task(bob, "Other", false, T0);
+        repository.trashAll(List.of(c.getId()), alice, T0);
+
+        assertThat(repository.lockLive(List.of(b.getId(), a.getId(), c.getId(), other.getId()), List.of(aliceList)))
+                .extracting(Task::getId).containsExactly(a.getId(), b.getId());
+        assertThat(repository.lockTrashed(List.of(b.getId(), c.getId()), List.of(aliceList)))
+                .extracting(Task::getId).containsExactly(c.getId());
+    }
+
+    @Test
+    void trashAllAndRestoreAllChangeOnlyTheTrashColumns() {
+        Task a = task(alice, "A", false, T0);
+        Task b = task(alice, "B", false, T0);
+        Task c = task(alice, "C", false, T0);
+        Instant at = T0.plusSeconds(60);
+
+        assertThat(repository.trashAll(List.of(a.getId(), b.getId()), alice, at)).isEqualTo(2);
+        assertThat(repository.trashAll(List.of(a.getId(), c.getId()), alice, at)).as("a is already trashed").isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from tasks where deleted_at is not null and deleted_by = ?",
+                Integer.class, alice)).isEqualTo(3);
+        assertThat(repository.restoreAll(List.of(a.getId(), b.getId()))).isEqualTo(2);
+        assertThat(repository.restoreAll(List.of(a.getId()))).isZero();
+        Task restored = repository.findById(a.getId()).orElseThrow();
+        assertThat(restored.getDeletedAt()).isNull();
+        assertThat(restored.getUpdatedAt()).isEqualTo(T0);
+    }
 }

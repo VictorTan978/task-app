@@ -1,15 +1,31 @@
-<div class="task-row" [class.task-row--done]="done()" [attr.aria-busy]="busy()">
-  <input
-    #checkbox
-    type="checkbox"
-    class="task-row__check"
-    [checked]="done()"
-    [disabled]="busy()"
-    [attr.aria-label]="'Done: ' + task().title"
-    (change)="onToggle($event)"
-  />
+<div
+  class="task-row"
+  [class.task-row--done]="done()"
+  [class.task-row--selected]="selecting() && selected()"
+  [attr.aria-busy]="busy()"
+>
+  @if (selecting()) {
+    <input
+      type="checkbox"
+      class="task-row__check"
+      data-testid="task-select"
+      [checked]="selected()"
+      [attr.aria-label]="'Select ' + task().title"
+      (click)="onSelect($event)"
+    />
+  } @else {
+    <input
+      #checkbox
+      type="checkbox"
+      class="task-row__check"
+      [checked]="done()"
+      [disabled]="busy()"
+      [attr.aria-label]="'Done: ' + task().title"
+      (change)="onToggle($event)"
+    />
+  }
   <div class="task-row__main">
-    <button type="button" class="task-row__title" [disabled]="busy()" (click)="edit.emit()">
+    <button type="button" class="task-row__title" [disabled]="busy()" (click)="onTitle($event)">
       {{ task().title }}
     </button>
     @if (hasMeta()) {
@@ -76,22 +92,24 @@
   @if (busy()) {
     <span class="spinner task-row__spinner" aria-hidden="true"></span>
   }
-  <div class="task-row__actions">
-    <button
-      type="button"
-      class="btn btn--secondary btn--small"
-      [disabled]="busy()"
-      (click)="edit.emit()"
-    >
-      Edit
-    </button>
-    <button
-      type="button"
-      class="btn btn--secondary btn--small"
-      [disabled]="busy()"
-      (click)="remove.emit()"
-    >
-      Delete
-    </button>
-  </div>
+  @if (!selecting()) {
+    <div class="task-row__actions">
+      <button
+        type="button"
+        class="btn btn--secondary btn--small"
+        [disabled]="busy()"
+        (click)="edit.emit()"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        class="btn btn--secondary btn--small"
+        [disabled]="busy()"
+        (click)="remove.emit()"
+      >
+        Delete
+      </button>
+    </div>
+  }
 </div>
