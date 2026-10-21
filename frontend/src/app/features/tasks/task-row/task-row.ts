@@ -24,6 +24,7 @@ export interface RowSelect {
 @Component({
   selector: 'app-task-row',
   imports: [RouterLink],
+  host: { '[attr.data-task-id]': 'task().id' },
   templateUrl: './task-row.html',
   styleUrl: './task-row.scss',
 })
@@ -39,12 +40,18 @@ export class TaskRow {
   /** Selection mode: the row shows a "Select" checkbox instead of the Done one. */
   readonly selecting = input(false);
   readonly selected = input(false);
+  /** "My order" with dragging allowed: the row offers Move up / Move down. */
+  readonly reorderable = input(false);
+  readonly canMoveUp = input(false);
+  readonly canMoveDown = input(false);
 
   /** The requested new done state (the page sends status `DONE` / `TODO`). */
   readonly doneChange = output<boolean>();
   readonly edit = output<void>();
   readonly remove = output<void>();
   readonly selectChange = output<RowSelect>();
+  readonly moveUp = output<void>();
+  readonly moveDown = output<void>();
 
   protected readonly done = computed(() => isDone(this.task()));
   protected readonly inProgress = computed(() => this.task().status === 'IN_PROGRESS');

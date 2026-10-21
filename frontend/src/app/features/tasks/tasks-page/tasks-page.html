@@ -106,6 +106,10 @@
         }
       </nav>
 
+      @if (dragHintText(); as hint) {
+        <p class="tasks-hint" data-testid="drag-hint">{{ hint }}</p>
+      }
+
       @if (tagLabel(); as label) {
         <div class="tasks-tag-bar" data-testid="tag-filter-bar">
           <span
@@ -168,25 +172,64 @@
           <p class="tasks-status tasks-empty">{{ emptyText() }}</p>
         } @else {
           @if (tasks().length > 0) {
-            <ul class="task-list" aria-label="Tasks">
-              @for (task of tasks(); track task.id) {
-                <li class="task-list__item">
-                  <app-task-row
-                    [task]="task"
-                    [today]="today()"
-                    [time]="nowTime()"
-                    [busy]="isBusy(task.id)"
-                    [showAddedBy]="shared()"
-                    [selecting]="selecting()"
-                    [selected]="isSelected(task.id)"
-                    (selectChange)="onRowSelect(task, $event)"
-                    (doneChange)="toggle(task, $event)"
-                    (edit)="openEdit(task)"
-                    (remove)="openDelete(task)"
-                  />
-                </li>
+            @if (dragAllowed()) {
+              @defer (on immediate) {
+                <app-task-sort-list
+                  [tasks]="tasks()"
+                  [today]="today()"
+                  [time]="nowTime()"
+                  [busyIds]="busyIds()"
+                  [showAddedBy]="shared()"
+                  [disabled]="reordering() || loading() || bulkBusy()"
+                  [ownListId]="ownListId()"
+                  (doneChange)="toggle($event.task, $event.done)"
+                  (edit)="openEdit($event)"
+                  (remove)="openDelete($event)"
+                  (reordered)="onReordered($event)"
+                  (droppedOnList)="moveToList($event)"
+                />
+              } @placeholder {
+                <ul class="task-list" aria-label="Tasks">
+                  @for (task of tasks(); track task.id) {
+                    <li class="task-list__item">
+                      <app-task-row
+                        [task]="task"
+                        [today]="today()"
+                        [time]="nowTime()"
+                        [busy]="isBusy(task.id)"
+                        [showAddedBy]="shared()"
+                        [selecting]="selecting()"
+                        [selected]="isSelected(task.id)"
+                        (selectChange)="onRowSelect(task, $event)"
+                        (doneChange)="toggle(task, $event)"
+                        (edit)="openEdit(task)"
+                        (remove)="openDelete(task)"
+                      />
+                    </li>
+                  }
+                </ul>
               }
-            </ul>
+            } @else {
+              <ul class="task-list" aria-label="Tasks">
+                @for (task of tasks(); track task.id) {
+                  <li class="task-list__item">
+                    <app-task-row
+                      [task]="task"
+                      [today]="today()"
+                      [time]="nowTime()"
+                      [busy]="isBusy(task.id)"
+                      [showAddedBy]="shared()"
+                      [selecting]="selecting()"
+                      [selected]="isSelected(task.id)"
+                      (selectChange)="onRowSelect(task, $event)"
+                      (doneChange)="toggle(task, $event)"
+                      (edit)="openEdit(task)"
+                      (remove)="openDelete(task)"
+                    />
+                  </li>
+                }
+              </ul>
+            }
           }
           <div class="tasks-footer" data-testid="tasks-footer">
             @if (hasMore()) {

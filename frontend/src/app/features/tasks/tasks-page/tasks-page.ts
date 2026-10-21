@@ -31,9 +31,22 @@ import {
   rangeIds,
   tagChoices,
 } from '../bulk.logic';
+import {
+  afterIdOf,
+  canDrag,
+  dragHint,
+  ListDrop,
+  placeAfter,
+  REORDER_ERROR,
+  ReorderDrop,
+} from '../reorder.logic';
 import { ConfirmDeleteDialog } from '../confirm-delete-dialog/confirm-delete-dialog';
 import { AddFailure, TaskAddForm } from '../task-add-form/task-add-form';
-import { TaskEditDialog } from '../task-edit-dialog/task-edit-dialog';
+import {
+  MOVE_LIST_GONE,
+  moveTagLimitMessage,
+  TaskEditDialog,
+} from '../task-edit-dialog/task-edit-dialog';
 import {
   ADD_ERROR,
   isInvalidCursor,
@@ -42,8 +55,10 @@ import {
   LOAD_ERROR,
   LOAD_MORE_ERROR,
   NEXT_SCHEDULED_PREFIX,
+  SAVE_ERROR,
   TASK_ADDED_MESSAGE,
   TASK_NOT_FOUND_MESSAGE,
+  taskValidationProblem,
   TOGGLE_ERROR,
 } from '../task-form';
 import {
@@ -59,6 +74,7 @@ import {
   TaskListState,
 } from '../task-list';
 import { RowSelect, TaskRow } from '../task-row/task-row';
+import { TaskSortList } from '../task-sort-list/task-sort-list';
 import { findTag } from '../task-tags';
 import {
   formatDue,
@@ -144,6 +160,7 @@ const DEFAULT_QUERY: TaskListQuery = { filter: 'all', tag: null, q: null, sort: 
     BulkDeleteDialog,
     ListPicker,
     ListHeader,
+    TaskSortList,
   ],
   templateUrl: './tasks-page.html',
   styleUrl: './tasks-page.scss',
@@ -187,6 +204,7 @@ export class TasksPage {
     { value: 'due', label: 'Due date' },
     { value: 'priority', label: 'Priority' },
     { value: 'title', label: 'Title A–Z' },
+    { value: 'manual', label: 'My order' },
   ];
 
   /** List selected in the URL. */
@@ -265,6 +283,23 @@ export class TasksPage {
       .filter((l) => l.id !== this.activeListId())
       .map((l) => ({ id: l.id, name: l.name })),
   );
+
+  // ----- My order (0.18.0 drag and drop) -----
+
+  /** Handles are shown: "My order", All tab, no tag, no search (of the list that is shown). */
+  protected readonly dragAllowed = computed(
+    () => canDrag(this.listQuery()) && this.loaded() && !this.selecting(),
+  );
+  /** "Switch to My order to drag" and its siblings; null when handles are shown or no tasks. */
+  protected readonly dragHintText = computed(() =>
+    this.loaded() && this.tasks().length > 0 && !this.selecting()
+      ? dragHint(this.listQuery())
+      : null,
+  );
+  /** A position request is running: dragging and Move up / down wait for it. */
+  protected readonly reordering = signal(false);
+  /** The open list's id for the sidebar: dropping on it does nothing. */
+  protected readonly ownListId = this.activeListId;
 
   protected readonly emptyText = computed(() => {
     const { filter, tag, q } = this.listQuery();
@@ -353,6 +388,7 @@ export class TasksPage {
     this.editing.set(null);
     this.deleting.set(null);
     this.bulkBusy.set(false);
+    this.reordering.set(false);
   }
 
   /** The open list is gone or not mine: show "List not found" and refetch the picker. */
@@ -394,7 +430,7 @@ export class TasksPage {
         this.loading.set(false);
         this.now.refresh();
         this.listQuery.set(query);
-        this.list.set(firstPage(page));
+        this.list.set(firstPage(page, query.sort));
         this.loaded.set(true);
         this.listNotFound.set(false);
         // A list of mine the picker doesn't know yet (e.g. created in another tab).
@@ -428,7 +464,7 @@ export class TasksPage {
       next: (page) => {
         this.loadingMore.set(false);
         this.now.refresh();
-        this.list.update((state) => appendPage(state, page));
+        this.list.update((state) => appendPage(state, page, this.listQuery().sort));
       },
       error: (error: unknown) => {
         this.loadingMore.set(false);
@@ -556,6 +592,111 @@ export class TasksPage {
           this.banner.set({ message: TOGGLE_ERROR, retry: () => this.toggle(task, done) });
         },
       });
+  }
+
+  // ----- My order: reorder and drop on a list -----
+
+  /** Keyboard / drag drop: shows the new order at once, then saves it. */
+  protected onReordered({ id, afterId, items }: ReorderDrop): void {
+    this.saveOrder(id, afterId, items);
+  }
+
+  /**
+   * Optimistic: the new order is shown at once, `PUT /position` follows. On failure only that
+   * task goes back after its old predecessor (a tick or edit meanwhile stays), and the message
+   * says so; a 404 also reloads the list.
+   */
+  private saveOrder(id: number, afterId: number | null, items: Task[]): void {
+    const before = this.tasks();
+    const oldAfter = afterIdOf(before, id);
+    if (this.reordering() || oldAfter === afterId) {
+      return;
+    }
+    this.banner.set(null);
+    this.list.update((state) => ({ ...state, items }));
+    this.reordering.set(true);
+    const generation = this.generation;
+    this.tasksApi
+      .setPosition(id, afterId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          if (generation === this.generation) {
+            this.reordering.set(false);
+          }
+        },
+        error: (error: unknown) => {
+          if (generation !== this.generation) {
+            return;
+          }
+          this.reordering.set(false);
+          if (isUnauthenticated(error)) {
+            return;
+          }
+          this.list.update((state) => ({ ...state, items: placeAfter(state.items, id, oldAfter) }));
+          this.banner.set({ message: REORDER_ERROR, retry: null });
+          if (isNotFound(error)) {
+            this.load(false);
+          }
+        },
+      });
+  }
+
+  /**
+   * A row dropped on a list in the sidebar: the same move as the edit dialog (`listId` and the
+   * task's tags), then the Undo toast "Moved to <list>".
+   */
+  protected moveToList({ task, listId }: ListDrop): void {
+    if (this.isBusy(task.id) || listId === task.listId) {
+      return;
+    }
+    this.banner.set(null);
+    this.setBusy(task.id, true);
+    const generation = this.generation;
+    this.tasksApi
+      .move(task.id, listId, task.tags)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (moved) => {
+          if (generation !== this.generation) {
+            return;
+          }
+          this.setBusy(task.id, false);
+          this.list.update((state) => moveOut(state, moved.id));
+          const name = this.lists.byId().get(moved.listId)?.name ?? null;
+          this.offerUndo(
+            (m) => m.movedMessage(name),
+            (m) => m.planUndo(task, moved),
+          );
+        },
+        error: (error: unknown) => {
+          if (generation !== this.generation) {
+            return;
+          }
+          this.setBusy(task.id, false);
+          this.onMoveError(error, listId);
+        },
+      });
+  }
+
+  private onMoveError(error: unknown, listId: number): void {
+    if (isUnauthenticated(error)) {
+      return;
+    }
+    if (isListNotFound(error)) {
+      this.banner.set({ message: MOVE_LIST_GONE, retry: null });
+      this.lists.refresh();
+      return;
+    }
+    if (isNotFound(error)) {
+      this.taskGone();
+      return;
+    }
+    const tagLimit = taskValidationProblem(error)?.errors?.some(
+      (e) => e.field === 'tags' && e.code === 'TAG_LIMIT',
+    );
+    const name = this.lists.byId().get(listId)?.name ?? 'that list';
+    this.banner.set({ message: tagLimit ? moveTagLimitMessage(name) : SAVE_ERROR, retry: null });
   }
 
   protected openEdit(task: Task): void {
