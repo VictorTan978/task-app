@@ -77,6 +77,12 @@ describe('ResetPasswordPage', () => {
     await fixture.whenStable();
   }
 
+  it('shows the app logo above the heading', async () => {
+    await setup({});
+    expect(el.querySelector('app-auth-brand img[src="logo.svg"]')).not.toBeNull();
+    expect(el.querySelector('h1')?.textContent).toContain('Reset password');
+  });
+
   it('shows "Checking your link…", checks the token once and removes it from the URL', async () => {
     await setup();
     expect(el.querySelector('[data-testid=link-checking]')?.textContent).toContain(

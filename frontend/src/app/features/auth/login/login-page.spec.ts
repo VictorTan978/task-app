@@ -66,6 +66,11 @@ describe('LoginPage', () => {
   const button = () => el.querySelector<HTMLButtonElement>('button[type=submit]')!;
   const text = () => el.textContent ?? '';
 
+  it('shows the app logo above the heading', () => {
+    expect(el.querySelector('app-auth-brand img[src="logo.svg"]')).not.toBeNull();
+    expect(el.querySelector('h1')?.textContent).toContain('Sign in');
+  });
+
   it('renders fields, button and link to /register', () => {
     expect(el.querySelector('label[for=login-email]')?.textContent).toContain('Email');
     expect(el.querySelector('label[for=login-password]')?.textContent).toContain('Password');

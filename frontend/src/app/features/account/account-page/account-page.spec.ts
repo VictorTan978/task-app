@@ -64,6 +64,12 @@ describe('AccountPage', () => {
     )!;
   const dialog = () => el.querySelector('dialog');
 
+  it('has a "Back to tasks" link to /tasks', () => {
+    const link = el.querySelector('[data-testid=account-back]');
+    expect(link?.getAttribute('href')).toBe('/tasks');
+    expect(link?.textContent).toContain('Back to tasks');
+  });
+
   it('shows the read-only email and the sections', () => {
     const email = el.querySelector<HTMLInputElement>('#account-email')!;
     expect(email.value).toBe('bob@example.com');

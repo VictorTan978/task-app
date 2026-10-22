@@ -21,6 +21,7 @@ import {
   TOO_MANY_ATTEMPTS_MESSAGE,
 } from '../auth-form';
 import { takeLinkToken } from '../link-token';
+import { AuthBrand } from '../../../shared/auth-brand/auth-brand';
 
 type ResetState = 'checking' | 'form' | 'invalid' | 'check-error';
 
@@ -31,7 +32,7 @@ type ResetState = 'checking' | 'form' | 'invalid' | 'check-error';
  */
 @Component({
   selector: 'app-reset-password-page',
-  imports: [ReactiveFormsModule, RouterLink, PasswordField],
+  imports: [ReactiveFormsModule, RouterLink, PasswordField, AuthBrand],
   templateUrl: './reset-password-page.html',
 })
 export class ResetPasswordPage {

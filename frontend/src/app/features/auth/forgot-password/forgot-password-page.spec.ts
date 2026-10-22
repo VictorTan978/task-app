@@ -40,6 +40,11 @@ describe('ForgotPasswordPage', () => {
     await fixture.whenStable();
   }
 
+  it('shows the app logo above the heading', () => {
+    expect(el.querySelector('app-auth-brand img[src="logo.svg"]')).not.toBeNull();
+    expect(el.querySelector('h1')?.textContent).toContain('Forgot password');
+  });
+
   it('renders the email field, "Send reset link" and a link to /login', () => {
     expect(el.querySelector('label[for=forgot-email]')?.textContent).toContain('Email');
     expect(button()?.textContent).toContain('Send reset link');

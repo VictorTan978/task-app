@@ -74,6 +74,13 @@ describe('NotificationsPage', () => {
     await stable();
   }
 
+  it('has a "Back to tasks" link to /tasks', async () => {
+    await init([]);
+    const link = el.querySelector('[data-testid=notifications-back]');
+    expect(link?.getAttribute('href')).toBe('/tasks');
+    expect(link?.textContent).toContain('Back to tasks');
+  });
+
   it('shows loading, then the notifications newest first with unread marked and (late)', async () => {
     await stable();
     expect(el.textContent).toContain('Loading notifications');

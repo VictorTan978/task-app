@@ -14,17 +14,6 @@
 }
 
 .trash-page {
-  &__back {
-    display: inline-block;
-    margin-bottom: 0.5rem;
-    color: var(--color-primary);
-    text-decoration: none;
-
-    &:hover {
-      text-decoration: underline;
-    }
-  }
-
   &__head {
     display: flex;
     flex-wrap: wrap;

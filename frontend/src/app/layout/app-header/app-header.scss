@@ -8,8 +8,17 @@
   border-bottom: 1px solid var(--color-border);
 
   &__name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
     font-weight: 700;
     font-size: 1.125rem;
+  }
+
+  &__logo {
+    width: 1.75rem;
+    height: 1.75rem;
+    flex-shrink: 0;
   }
 
   &__user {

@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { map, Observable, of, switchMap } from 'rxjs';
 import { OAuthResult } from '../../../core/auth/auth.models';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -41,6 +41,7 @@ type ConnectOutcome = 'started' | 'signed-out' | 'failed';
 @Component({
   selector: 'app-account-page',
   imports: [
+    RouterLink,
     DisplayNameForm,
     TimeZoneForm,
     ReminderEmailsToggle,

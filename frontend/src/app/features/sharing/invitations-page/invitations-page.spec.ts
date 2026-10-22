@@ -73,6 +73,14 @@ describe('InvitationsPage', () => {
     await stable();
   }
 
+  it('has a "Back to tasks" link to /tasks', async () => {
+    setup();
+    await loaded([]);
+    const link = el.querySelector('[data-testid=invitations-back]');
+    expect(link?.getAttribute('href')).toBe('/tasks');
+    expect(link?.textContent).toContain('Back to tasks');
+  });
+
   it('shows loading, then who invited me to which list, with the expiry; sets the badge', async () => {
     setup();
     await stable();
