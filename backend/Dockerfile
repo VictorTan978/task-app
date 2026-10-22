@@ -24,5 +24,7 @@ WORKDIR /app
 COPY --from=build /build/target/*.jar app.jar
 USER app
 EXPOSE 8080
-# MaxRAMPercentage=75: Render's free instance has 512 MB.
-ENTRYPOINT ["java","-XX:MaxRAMPercentage=75","-jar","app.jar"]
+# Render's free instance has 512 MB. Heap is capped at 256 MB to leave room for metaspace,
+# threads and the code cache (a bigger heap risks Render killing the process).
+# C1-only compiler + SerialGC: faster startup and low overhead on a fraction of a CPU.
+ENTRYPOINT ["java","-Xmx256m","-Xss512k","-XX:+UseSerialGC","-XX:TieredStopAtLevel=1","-XX:ReservedCodeCacheSize=64m","-jar","app.jar"]
