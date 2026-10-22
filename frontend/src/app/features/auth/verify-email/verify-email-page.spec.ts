@@ -69,6 +69,13 @@ describe('VerifyEmailPage', () => {
       b.textContent?.includes(label),
     );
 
+  it('shows the app logo above the heading', async () => {
+    setup({});
+    await render();
+    expect(el.querySelector('app-auth-brand img[src="logo.svg"]')).not.toBeNull();
+    expect(el.querySelector('h1')?.textContent).toContain('Confirm email');
+  });
+
   it('shows a spinner while checking, POSTs the token once and removes it from the URL', async () => {
     setup({ token: 'tok-abc' });
     await render();

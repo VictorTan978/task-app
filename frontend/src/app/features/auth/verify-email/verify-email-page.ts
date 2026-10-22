@@ -13,6 +13,7 @@ import {
   TOO_MANY_ATTEMPTS_MESSAGE,
 } from '../auth-form';
 import { takeLinkToken } from '../link-token';
+import { AuthBrand } from '../../../shared/auth-brand/auth-brand';
 
 type VerifyState = 'checking' | 'success' | 'invalid' | 'error';
 
@@ -24,7 +25,7 @@ type VerifyState = 'checking' | 'success' | 'invalid' | 'error';
  */
 @Component({
   selector: 'app-verify-email-page',
-  imports: [ResendVerification],
+  imports: [ResendVerification, AuthBrand],
   templateUrl: './verify-email-page.html',
 })
 export class VerifyEmailPage {

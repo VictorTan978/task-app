@@ -17,11 +17,12 @@ import {
   RESET_LINK_SENT_MESSAGE,
   TOO_MANY_ATTEMPTS_MESSAGE,
 } from '../auth-form';
+import { AuthBrand } from '../../../shared/auth-brand/auth-brand';
 
 /** `/forgot-password`: asks for a reset link. Public (signed in or not). */
 @Component({
   selector: 'app-forgot-password-page',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, AuthBrand],
   templateUrl: './forgot-password-page.html',
 })
 export class ForgotPasswordPage {
