@@ -8,7 +8,7 @@ Full-stack task app: Angular frontend + Spring Boot backend + MySQL.
 | Part | Path | Run | Test / Build |
 |---|---|---|---|
 | Frontend | `frontend/` (Angular, standalone components, signals, RxJS) | `cd frontend && npm start` → http://localhost:4200 | `npm test -- --watch=false`, `npm run lint`, `npm run build`, e2e: `npx playwright test` |
-| Backend | `backend/` (Spring Boot 3, Java 21, Maven wrapper) | `cd backend && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run` → http://localhost:8080 (the `dev` profile holds local defaults; without it the app needs `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) | `./mvnw test` |
+| Backend | `backend/` (Spring Boot 4, Java 21, Maven wrapper) | `cd backend && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run` → http://localhost:8080 (the `dev` profile holds local defaults; without it the app needs `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) | `./mvnw test` |
 | Database | MySQL 8.4 in Docker (localhost only). Users: `taskapp` = Flyway migrations (DDL), `taskapp_app` = the app (data only) | `docker compose up -d db` (a fresh volume creates both users; for an existing volume run `docker compose exec db sh /docker-entrypoint-initdb.d/01-app-user.sh` once) | — |
 | Mail (dev) | Mailpit in Docker (localhost only): catches every email the backend's `dev` profile sends | `docker compose up -d mail` → read emails at http://localhost:8025 | — |
 | OIDC (dev) | Fake Google (mock-oauth2-server) in Docker (localhost only): the backend's `dev` profile signs in with it instead of the real Google | `docker compose up -d oidc` → http://localhost:8090 | — |
