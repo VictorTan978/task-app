@@ -6,6 +6,7 @@ import { FieldName } from '../../../core/auth/auth.models';
 import { AuthService } from '../../../core/auth/auth.service';
 import { hasProblemCode } from '../../../core/auth/problem';
 import { OAuthResult } from '../../../core/auth/auth.models';
+import { AuthBrand } from '../../../shared/auth-brand/auth-brand';
 import { PasswordField } from '../../../shared/password-field/password-field';
 import {
   ACCOUNT_DELETED_MESSAGE,
@@ -36,7 +37,7 @@ const LOGIN_OAUTH_NOTICES: Partial<Record<OAuthResult, string>> = {
 
 @Component({
   selector: 'app-login-page',
-  imports: [ReactiveFormsModule, RouterLink, PasswordField, GoogleButton],
+  imports: [ReactiveFormsModule, RouterLink, PasswordField, GoogleButton, AuthBrand],
   templateUrl: './login-page.html',
   styleUrl: './login-page.scss',
 })

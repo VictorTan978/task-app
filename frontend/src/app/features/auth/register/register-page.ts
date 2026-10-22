@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { FieldName } from '../../../core/auth/auth.models';
 import { AuthService } from '../../../core/auth/auth.service';
+import { AuthBrand } from '../../../shared/auth-brand/auth-brand';
 import { PasswordField } from '../../../shared/password-field/password-field';
 import {
   applyServerFieldErrors,
@@ -26,7 +27,7 @@ import { GoogleButton } from '../google-button/google-button';
 
 @Component({
   selector: 'app-register-page',
-  imports: [ReactiveFormsModule, RouterLink, PasswordField, GoogleButton],
+  imports: [ReactiveFormsModule, RouterLink, PasswordField, GoogleButton, AuthBrand],
   templateUrl: './register-page.html',
 })
 export class RegisterPage {

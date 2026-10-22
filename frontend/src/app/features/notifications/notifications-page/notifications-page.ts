@@ -1,5 +1,5 @@
 import { Component, computed, DestroyRef, inject, signal, WritableSignal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ListsStore } from '../../lists/lists.store';
 import { isNotFound, isUnauthenticated } from '../../tasks/task-form';
@@ -23,6 +23,7 @@ import { NotificationsStore } from '../notifications.store';
 
 @Component({
   selector: 'app-notifications-page',
+  imports: [RouterLink],
   templateUrl: './notifications-page.html',
   styleUrl: './notifications-page.scss',
 })

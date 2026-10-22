@@ -71,6 +71,11 @@ describe('RegisterPage', () => {
   const button = () => el.querySelector<HTMLButtonElement>('button[type=submit]')!;
   const errorOf = (id: string) => el.querySelector(`#${id}-error`)?.textContent?.trim();
 
+  it('shows the app logo above the heading', () => {
+    expect(el.querySelector('app-auth-brand img[src="logo.svg"]')).not.toBeNull();
+    expect(el.querySelector('h1')?.textContent).toContain('Create account');
+  });
+
   it('renders fields, button and link to /login', () => {
     expect(el.querySelector('label[for=register-display-name]')).not.toBeNull();
     expect(el.querySelector('label[for=register-email]')).not.toBeNull();

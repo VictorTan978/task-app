@@ -2,7 +2,7 @@ import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, map, Subject, Subscription } from 'rxjs';
 import { AuthService } from '../../../core/auth/auth.service';
 import { hasProblemCode } from '../../../core/auth/problem';
@@ -37,7 +37,7 @@ interface OpenDialog {
 /** `/admin/users`: all accounts, 20 per page, newest first, with per-row admin actions. */
 @Component({
   selector: 'app-admin-users-page',
-  imports: [DatePipe, AdminActionDialog],
+  imports: [DatePipe, RouterLink, AdminActionDialog],
   templateUrl: './admin-users-page.html',
   styleUrl: './admin-users-page.scss',
   host: {

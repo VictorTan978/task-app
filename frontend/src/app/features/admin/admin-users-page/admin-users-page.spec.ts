@@ -124,6 +124,14 @@ describe('AdminUsersPage', () => {
     await fixture.whenStable();
   }
 
+  it('has a "Back to tasks" link to /tasks', async () => {
+    await create();
+    await flushList(page(ROWS));
+    const link = el.querySelector('[data-testid=admin-users-back]');
+    expect(link?.getAttribute('href')).toBe('/tasks');
+    expect(link?.textContent).toContain('Back to tasks');
+  });
+
   it('shows a loading state, then the table with the AC8 columns', async () => {
     await create();
     expect(el.querySelector('h1')?.textContent?.trim()).toBe('Users');
