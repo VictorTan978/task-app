@@ -1,18 +1,59 @@
+<div align="center">
+
+<img src="docs/logo.svg" width="96" height="96" alt="Task App logo">
+
 # Task App
 
-[![CI](https://github.com/VictorTan978/task-app/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorTan978/task-app/actions/workflows/ci.yml)
+### Secure, full-stack task management for individuals and teams
 
-A full-stack task manager: personal and shared task lists, reminders, recurring tasks, an admin area, and sign-in
-with email or Google. Built with **Angular**, **Spring Boot** and **MySQL**, with security treated as a feature.
+[![Live demo](https://img.shields.io/badge/Live_demo-taskapp--frontend--104u.onrender.com-1f6feb?style=for-the-badge&logo=render&logoColor=white)](https://taskapp-frontend-104u.onrender.com)
+[![CI](https://img.shields.io/github/actions/workflow/status/VictorTan978/task-app/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/VictorTan978/task-app/actions/workflows/ci.yml)
 
-**Live demo:** https://taskapp-frontend-104u.onrender.com
-(free hosting: the first load after a quiet period can take up to a minute while the backend wakes up)
+![Backend tests](https://img.shields.io/badge/Backend-1583_tests_passing-2ea44f?logo=springboot&logoColor=white)
+![Angular tests](https://img.shields.io/badge/Angular-1221_tests_passing-2ea44f?logo=angular&logoColor=white)
+![E2E tests](https://img.shields.io/badge/🎭_Playwright-516_e2e_tests-2ea44f)
+
+![Angular](https://img.shields.io/badge/Angular_22-DD0031?logo=angular&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot_4-6DB33F?logo=springboot&logoColor=white)
+![Java](https://img.shields.io/badge/Java_21-ED8B00?logo=openjdk&logoColor=white)
+![Spring Security](https://img.shields.io/badge/Spring_Security-6DB33F?logo=springsecurity&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL_8.4-4479A1?logo=mysql&logoColor=white)
+![Flyway](https://img.shields.io/badge/Flyway-CC0200?logo=flyway&logoColor=white)
+![OpenAPI](https://img.shields.io/badge/OpenAPI-6BA539?logo=openapiinitiative&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Render](https://img.shields.io/badge/Render-46E3B7?logo=render&logoColor=black)
+
+A full-stack task manager with personal and shared task lists, reminders, recurring tasks, an admin area,<br>
+and sign-in with email or Google. Built with **Angular**, **Spring Boot** and **MySQL**, with security treated as a feature.
+
+<a href="https://taskapp-frontend-104u.onrender.com"><img src="https://img.shields.io/badge/🚀_Open_live_demo-1f6feb?style=for-the-badge" alt="Open live demo"></a>
+
+<sub>Free hosting: the first load after a quiet period can take up to a minute while the backend wakes up.</sub>
+
+</div>
 
 <!-- TODO: add 1–3 screenshots, e.g. ![Task list](docs/screenshots/tasks.png) -->
 
 ---
 
-## Features
+## 📑 Table of contents
+
+- [Features](#-features)
+- [Tech stack](#-tech-stack)
+- [Architecture](#-architecture)
+- [Project structure](#-project-structure)
+- [Getting started](#-getting-started)
+- [Testing](#-testing)
+- [Security](#-security)
+- [Configuration](#-configuration)
+- [Deployment](#-deployment)
+- [API documentation](#-api-documentation)
+- [How this project is built](#-how-this-project-is-built)
+
+---
+
+## ✨ Features
 
 - **Tasks**: create, edit, complete; priority, status and tags; due dates and times
 - **Search, sort and pagination** across your tasks
@@ -26,7 +67,7 @@ with email or Google. Built with **Angular**, **Spring Boot** and **MySQL**, wit
 
 Each feature has a written spec with acceptance criteria in [`specs/`](specs/).
 
-## Tech stack
+## 🧰 Tech stack
 
 | Layer | Technology |
 |---|---|
@@ -38,7 +79,7 @@ Each feature has a written spec with acceptance criteria in [`specs/`](specs/).
 | Local services | Docker Compose: MySQL, Mailpit (catches emails), mock OAuth2 server (fake Google) |
 | CI / CD | GitHub Actions (tests, lint, build), Dependabot, Render (Docker backend + static frontend) |
 
-## Architecture
+## 🧱 Architecture
 
 ```
 Browser ──► Angular app (static site)
@@ -52,7 +93,7 @@ Browser ──► Angular app (static site)
 
 In production the static site rewrites `/api/*` to the backend, so the browser sees a single origin.
 
-## Project structure
+## 📁 Project structure
 
 ```
 task-app/
@@ -65,7 +106,7 @@ task-app/
 └── .github/               CI workflow and Dependabot config
 ```
 
-## Getting started
+## 🚀 Getting started
 
 ### Prerequisites
 
@@ -95,7 +136,7 @@ SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
 ```
 
 The API runs on http://localhost:8080. Flyway applies database migrations automatically at startup. The `dev`
-profile holds local defaults; without it the app starts with production settings (see [Security](#security)).
+profile holds local defaults; without it the app starts with production settings (see [Security](#-security)).
 
 ### 3. Run the frontend
 
@@ -112,7 +153,7 @@ Open http://localhost:4200 and register an account. The verification email appea
 Start the backend with `ADMIN_BOOTSTRAP_EMAIL=<your account email>` to make that account the first super admin.
 Details in [`backend/README.md`](backend/README.md).
 
-## Testing
+## 🧪 Testing
 
 | What | Command |
 |---|---|
@@ -124,7 +165,7 @@ Details in [`backend/README.md`](backend/README.md).
 
 CI runs the backend tests and the frontend lint, unit tests and build on every pull request and push to `main`.
 
-## Security
+## 🔒 Security
 
 Security hardening has its own spec ([`specs/security-hardening.md`](specs/security-hardening.md)). Highlights:
 
@@ -161,7 +202,7 @@ Security hardening has its own spec ([`specs/security-hardening.md`](specs/secur
 - `npm audit` for the frontend and OWASP Dependency-Check for the backend
   (`./mvnw org.owasp:dependency-check-maven:12.1.0:check`)
 
-## Configuration
+## 🔧 Configuration
 
 Every backend setting and its environment variable is documented in
 [`backend/src/main/resources/application.yml`](backend/src/main/resources/application.yml). The main ones for
@@ -176,18 +217,18 @@ production:
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Sign in with Google (optional; set both or neither) |
 | `ADMIN_BOOTSTRAP_EMAIL` | Account to make the first super admin (optional) |
 
-## Deployment
+## 🌐 Deployment
 
 The app deploys to [Render](https://render.com) with the [`render.yaml`](render.yaml) blueprint: the backend as a
 Docker web service and the frontend as a static site. Step-by-step instructions are in
 [`backend/README.md`](backend/README.md).
 
-## API documentation
+## 📖 API documentation
 
 The API is described in [`contracts/openapi.yaml`](contracts/openapi.yaml). Open it in
 [Swagger Editor](https://editor.swagger.io) or any OpenAPI viewer.
 
-## How this project is built
+## 🧭 How this project is built
 
 Development is spec-driven: every feature starts as a spec in [`specs/`](specs/) with Given/When/Then acceptance
 criteria, then the API contract, then the backend and frontend, then end-to-end verification against the criteria.
