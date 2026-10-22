@@ -1,59 +1,32 @@
 # Frontend
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.2.2.
+Angular 22 app (standalone components, signals, RxJS). For the whole project (features, stack, setup, security,
+deployment) see the [main README](../README.md).
 
-## Development server
+## Run
 
-To start a local development server, run:
-
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+The backend must be running on http://localhost:8080 (see the main README). Then:
 
 ```bash
-ng generate component component-name
+npm install
+npm start
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+Open http://localhost:4200. In dev, `/api/...` calls are proxied to the backend by [`proxy.conf.json`](proxy.conf.json).
 
-```bash
-ng generate --help
-```
+## Test and build
 
-## Building
+| What | Command |
+|---|---|
+| Lint | `npm run lint` |
+| Unit tests | `npm test -- --watch=false` |
+| Production build (output in `dist/frontend/browser`) | `npm run build` |
+| End-to-end tests (full stack running) | `npx playwright test` |
+| Dependency vulnerability scan | `npm audit` |
 
-To build the project run:
+End-to-end tests live in [`e2e/`](e2e/); their settings are in [`playwright.config.ts`](playwright.config.ts).
 
-```bash
-ng build
-```
+## API
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+The backend API is described in [`../contracts/openapi.yaml`](../contracts/openapi.yaml), which is the single source of truth for
+request and response shapes.
