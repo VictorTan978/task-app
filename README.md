@@ -5,7 +5,10 @@
 A full-stack task manager: personal and shared task lists, reminders, recurring tasks, an admin area, and sign-in
 with email or Google. Built with **Angular**, **Spring Boot** and **MySQL**, with security treated as a feature.
 
-<!-- TODO: add a live demo link and 1–3 screenshots, e.g. ![Task list](docs/screenshots/tasks.png) -->
+**Live demo:** https://taskapp-frontend-104u.onrender.com
+(free hosting: the first load after a quiet period can take up to a minute while the backend wakes up)
+
+<!-- TODO: add 1–3 screenshots, e.g. ![Task list](docs/screenshots/tasks.png) -->
 
 ---
 
