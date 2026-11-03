@@ -42,8 +42,8 @@ Subagents cannot talk to each other and **remember nothing between calls**. Ever
 
 ### How the user calls agents
 
-- **`/feature <name>`**: full pipeline (spec → plan → contract → build → test → report).
-- **`/bug <description>`**: locate, fix, verify.
+- **`/feature <name>`**: full pipeline (spec → plan → contract → build → test → code review → report).
+- **`/bug <description>`**: locate, fix, verify, code review.
 - **Plain description of a feature**: treat it like `/feature`. Draft the spec first (rule 1).
 - **`@backend-dev`, `@frontend-dev`, `@tester`**: the user wants that one agent only. Delegate directly to it and skip the pipeline, but the approval gates and "Never" rules below still apply. Afterwards, tell the user if the change affects the other side (e.g. the contract changed and the frontend needs updating).
 - **Small change** (a label, padding, one field): no spec needed. Confirm the change is small, then do it with the right agent.
@@ -81,6 +81,7 @@ When asking, always give: **what** will change, **why** it's needed, **affected 
 - [ ] Every API response matches `contracts/openapi.yaml`
 - [ ] UI handles loading, error, and empty states
 - [ ] No browser console errors during e2e
+- [ ] `code-review` skill run on the branch; findings fixed, or listed in the report with the reason
 - [ ] Final report delivered
 
 ## Final report format
@@ -91,6 +92,7 @@ Summary: 1–3 sentences
 Backend: endpoints added/changed, migrations (if approved)
 Frontend: screens/components changed
 Tests: per acceptance criterion PASS/FAIL
+Code review: findings fixed, and any not fixed with the reason
 Decisions: key choices made and why
 Suggestions (not done): cleanup or follow-ups noticed
 How to try it: steps for the user to check it manually

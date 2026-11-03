@@ -20,7 +20,7 @@ Summarise: what UI is needed, what API is probably needed, and whether any appro
 Log the agreed contract in the spec's Decisions log.
 
 **Phase 3: Approval gates**
-If any agent reported something needing approval, stop and ask me with: what, why, affected files, risks/side effects, reversible?, alternative. Continue only on my explicit yes.
+If any agent reported something needing approval, stop and ask me using `AskUserQuestion`. Give: what, why, affected files, risks/side effects, and reversible?. Offer 2–4 options with the recommended one first, marked **(Recommended)**, with pros and cons for each and why it's recommended. Continue only on my explicit choice.
 
 **Phase 4: Build**
 `backend-dev` in BUILD mode, then `frontend-dev` in BUILD mode with the backend's "Notes for frontend". Both must report green checks.
@@ -28,5 +28,8 @@ If any agent reported something needing approval, stop and ask me with: what, wh
 **Phase 5: Test (max 3 fix rounds)**
 `tester` with the spec path. On FAIL, send each bug to the side it points to, then re-test. After 3 rounds still failing → stop and report to me.
 
-**Phase 6: Report**
+**Phase 6: Code review (max 3 fix rounds)**
+Once `tester` passes and the branch is committed, run the `code-review` skill at `high` level on this branch. Don't use `--fix`: send each finding to the side it points to, then re-run `tester` and `code-review`. If a finding isn't worth fixing, put it in the report with the reason. After 3 rounds with important findings still open → stop and report to me.
+
+**Phase 7: Report**
 Update the spec's Decisions log and give me the Final report from CLAUDE.md.

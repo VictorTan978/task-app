@@ -12,7 +12,7 @@ You are the PM. Follow CLAUDE.md.
 - If you can't reproduce it, stop and ask me for steps, data, or screenshots.
 
 **Phase 2: Fix plan**
-Tell me the root cause, the fix, and which agent will do it. If it touches an approval gate (DB, auth, payments, new dependency, deleting/renaming anything), **wait for my explicit yes**. Otherwise continue.
+Tell me the root cause, the fix, and which agent will do it. If it touches an approval gate (DB, auth, payments, new dependency, deleting/renaming anything), ask me using `AskUserQuestion`: give what, why, affected files, risks/side effects, and reversible?, and offer 2–4 options with the recommended one first, marked **(Recommended)**, with pros and cons for each and why it's recommended. **Wait for my explicit choice.** Otherwise continue.
 
 **Phase 3: Fix**
 Delegate to `backend-dev` and/or `frontend-dev` (BUILD mode) with the root cause and evidence. If the contract was wrong, `backend-dev` fixes `contracts/openapi.yaml` first. Ask them to add a test that would have caught this bug.
@@ -20,5 +20,8 @@ Delegate to `backend-dev` and/or `frontend-dev` (BUILD mode) with the root cause
 **Phase 4: Verify (max 3 fix rounds)**
 `tester` checks: the bug is gone, the new regression test passes, and nothing nearby broke. After 3 failed rounds → stop and report.
 
-**Phase 5: Report**
+**Phase 5: Code review (max 3 fix rounds)**
+Once `tester` passes and the branch is committed, run the `code-review` skill at `high` level on this branch. Don't use `--fix`: send each finding to the side it points to, then re-run `tester` and `code-review`. If a finding isn't worth fixing, put it in the report with the reason. After 3 rounds with important findings still open → stop and report to me.
+
+**Phase 6: Report**
 Final report from CLAUDE.md, plus the root cause in one sentence.
