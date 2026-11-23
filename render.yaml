@@ -5,6 +5,8 @@ services:
   - type: web
     name: taskapp-backend
     runtime: docker
+    # Deploy only after every GitHub check on the commit (the CI workflow) passes; a failed check skips the deploy.
+    autoDeployTrigger: checksPass
     plan: free
     # Same region as the Aiven MySQL service (Singapore) so database calls stay short.
     region: singapore
@@ -53,6 +55,8 @@ services:
   - type: web
     name: taskapp-frontend
     runtime: static
+    # Deploy only after every GitHub check on the commit (the CI workflow) passes; a failed check skips the deploy.
+    autoDeployTrigger: checksPass
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist/frontend/browser
